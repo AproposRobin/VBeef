@@ -81,7 +81,7 @@ TAR="$OUTDIR/VisualBeef-$FULL-linux64.tar.gz"
 rm -f "$TAR" "$TAR.sha256"
 tar -C "$STAGE" --owner=0 --group=0 --sort=name -czf "$TAR" VisualBeef
 # Owner's rule (2026-10-12): no developer page in a package. This tarball has no docs at all; the check proves it.
-if tar -tzf "$TAR" | grep -E '(^|/)(docs/|(Architecture|Testing|CI|SignPath-Readiness|SignPath-Application-Draft|Code-Signing|Codegen|Parsing-and-Layout|Catalog-and-Types|Linux|UMP-Integration|Roadmap|Vocabulary|CHANGELOG|README)\.md$)'; then
+if tar -tzf "$TAR" | grep -E '(^|/)(docs/|(Architecture|Testing|CI|Code-Signing|Codegen|Parsing-and-Layout|Catalog-and-Types|Linux|UMP-Integration|Vocabulary|CHANGELOG|README)\.md$)'; then
   echo "developer documentation in $TAR" >&2; exit 1
 fi
 ( cd "$OUTDIR" && sha256sum "$(basename "$TAR")" > "$(basename "$TAR").sha256" )

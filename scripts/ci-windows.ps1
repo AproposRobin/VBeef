@@ -244,7 +244,7 @@ function Step-Test {
 # The zips carry only user pages (docs/ with front matter audience: user). A developer page fails the step.
 function Test-PackageDocs {
     param([string]$ZipPath)
-    $denied = @('Architecture.md', 'Testing.md', 'CI.md', 'SignPath-Readiness.md', 'SignPath-Application-Draft.md', 'Code-Signing.md', 'Codegen.md', 'Parsing-and-Layout.md', 'Catalog-and-Types.md', 'Linux.md', 'UMP-Integration.md', 'Roadmap.md', 'Vocabulary.md', 'CHANGELOG.md', 'README.md')
+    $denied = @('Architecture.md', 'Testing.md', 'CI.md', 'Code-Signing.md', 'Codegen.md', 'Parsing-and-Layout.md', 'Catalog-and-Types.md', 'Linux.md', 'UMP-Integration.md', 'Vocabulary.md', 'CHANGELOG.md', 'README.md')
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
     try {

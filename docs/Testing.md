@@ -339,7 +339,7 @@ Reads the string literals of `VisualBeefCore/src`, `VisualBeefEditor/src` and `V
 banned whole word (the list is at the top of `VocabularyTests.bf`: the older terms of [Vocabulary.md](Vocabulary.md)
 and the words that name their old pins and panels). Only Beef keywords, ids nobody sees (the old pin ids and
 type names the layout hashes keep) and the game SDK's own names are allowed, and
-`CHANGELOG.md`, `Roadmap.md`, the audit reports and `Vocabulary.md` itself are skipped (history and the
+`CHANGELOG.md` and `Vocabulary.md` itself are skipped (history and the
 mapping). Run it from the repository root or pass the root.
 
 ### `diagnostics`

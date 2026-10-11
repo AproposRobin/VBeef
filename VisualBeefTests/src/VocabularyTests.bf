@@ -40,7 +40,7 @@ namespace VisualBeef.Tests
 		static StringView[?] sAllowedParts = .("UnrealUMP");
 
 		/// Docs that record history or the mapping itself.
-		static StringView[?] sExcludedDocs = .("CHANGELOG.md", "Roadmap.md", "Vocabulary.md", "Audit-2026-10-10.md", "Production-Audit-2026-10-10.md");
+		static StringView[?] sExcludedDocs = .("CHANGELOG.md", "Vocabulary.md");
 
 		static void Fail(StringView where_, int line, StringView term, StringView excerpt)
 		{

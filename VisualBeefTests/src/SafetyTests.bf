@@ -916,7 +916,10 @@ namespace VisualBeef.Tests
 			Check(report.Contains("RIP 0x000000001234abcd") && report.Contains("RSP 0x000000007ffc0000"), "registers from the ucontext");
 			Check(report.Contains("project  /home/someone/Projects/Demo\n"), "the open project");
 			int stack = report.IndexOf("\nstack (backtrace(3)");
-			Check(stack > 0 && report.IndexOf("VisualBeefTests(", stack) > 0 && report.IndexOf(") [0x", stack) > 0, "a backtrace(3) stack naming the binary");
+			// glibc's backtrace_symbols_fd writes "path(sym+0xoff) [0xaddr]", "path(+0xoff) [0xaddr]" or
+			// "path() [0xaddr]" (non-PIE, no exported symbols) depending on the link and the glibc, and the
+			// path depends on how the runner invokes the binary; so require frame lines of that shape, not a name.
+			Check(stack > 0 && report.IndexOf(") [0x", stack) > 0 && report.IndexOf("(", stack + 30) > 0, scope $"a backtrace(3) stack of frame lines: {StringView(report, Math.Max(stack, 0))}");
 			Check(report.EndsWith("extra    from the caller\n"), "the caller's lines (recovery flush) come last");
 			let name = StringView(reportPath, dir.Length + 1);
 			Check(name.StartsWith("visualbeef-crash-") && name.EndsWith(".log") && name.Length == "visualbeef-crash-2026-10-11-120000-".Length + 4 + scope $"{getpid()}".Length,

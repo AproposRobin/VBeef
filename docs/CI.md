@@ -8,7 +8,8 @@ order: 15
 # Continuous integration
 
 Two GitHub workflows build, test and package VisualBeef. Both run on GitHub-hosted runners from a clean
-checkout; nothing that ships comes from a developer machine.
+checkout; nothing that ships comes from a developer machine. Releases are not code-signed: trust comes from the public workflow, build attestations and
+checksums ([Code-Signing.md](Code-Signing.md)); the signing steps described below are present but unused.
 
 | Workflow | Runner | What it produces |
 |---|---|---|
@@ -54,7 +55,7 @@ The steps are implemented in `scripts/ci-windows.ps1`, so the workflow and the l
 7. **package**: `scripts\package.ps1` (full package) and `scripts\package.ps1 -Minimal`; both check the exe's
    version information, icon and `--version` output, refuse build leftovers, and write the zip and its `.sha256`.
 8. **Upload unsigned packages** as the artifact `visualbeef-win64-unsigned`.
-9. **Signing** (only when enabled and on a `v*` tag, see below): upload the two binaries, submit them to SignPath,
+9. **Signing** (unused: only when enabled and on a `v*` tag, see below): upload the two binaries, submit them to SignPath,
    repackage with the signed binaries (`package.ps1 -SignedDir`, which refuses an invalid signature), upload
    `visualbeef-win64-signed`.
 10. **release** job (tags only): attaches the signed packages, or the unsigned ones when signing is off, to the
@@ -65,11 +66,12 @@ Pull requests run steps 1 to 8 without any secret.
 ## Variables and secrets
 
 Set under Settings > Secrets and variables > repository secrets and variables. Signing needs all of them; without
-`SIGNPATH_ENABLED = true` the signing steps are skipped and the workflow needs none.
+`SIGNPATH_ENABLED = true` the signing steps are skipped and the workflow needs none. Releases are unsigned today; the
+signing steps are present but unused and may be enabled later. See [Code-Signing.md](Code-Signing.md).
 
 | Name | Kind | Meaning |
 |---|---|---|
-| `SIGNPATH_ENABLED` | variable | `true` turns signing on (tags `v*` only). Leave unset until SignPath has approved the project |
+| `SIGNPATH_ENABLED` | variable | `true` turns signing on (tags `v*` only). Unused today: leave it unset |
 | `SIGNPATH_ORGANIZATION_ID` | variable | the organisation id shown in the SignPath console |
 | `SIGNPATH_PROJECT_SLUG` | variable | project slug in SignPath (for example `VisualBeef`) |
 | `SIGNPATH_SIGNING_POLICY_SLUG` | variable | `release-signing` for tags (a test-signing policy can be used while setting up) |

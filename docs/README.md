@@ -34,9 +34,8 @@ straight to a page if you know what you need.
 | 9b | [Debugging.md](Debugging.md) | Breakpoints on nodes, Start Debugging, stepping, pin values, Locals, Call Stack; how Beef's debugger engine is used; phase 2 (attach for UMP mods) | 10 min |
 | 10 | [Files-and-Safety.md](Files-and-Safety.md) | What is written when; atomic saves, conflicts, read-only mode, delete, undo | 10 min |
 | 11 | [Testing.md](Testing.md) | Every `VisualBeefTests` command, expected counts, how to add a case | 10 min |
-| - | [CI.md](CI.md), [Code-Signing.md](Code-Signing.md), [SignPath-Readiness.md](SignPath-Readiness.md) | Build and release automation, the code signing policy, what is left before signing | 10 min |
+| - | [CI.md](CI.md), [Code-Signing.md](Code-Signing.md) | Build and release automation, release integrity (unsigned releases, build attestations, checksums) | 10 min |
 | 11b | [UMP-Integration.md](UMP-Integration.md) | How UnrealUMP launches VisualBeef: command line, exit codes, `.vbproject`, `--new-ump-mod`, game SDKs as node libraries, files needed at run time | 10 min |
-| 12 | [Roadmap.md](Roadmap.md) | The goal (visual UMP mods), milestones, known limitations | 10 min |
 
 Reference: [CHANGELOG.md](CHANGELOG.md) (what changed and when) and [../THIRD_PARTY.md](../THIRD_PARTY.md) (licences of
 bundled components). The two audits of 2026-10-09 and 2026-10-10 that produced the plans are not part of the public

@@ -1026,9 +1026,11 @@ namespace VisualBeef.Tests
 			a5.FindOutput("variable").TypeName.Set("Stale");
 			String before = scope .(doc.Text);
 			doc.ReloadGraph(Method(doc, "Unit.Make()"));
+			// No pointer comparison with the old graph: it was deleted, and the allocator is free to
+			// hand the new one the same address (glibc does). The Stale pin coming back as Bar shows the rebuild.
 			let g6 = Method(doc, "Unit.Make()").Graph;
 			let a6 = FindNode(g6, .LocalVar, "a");
-			Check(g6 != g5 && a6 != null && a6.FindOutput("variable").TypeName == "Bar" && doc.Text == before, "Reload Sheet builds the Sheet again (text unchanged, Bar on the pin)");
+			Check(a6 != null && a6.FindOutput("variable").TypeName == "Bar" && doc.Text == before, "Reload Sheet builds the Sheet again (text unchanged, Bar on the pin)");
 			doc.Undo();
 			Check(doc.Text == before, "Reload Sheet is one undo step and leaves the text alone");
 		}

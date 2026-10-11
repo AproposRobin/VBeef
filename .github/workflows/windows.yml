@@ -75,7 +75,7 @@ jobs:
           if-no-files-found: error
 
       # ---- Code signing (SignPath Foundation), docs/Code-Signing.md ------------------------------------------------
-      # Skipped until the repository variable SIGNPATH_ENABLED is 'true' (set it only after the project is approved).
+      # Unused: skipped unless the repository variable SIGNPATH_ENABLED is 'true'. Releases are unsigned.
       # Only release tags are signed. The binaries in the zip are built by the steps above from the tagged commit;
       # the signed copies replace them and the zips are rebuilt.
       - name: Upload binaries to sign
@@ -134,6 +134,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+      id-token: write   # build attestation: the signing identity of the provenance statement
+      attestations: write
     steps:
       - name: Download signed packages
         if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
@@ -148,6 +150,13 @@ jobs:
         with:
           name: visualbeef-win64-unsigned
           path: release
+
+      - name: Attest build provenance (zips and .sha256 files)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            release/*.zip
+            release/*.sha256
 
       - name: Create or update the release
         env:
