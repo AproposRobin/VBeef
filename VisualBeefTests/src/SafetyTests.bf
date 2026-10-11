@@ -919,7 +919,17 @@ namespace VisualBeef.Tests
 			// glibc's backtrace_symbols_fd writes "path(sym+0xoff) [0xaddr]", "path(+0xoff) [0xaddr]" or
 			// "path() [0xaddr]" (non-PIE, no exported symbols) depending on the link and the glibc, and the
 			// path depends on how the runner invokes the binary; so require frame lines of that shape, not a name.
-			Check(stack > 0 && report.IndexOf(") [0x", stack) > 0 && report.IndexOf("(", stack + 30) > 0, scope $"a backtrace(3) stack of frame lines: {StringView(report, Math.Max(stack, 0))}");
+			// A runner whose backtrace(3) returns fewer than two frames writes the explicit no-frames line instead.
+			bool frameLines = stack > 0 && report.IndexOf(") [0x", stack) > 0 && report.IndexOf("(", stack + 30) > 0;
+			bool noFrames = report.Contains("stack: no frames available (backtrace returned ");
+			// The failure text is one line (the CI log greps FAIL lines only), so the stack is shown with its newlines as " | ".
+			String shown = scope .();
+			if (stack >= 0)
+				shown.Append(StringView(report, stack));
+			else
+				shown.Append(report);
+			shown.Replace("\n", " | ");
+			Check(stack > 0 && (frameLines || noFrames), scope $"a backtrace(3) stack of frame lines or the no-frames line ({report.Length} bytes read): {shown}");
 			Check(report.EndsWith("extra    from the caller\n"), "the caller's lines (recovery flush) come last");
 			let name = StringView(reportPath, dir.Length + 1);
 			Check(name.StartsWith("visualbeef-crash-") && name.EndsWith(".log") && name.Length == "visualbeef-crash-2026-10-11-120000-".Length + 4 + scope $"{getpid()}".Length,

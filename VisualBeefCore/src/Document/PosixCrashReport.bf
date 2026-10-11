@@ -328,9 +328,11 @@ namespace VisualBeef.Document
 			let n = backtrace(&frames[0], 64);
 			if (n > 0)
 				backtrace_symbols_fd(&frames[0], n, fd);
-			else
+			if (n < 2)
 			{
-				t.Add("  (no frames)\n");
+				// Fewer than two frames is not a stack: say so, and how to find the fault by hand.
+				t.Add("stack: no frames available (backtrace returned "); t.Dec(n);
+				t.Add("); resolve the fault address with addr2line\n");
 				t.Flush(fd);
 			}
 

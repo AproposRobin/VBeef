@@ -19,8 +19,10 @@ VisualBeef releases are **not code-signed**. The project has no code-signing cer
 How to verify a download, step by step, is in the README section
 [About the download warning](../README.md#about-the-download-warning); the commands are repeated below.
 
-The workflow also has code-signing steps (SignPath Foundation). They are present but unused: they run only when a
-repository variable switches them on, and they may be enabled later. See [CI.md](CI.md).
+Releases are unsigned on purpose. A code-signing certificate costs money every year and a free one has to be applied for,
+and the project has neither. It does not apply for a certificate and does not plan to; the workflow has no signing steps.
+What this page and the README promise is exactly what the workflow does: build in public, attest, publish checksums.
+See [CI.md](CI.md).
 
 ## What a release contains
 

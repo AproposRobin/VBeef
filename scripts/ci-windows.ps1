@@ -15,8 +15,6 @@
     build      BeefBuild: VisualBeefTests (Debug), VisualBeefCore and VisualBeefTests (Release).
     test       run every suite that needs no outside source corpus (docs/Testing.md), one at a time; fail on any failure.
     package    scripts\package.ps1 for the full package and for -Minimal; zips + .sha256 land in -Dist.
-    stage-sign copy the two binaries that get signed to -Work\to-sign (the folder the workflow uploads to SignPath).
-    package-signed  repackage with the signed binaries found in -SignedDir (zips + .sha256 in -Dist).
 
   The Beef install is unpacked with 7-Zip (no installer runs). BeefHome is where Beef ends up (default -Tools\beef).
   The suites look for Beef at C:\Program Files\BeefLang, so the workflow passes that folder as -BeefHome.
@@ -27,13 +25,12 @@ param(
     [string]$Work = (Join-Path $env:RUNNER_TEMP 'vbwork'),
     [string]$Dist = '',
     [string]$BeefHome = '',
-    [string]$SignedDir = '',
     [switch]$AllowStaleHost,
     [switch]$AllowUnpinned
 )
 $ErrorActionPreference = 'Stop'
 $Step = @($Step | ForEach-Object { $_ -split "," } | Where-Object { $_ })
-foreach ($s in $Step) { if ($s -notin @("fetch", "host", "build", "test", "package", "stage-sign", "package-signed")) { throw "unknown step $s" } }
+foreach ($s in $Step) { if ($s -notin @("fetch", "host", "build", "test", "package")) { throw "unknown step $s" } }
 $Repo = Split-Path -Parent $PSScriptRoot
 if (-not $Dist) { $Dist = Join-Path $Repo 'dist' }
 if (-not $BeefHome) { $BeefHome = Join-Path $Tools 'beef' }
@@ -244,7 +241,7 @@ function Step-Test {
 # The zips carry only user pages (docs/ with front matter audience: user). A developer page fails the step.
 function Test-PackageDocs {
     param([string]$ZipPath)
-    $denied = @('Architecture.md', 'Testing.md', 'CI.md', 'Code-Signing.md', 'Codegen.md', 'Parsing-and-Layout.md', 'Catalog-and-Types.md', 'Linux.md', 'UMP-Integration.md', 'Vocabulary.md', 'CHANGELOG.md', 'README.md')
+    $denied = @('Architecture.md', 'Testing.md', 'CI.md', 'Code-Signing.md', 'Codegen.md', 'Parsing-and-Layout.md', 'Catalog-and-Types.md', 'Linux.md', 'UMP-Integration.md', 'Roadmap.md', 'Vocabulary.md', 'CHANGELOG.md', 'README.md')
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
     try {
@@ -280,24 +277,6 @@ function Report-Zips {
     Write-Summary (("### Packages`n`n| File | Size | SHA-256 |`n|---|---|---|`n") + ($rows -join "`n"))
 }
 
-function Step-StageSign {
-    $out = Join-Path $Work 'to-sign'
-    if (Test-Path $out) { Remove-Item -Recurse -Force $out }
-    New-Item -ItemType Directory -Force $out | Out-Null
-    $pkg = Join-Path $Dist 'VisualBeef'
-    foreach ($n in @('VisualBeefEditor.exe', 'vbhost.dll')) { Copy-Item (Join-Path $pkg $n) (Join-Path $out $n) }
-    Write-Host "Staged for signing: $out"
-}
-function Step-PackageSigned {
-    if (-not $SignedDir -or -not (Test-Path $SignedDir)) { throw '-SignedDir is required' }
-    $signedZips = Join-Path $Dist 'signed'
-    New-Item -ItemType Directory -Force $signedZips | Out-Null
-    & (Join-Path $PSScriptRoot 'package.ps1') -NoBuild -SignedDir $SignedDir -ZipDir $signedZips -Out (Join-Path $Dist 'VisualBeef-signed')
-    & (Join-Path $PSScriptRoot 'package.ps1') -Minimal -NoBuild -SignedDir $SignedDir -ZipDir $signedZips -Out (Join-Path $Dist 'VisualBeef-minimal-signed')
-    $Dist = $signedZips
-    Report-Zips
-}
-
 foreach ($s in $Step) {
     Write-Host "##### step: $s"
     switch ($s) {
@@ -306,7 +285,5 @@ foreach ($s in $Step) {
         'build' { Step-Build }
         'test' { Step-Test }
         'package' { Step-Package }
-        'stage-sign' { Step-StageSign }
-        'package-signed' { Step-PackageSigned }
     }
 }

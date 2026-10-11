@@ -1,4 +1,4 @@
-# Windows build, tests, packages and (when enabled) code signing. docs/CI.md describes every step, variable and secret;
+# Windows build, tests, packages, build attestation and release upload. docs/CI.md describes every step;
 # scripts/ci-github-local.ps1 runs the same steps (scripts/ci-windows.ps1) on a developer machine.
 name: Windows
 
@@ -62,56 +62,15 @@ jobs:
 
       - name: Packages
         shell: powershell
-        run: scripts\ci-windows.ps1 -Step package,stage-sign -Tools $env:VB_TOOLS -Work $env:VB_WORK -Dist $env:VB_DIST -BeefHome $env:VB_BEEF_HOME
+        run: scripts\ci-windows.ps1 -Step package -Tools $env:VB_TOOLS -Work $env:VB_WORK -Dist $env:VB_DIST -BeefHome $env:VB_BEEF_HOME
 
-      - name: Upload unsigned packages
-        id: upload-packages
+      - name: Upload packages
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: visualbeef-win64-unsigned
+          name: visualbeef-win64
           path: |
             ${{ env.VB_DIST }}\*.zip
             ${{ env.VB_DIST }}\*.zip.sha256
-          if-no-files-found: error
-
-      # ---- Code signing (SignPath Foundation), docs/Code-Signing.md ------------------------------------------------
-      # Unused: skipped unless the repository variable SIGNPATH_ENABLED is 'true'. Releases are unsigned.
-      # Only release tags are signed. The binaries in the zip are built by the steps above from the tagged commit;
-      # the signed copies replace them and the zips are rebuilt.
-      - name: Upload binaries to sign
-        id: upload-to-sign
-        if: ${{ vars.SIGNPATH_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v') }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: visualbeef-win64-to-sign
-          path: ${{ env.VB_WORK }}\to-sign\*
-          if-no-files-found: error
-
-      - name: Submit signing request (SignPath)
-        if: ${{ vars.SIGNPATH_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v') }}
-        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          github-artifact-id: ${{ steps.upload-to-sign.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: ${{ env.VB_WORK }}\signed
-
-      - name: Repackage with the signed binaries
-        if: ${{ vars.SIGNPATH_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v') }}
-        shell: powershell
-        run: scripts\ci-windows.ps1 -Step package-signed -Tools $env:VB_TOOLS -Work $env:VB_WORK -Dist $env:VB_DIST -BeefHome $env:VB_BEEF_HOME -SignedDir "$env:VB_WORK\signed"
-
-      - name: Upload signed packages
-        if: ${{ vars.SIGNPATH_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v') }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: visualbeef-win64-signed
-          path: |
-            ${{ env.VB_DIST }}\signed\*.zip
-            ${{ env.VB_DIST }}\signed\*.zip.sha256
           if-no-files-found: error
 
       - name: Upload build logs
@@ -126,8 +85,8 @@ jobs:
           if-no-files-found: ignore
 
   release:
-    # A v* tag publishes the packages on the GitHub Releases page (the download page). The signed packages are
-    # attached when signing ran, the unsigned ones otherwise. The build job holds no write permission.
+    # A v* tag publishes the packages on the GitHub Releases page (the download page), with a build attestation for
+    # each zip and .sha256 file. Releases are not code-signed. The build job holds no write permission.
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     needs: windows
     runs-on: ubuntu-24.04
@@ -137,18 +96,10 @@ jobs:
       id-token: write   # build attestation: the signing identity of the provenance statement
       attestations: write
     steps:
-      - name: Download signed packages
-        if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
+      - name: Download packages
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: visualbeef-win64-signed
-          path: release
-
-      - name: Download unsigned packages
-        if: ${{ vars.SIGNPATH_ENABLED != 'true' }}
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: visualbeef-win64-unsigned
+          name: visualbeef-win64
           path: release
 
       - name: Attest build provenance (zips and .sha256 files)

@@ -27,9 +27,6 @@
 .PARAMETER ZipDir
   Where the zip and its .sha256 are written (default dist\). Entry names always use "/".
 
-.PARAMETER SignedDir
-  A folder holding code-signed copies of VisualBeefEditor.exe and vbhost.dll (the SignPath result, docs/Code-Signing.md).
-  They replace the built files in the package; each must carry a valid Authenticode signature. Use with -NoBuild.
 
 .PARAMETER Clean
   Delete the output folder first.
@@ -39,8 +36,7 @@ param(
     [switch]$Clean,
     [switch]$Minimal,
     [string]$Out = "",
-    [string]$ZipDir = "",
-    [string]$SignedDir = ""
+    [string]$ZipDir = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -107,19 +103,9 @@ $nativeHost = Join-Path $Repo "Native\bin\win64\vbhost.dll"
 $font = Join-Path $Repo "VisualBeefEditor\assets\fonts\lucide.ttf"
 $fontLic = Join-Path $Repo "VisualBeefEditor\assets\fonts\LICENSE-lucide.txt"
 foreach ($f in @($exe, $nativeHost, $font, $fontLic)) { if (-not (Test-Path $f)) { throw "Missing input: $f" } }
-if ($SignedDir) {
-    foreach ($n in @("VisualBeefEditor.exe", "vbhost.dll")) {
-        $s = Join-Path $SignedDir $n
-        if (-not (Test-Path $s)) { throw "-SignedDir has no $n" }
-        $sig = Get-AuthenticodeSignature $s
-        if ($sig.Status -ne "Valid") { throw "$n in -SignedDir is not validly signed: $($sig.Status)" }
-    }
-    $exe = Join-Path $SignedDir "VisualBeefEditor.exe"
-    $nativeHost = Join-Path $SignedDir "vbhost.dll"
-}
 
 $vi = (Get-Item $exe).VersionInfo
-# Both signed binaries must report the package version as their ProductVersion (the SignPath readiness rule).
+# Both binaries must report the package version as their ProductVersion.
 # vbhost.dll's version resource comes from Native\host\vbhost.rc, fed by the same CommandLine.bf constant.
 $dllVi = (Get-Item $nativeHost).VersionInfo
 foreach ($pair in @(@("VisualBeefEditor.exe", $vi), @("vbhost.dll", $dllVi))) {
@@ -178,7 +164,7 @@ if (-not $Minimal) {
 }
 # Check the produced folder: every page in it is a user page, and the developer pages named in the rule are absent.
 if (-not $Minimal) {
-    $denied = @('Architecture.md', 'Testing.md', 'CI.md', 'Code-Signing.md', 'Codegen.md', 'Parsing-and-Layout.md', 'Catalog-and-Types.md', 'Linux.md', 'UMP-Integration.md', 'Vocabulary.md', 'CHANGELOG.md', 'README.md')
+    $denied = @('Architecture.md', 'Testing.md', 'CI.md', 'Code-Signing.md', 'Codegen.md', 'Parsing-and-Layout.md', 'Catalog-and-Types.md', 'Linux.md', 'Roadmap.md', 'UMP-Integration.md', 'Vocabulary.md', 'CHANGELOG.md', 'README.md')
     foreach ($shipped in Get-ChildItem (Join-Path $Out "docs") -Filter *.md) {
         if ($denied -contains $shipped.Name -or $shipped.Name -like '*Audit*') { throw "developer page in the package: docs\$($shipped.Name)" }
         $head = @(Get-Content -LiteralPath $shipped.FullName -TotalCount 6 -Encoding UTF8) -join "`n"

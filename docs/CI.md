@@ -9,11 +9,11 @@ order: 15
 
 Two GitHub workflows build, test and package VisualBeef. Both run on GitHub-hosted runners from a clean
 checkout; nothing that ships comes from a developer machine. Releases are not code-signed: trust comes from the public workflow, build attestations and
-checksums ([Code-Signing.md](Code-Signing.md)); the signing steps described below are present but unused.
+checksums ([Code-Signing.md](Code-Signing.md)).
 
 | Workflow | Runner | What it produces |
 |---|---|---|
-| `.github/workflows/windows.yml` | `windows-latest` | `VisualBeef-<version>-win64.zip` (full), `VisualBeef-<version>-<channel>-win64.zip` (minimal), their `.sha256`; signed copies when signing is enabled; a GitHub Release on a `v*` tag |
+| `.github/workflows/windows.yml` | `windows-latest` | `VisualBeef-<version>-win64.zip` (full), `VisualBeef-<version>-<channel>-win64.zip` (minimal), their `.sha256`; attestations on tags; a GitHub Release on a `v*` tag |
 | `.github/workflows/linux.yml` | `ubuntu-24.04` | tarball and AppImage, see [Linux.md](Linux.md#continuous-integration) |
 
 Every third-party step (`uses:`) is pinned to a commit sha (the version is in the comment beside it), and downloaded tools are
@@ -54,33 +54,25 @@ The steps are implemented in `scripts/ci-windows.ps1`, so the workflow and the l
    hand before a release (`docs/Testing.md`).
 7. **package**: `scripts\package.ps1` (full package) and `scripts\package.ps1 -Minimal`; both check the exe's
    version information, icon and `--version` output, refuse build leftovers, and write the zip and its `.sha256`.
-8. **Upload unsigned packages** as the artifact `visualbeef-win64-unsigned`.
-9. **Signing** (unused: only when enabled and on a `v*` tag, see below): upload the two binaries, submit them to SignPath,
-   repackage with the signed binaries (`package.ps1 -SignedDir`, which refuses an invalid signature), upload
-   `visualbeef-win64-signed`.
-10. **release** job (tags only): attaches the signed packages, or the unsigned ones when signing is off, to the
-    GitHub Release of the tag with `gh release`.
+8. **Upload packages** as the artifact `visualbeef-win64`.
+9. **release** job (tags only): downloads that artifact, creates a build attestation for every zip and `.sha256` file
+   (`actions/attest-build-provenance`) and attaches them to the GitHub Release of the tag with `gh release`.
 
 Pull requests run steps 1 to 8 without any secret.
 
-## Variables and secrets
+## Build attestation and how to verify
 
-Set under Settings > Secrets and variables > repository secrets and variables. Signing needs all of them; without
-`SIGNPATH_ENABLED = true` the signing steps are skipped and the workflow needs none. Releases are unsigned today; the
-signing steps are present but unused and may be enabled later. See [Code-Signing.md](Code-Signing.md).
+Releases are not code-signed ([Code-Signing.md](Code-Signing.md)). The `release` job has `id-token: write` and
+`attestations: write` and nothing else is needed: no secrets and no repository variables. The attestation is a GitHub
+provenance statement that ties each zip and `.sha256` file to the repository, the workflow run and the commit that built
+it. To verify a download (GitHub CLI) and compare its hash:
 
-| Name | Kind | Meaning |
-|---|---|---|
-| `SIGNPATH_ENABLED` | variable | `true` turns signing on (tags `v*` only). Unused today: leave it unset |
-| `SIGNPATH_ORGANIZATION_ID` | variable | the organisation id shown in the SignPath console |
-| `SIGNPATH_PROJECT_SLUG` | variable | project slug in SignPath (for example `VisualBeef`) |
-| `SIGNPATH_SIGNING_POLICY_SLUG` | variable | `release-signing` for tags (a test-signing policy can be used while setting up) |
-| `SIGNPATH_API_TOKEN` | secret | the API token of the SignPath CI user, with permission to submit to that policy |
+```powershell
+gh attestation verify VisualBeef-<version>-win64.zip --owner AproposRobin
+(Get-FileHash .\VisualBeef-<version>-win64.zip -Algorithm SHA256).Hash
+```
 
-The artifact configuration in SignPath must describe a zip with `VisualBeefEditor.exe` and `vbhost.dll` at the
-root, both as Authenticode PE files, with the metadata restrictions of [Code-Signing.md](Code-Signing.md).
-The submit step's `connector-url` keeps its default (the SignPath GitHub connector).
-A signing request needs a manual approval in SignPath for each release.
+The hash must equal the content of the `.sha256` file beside the download.
 
 ## Moving a tool forward
 
