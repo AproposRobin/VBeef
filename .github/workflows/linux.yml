@@ -1,0 +1,107 @@
+# Linux build, tests and packages (docs/Linux.md > Continuous integration).
+# scripts/ci-linux-local.sh runs the same steps on a machine that already has the packages.
+name: Linux
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The Beef commit VisualBeef is tested with on Linux (docs/Linux.md > What you need).
+  BEEF_COMMIT: 8bd578c57159dcfe602515bbe3c3ba73c228ab98
+  BEEF_DIR: /home/runner/beef
+  JOBS_NICE: "0"
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build clang lld git ccache python3 \
+            libzstd-dev libxml2-dev libedit-dev zlib1g-dev libcurl4-openssl-dev libffi-dev \
+            autoconf automake libtool texinfo libsdl2-dev libgl1-mesa-dev curl ca-certificates
+
+      - name: LLVM 22.1
+        run: |
+          # Ubuntu 24.04 does not ship LLVM 22: take it from apt.llvm.org.
+          if ! apt-cache show llvm-22-dev > /dev/null 2>&1; then
+            curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc > /dev/null
+            echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" | sudo tee /etc/apt/sources.list.d/llvm-22.list
+            sudo apt-get update
+          fi
+          extra=""
+          # apt.llvm.org's LLVM cmake files reference Polly; Ubuntu's own packages do not.
+          if apt-cache show libpolly-22-dev > /dev/null 2>&1; then extra="libpolly-22-dev"; fi
+          sudo apt-get install -y --no-install-recommends llvm-22-dev $extra
+          llvm-config-22 --version
+
+      - name: Cache Beef build
+        id: beef-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.BEEF_DIR }}
+          key: beef-${{ env.BEEF_COMMIT }}-ubuntu-24.04-llvm22-v1
+
+      - name: Build Beef
+        if: steps.beef-cache.outputs.cache-hit != 'true'
+        run: |
+          git init -q "$BEEF_DIR"
+          git -C "$BEEF_DIR" remote add origin https://github.com/beefytech/Beef
+          git -C "$BEEF_DIR" fetch -q --depth 1 origin "$BEEF_COMMIT"
+          git -C "$BEEF_DIR" checkout -q --detach FETCH_HEAD
+          CMAKE_BUILD_PARALLEL_LEVEL=4 "$BEEF_DIR/bin/build.sh"
+
+      - name: Check Beef
+        run: |
+          test "$(git -C "$BEEF_DIR" rev-parse HEAD)" = "$BEEF_COMMIT"
+          test -x "$BEEF_DIR/IDE/dist/BeefBuild"
+
+      - name: Native host (libvbhost.so)
+        # The committed libvbhost.so was built on Ubuntu 26.04 (glibc 2.43): rebuild it here.
+        run: NICE=0 JOBS=4 Native/build_linux.sh clean
+
+      - name: Tests
+        run: scripts/linux-ci.sh
+
+      - name: appimagetool
+        run: scripts/fetch-appimagetool.sh "$RUNNER_TEMP/appimage-tools"
+
+      - name: Packages (tarball, AppImage)
+        run: APPIMAGE_TOOLS="$RUNNER_TEMP/appimage-tools" scripts/package_linux.sh --appimage "$RUNNER_TEMP/dist"
+
+      - name: Upload packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: visualbeef-linux-x86_64
+          path: |
+            ${{ runner.temp }}/dist/*.tar.gz
+            ${{ runner.temp }}/dist/*.tar.gz.sha256
+            ${{ runner.temp }}/dist/*.AppImage
+            ${{ runner.temp }}/dist/*.AppImage.sha256
+          if-no-files-found: error
+
+      - name: Upload build logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-build-logs
+          path: build/*.log
+          if-no-files-found: ignore

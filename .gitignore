@@ -1,0 +1,8 @@
+build/
+recovery/
+BeefSpace_User.toml
+Native/obj/
+VisualBeef_layout.ini
+VisualBeef_settings.txt
+dist/
+tools/

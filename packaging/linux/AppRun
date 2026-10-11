@@ -1,0 +1,10 @@
+#!/bin/sh
+# AppImage entry point (scripts/package_linux.sh --appimage). The editor and libvbhost.so live in
+# usr/lib/visualbeef (the binary finds libvbhost.so through its $ORIGIN rpath); the bundled SDL2
+# is in usr/lib, which libvbhost.so only finds through LD_LIBRARY_PATH. Programs the editor starts
+# (BeefBuild, zenity, xdg-open, the compiled program) get the caller's LD_LIBRARY_PATH back
+# through VB_APPIMAGE_ORIG_LD_LIBRARY_PATH (docs/Linux.md > AppImage).
+HERE="$(dirname "$(readlink -f "$0")")"
+export VB_APPIMAGE_ORIG_LD_LIBRARY_PATH="${LD_LIBRARY_PATH-}"
+export LD_LIBRARY_PATH="$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+exec "$HERE/usr/lib/visualbeef/VisualBeefEditor" "$@"

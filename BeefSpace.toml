@@ -1,0 +1,5 @@
+FileVersion = 1
+Projects = {VisualBeefNative = {Path = "Native"}, VisualBeefCore = {Path = "VisualBeefCore"}, VisualBeefTests = {Path = "VisualBeefTests"}, VisualBeefEditor = {Path = "VisualBeefEditor"}, VisualBeefMeta = {Path = "VisualBeefMeta"}}
+
+[Workspace]
+StartupProject = "VisualBeefEditor"

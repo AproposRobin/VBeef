@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=VisualBeef
+GenericName=Visual Scripting Editor
+Comment=Visual scripting editor for the Beef programming language
+Exec=VisualBeefEditor %f
+Icon=visualbeef
+Terminal=false
+Categories=Development;IDE;
+Keywords=Beef;visual;scripting;graph;nodes;

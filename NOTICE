@@ -1,0 +1,11 @@
+VisualBeef
+Copyright 2026 AproposRobin
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this
+project except in compliance with the License. See LICENSE in this folder.
+
+This product includes software developed by third parties; see THIRD_PARTY.md.
+The prebuilt Native/bin/win64/vbhost.dll statically links Dear ImGui, cimgui, imnodes,
+cimnodes (MIT), SDL2 (zlib), the LLVM C++ runtime (Apache-2.0 with LLVM Exceptions) and the mingw-w64 runtime;
+Native/bin/linux64/libvbhost.so links the same ImGui/imnodes code and loads SDL2 dynamically.
+Their notices are in THIRD_PARTY.md and must accompany any distribution of those binaries.

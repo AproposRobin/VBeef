@@ -1,0 +1,7 @@
+FileVersion = 1
+
+[Workspace]
+StartupProject = "Debuggee"
+
+[Projects]
+Debuggee = {Path = "."}

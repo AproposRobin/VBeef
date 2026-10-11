@@ -1,0 +1,3107 @@
+using System;
+using System.Collections;
+using System.Diagnostics;
+using System.IO;
+using ImGui;
+using VisualBeef.Document;
+using VisualBeef.Syntax;
+
+namespace VisualBeef.Editor
+{
+	/// What a Project Browser tile stands for. Every class / struct / enum / interface is its own
+	/// asset (like a UE asset), even when one .bf file holds several.
+	enum AssetKind
+	{
+		Folder,
+		Class,
+		Struct,
+		Enum,
+		Interface,
+		Globals,
+		File,
+		/// A Node Library: `static class`, global functions and variables.
+		Library
+	}
+
+	/// One tile of the asset grid. Built fresh each frame from the project index; every string
+	/// is a copy, so the index can be rebuilt while these are alive.
+	class CBItem
+	{
+		public AssetKind Kind;
+		public String Name = new .() ~ delete _;
+		/// Folder path, or the .bf file that declares the type.
+		public String Path = new .() ~ delete _;
+		/// Declared type name (types only).
+		public String TypeName = new .() ~ delete _;
+		/// Selection key: "D|path", "F|path" or "T|path|Type".
+		public String Key = new .() ~ delete _;
+		/// Search hit shown in the tooltip ("function Update").
+		public String Match = new .() ~ delete _;
+		public int32 Methods;
+		public int32 Fields;
+		public int32 Line;
+		public bool Modified;
+
+		public bool IsType => Kind != .Folder && Kind != .File;
+
+		public CBItem Clone()
+		{
+			CBItem c = new .();
+			c.Kind = Kind;
+			c.Name.Set(Name);
+			c.Path.Set(Path);
+			c.TypeName.Set(TypeName);
+			c.Key.Set(Key);
+			c.Match.Set(Match);
+			c.Methods = Methods;
+			c.Fields = Fields;
+			c.Line = Line;
+			c.Modified = Modified;
+			return c;
+		}
+
+		public static void MakeKey(AssetKind kind, StringView path, StringView typeName, String outKey)
+		{
+			outKey.Clear();
+			switch (kind)
+			{
+			case .Folder: outKey.AppendF("D|{}", path);
+			case .File: outKey.AppendF("F|{}", path);
+			default: outKey.AppendF("T|{}|{}", path, typeName);
+			}
+		}
+	}
+
+	/// A folder of the project on disk (build output, recovery and dot folders skipped).
+	class CBDir
+	{
+		public String Name = new .() ~ delete _;
+		public String Path = new .() ~ delete _;
+		public CBDir Parent;
+		public List<CBDir> Dirs = new .() ~ DeleteContainerAndItems!(_);
+		/// .bf files directly in this folder.
+		public List<String> Files = new .() ~ DeleteContainerAndItems!(_);
+
+		public int CountFilesRecursive()
+		{
+			int n = Files.Count;
+			for (let d in Dirs)
+				n += d.CountFilesRecursive();
+			return n;
+		}
+	}
+
+	/// Colors, labels and draw-list icons of the asset kinds (UE asset-type colors).
+	static class AssetStyle
+	{
+		public static uint32 KindColor(AssetKind k)
+		{
+			switch (k)
+			{
+			case .Class: return Gui.Color(45, 115, 225);      // Blueprint blue
+			case .Struct: return Gui.Color(92, 70, 196);      // dark blue-violet
+			case .Enum: return Gui.Color(128, 148, 36);       // olive green
+			case .Interface: return Gui.Color(22, 160, 150);  // teal
+			case .Globals: return Gui.Color(135, 135, 135);   // grey
+			case .File: return Gui.Color(175, 175, 175);
+			case .Folder: return Gui.Color(196, 166, 108);
+			case .Library: return Gui.Color(222, 142, 38);    // amber
+			}
+		}
+
+		public static StringView KindLabel(AssetKind k)
+		{
+			switch (k)
+			{
+			case .Class: return "Class";
+			case .Struct: return "Struct";
+			case .Enum: return "Enum";
+			case .Interface: return "Interface";
+			case .Globals: return "Global Functions";
+			case .File: return "Beef File";
+			case .Folder: return "Folder";
+			case .Library: return "Node Library";
+			}
+		}
+
+		/// The kind of a type: a `static class` is a Node Library, not a Class.
+		public static bool FromType(StringView kind, bool isLibrary, out AssetKind outKind)
+		{
+			let ok = FromSymbolKind(kind, out outKind);
+			if (ok && outKind == .Class && isLibrary)
+				outKind = .Library;
+			return ok;
+		}
+
+		public static bool FromSymbolKind(StringView kind, out AssetKind outKind)
+		{
+			outKind = .Class;
+			switch (kind)
+			{
+			case "class": outKind = .Class;
+			case "struct": outKind = .Struct;
+			case "enum": outKind = .Enum;
+			case "interface": outKind = .Interface;
+			case "static": outKind = .Globals;
+			default: return false;
+			}
+			return true;
+		}
+
+		public static void Text(ImDrawList* dl, StringView text, ImVec2 pos, float size, uint32 col)
+		{
+			Gui.ImDrawList_AddText_FontPtr(dl, Gui.igGetFont(), size, pos, col, text.Ptr, text.Ptr + text.Length, 0, null);
+		}
+
+		public static ImVec2 TextSize(StringView text, float size)
+		{
+			let s = Gui.CalcTextSize(text);
+			let f = size / Math.Max(1.0f, Gui.igGetFontSize());
+			return .(s.x * f, s.y * f);
+		}
+
+		/// Draws the kind's glyph centered on `c`, about `s` pixels across.
+		public static void DrawIcon(ImDrawList* dl, AssetKind kind, ImVec2 c, float s, uint32 col)
+		{
+			float u = s / 100.0f;
+			uint32 light = Theme.Mix(col, Gui.Color(255, 255, 255), 0.45f);
+			uint32 dark = Gui.Color(14, 14, 14, 240);
+			switch (kind)
+			{
+			case .Class:
+				// A little Blueprint node: colored header, exec + data pins.
+				ImVec2 a = .(c.x - 40 * u, c.y - 30 * u);
+				ImVec2 b = .(c.x + 40 * u, c.y + 32 * u);
+				Gui.ImDrawList_AddRectFilled(dl, a, b, dark, 7 * u, 0);
+				Gui.ImDrawList_AddRectFilled(dl, a, .(b.x, a.y + 18 * u), col, 7 * u, DrawFlags.RoundCornersTop);
+				Gui.ImDrawList_AddRect(dl, a, b, Gui.Color(0, 0, 0, 255), 7 * u, 1.5f * u, 0);
+				// exec in / out
+				float ey = c.y + 2 * u;
+				Gui.ImDrawList_AddTriangleFilled(dl, .(c.x - 32 * u, ey - 6 * u), .(c.x - 32 * u, ey + 6 * u), .(c.x - 22 * u, ey), Gui.Color(235, 235, 235));
+				Gui.ImDrawList_AddTriangleFilled(dl, .(c.x + 22 * u, ey - 6 * u), .(c.x + 22 * u, ey + 6 * u), .(c.x + 32 * u, ey), Gui.Color(235, 235, 235));
+				// data pins
+				Gui.ImDrawList_AddCircleFilled(dl, .(c.x - 27 * u, c.y + 20 * u), 5 * u, Gui.Color(31, 227, 175), 12);
+				Gui.ImDrawList_AddCircleFilled(dl, .(c.x + 27 * u, c.y + 20 * u), 5 * u, Gui.Color(160, 250, 68), 12);
+				Gui.ImDrawList_AddLine(dl, .(c.x - 14 * u, ey), .(c.x + 14 * u, ey), Gui.Color(90, 90, 90), 2 * u);
+			case .Struct:
+				// A record: header band plus field rows.
+				ImVec2 a = .(c.x - 36 * u, c.y - 34 * u);
+				ImVec2 b = .(c.x + 36 * u, c.y + 34 * u);
+				Gui.ImDrawList_AddRectFilled(dl, a, b, dark, 5 * u, 0);
+				Gui.ImDrawList_AddRectFilled(dl, a, .(b.x, a.y + 16 * u), col, 5 * u, DrawFlags.RoundCornersTop);
+				for (int i < 3)
+				{
+					float y = a.y + 26 * u + i * 14 * u;
+					Gui.ImDrawList_AddRectFilled(dl, .(a.x + 8 * u, y), .(a.x + 18 * u, y + 8 * u), light, 1.5f * u, 0);
+					Gui.ImDrawList_AddRectFilled(dl, .(a.x + 24 * u, y + 2 * u), .(b.x - 8 * u - (i == 1 ? 14 * u : 0), y + 6 * u), Gui.Color(170, 170, 170), 2 * u, 0);
+				}
+				Gui.ImDrawList_AddRect(dl, a, b, col, 5 * u, 2 * u, 0);
+			case .Enum:
+				// A list of named values.
+				for (int i < 3)
+				{
+					float y = c.y - 24 * u + i * 24 * u;
+					Gui.ImDrawList_AddCircleFilled(dl, .(c.x - 26 * u, y), 7 * u, (i == 0) ? light : col, 16);
+					Gui.ImDrawList_AddRectFilled(dl, .(c.x - 12 * u, y - 4 * u), .(c.x + 34 * u - (i == 2 ? 14 * u : 0), y + 4 * u), Gui.Color(190, 190, 190), 3 * u, 0);
+				}
+				Gui.ImDrawList_AddLine(dl, .(c.x - 40 * u, c.y - 36 * u), .(c.x - 40 * u, c.y + 36 * u), col, 3 * u);
+			case .Interface:
+				// A "lollipop" (provided interface).
+				Gui.ImDrawList_AddCircle(dl, .(c.x - 14 * u, c.y), 20 * u, light, 32, 6 * u);
+				Gui.ImDrawList_AddLine(dl, .(c.x + 6 * u, c.y), .(c.x + 36 * u, c.y), light, 6 * u);
+				Gui.ImDrawList_AddCircleFilled(dl, .(c.x + 38 * u, c.y), 7 * u, col, 16);
+			case .Globals:
+				let size = 44 * u;
+				let ts = TextSize("f(x)", size);
+				Text(dl, "f(x)", .(c.x - ts.x / 2, c.y - ts.y / 2), size, light);
+			case .File:
+				// A page with a folded corner.
+				float x0 = c.x - 28 * u;
+				float x1 = c.x + 28 * u;
+				float y0 = c.y - 38 * u;
+				float y1 = c.y + 38 * u;
+				float f = 18 * u;
+				ImVec2[5] pts = .(.(x0, y0), .(x1 - f, y0), .(x1, y0 + f), .(x1, y1), .(x0, y1));
+				Gui.ImDrawList_AddConvexPolyFilled(dl, &pts, 5, Gui.Color(205, 205, 205));
+				Gui.ImDrawList_AddTriangleFilled(dl, .(x1 - f, y0), .(x1 - f, y0 + f), .(x1, y0 + f), Gui.Color(140, 140, 140));
+				for (int i < 4)
+				{
+					float y = y0 + 32 * u + i * 10 * u;
+					Gui.ImDrawList_AddLine(dl, .(x0 + 10 * u, y), .(x1 - 10 * u - (i == 3 ? 16 * u : 0), y), Gui.Color(120, 120, 120), 2.5f * u);
+				}
+			case .Library:
+			{
+				// Books on a shelf: a library of functions.
+				float[3] hs = .(58, 70, 50);
+				for (int i < 3)
+				{
+					float x = c.x - 34 * u + i * 24 * u;
+					float top = c.y + 30 * u - hs[i] * u;
+					Gui.ImDrawList_AddRectFilled(dl, .(x, top), .(x + 20 * u, c.y + 30 * u), (i == 1) ? light : col, 3 * u, 0);
+					Gui.ImDrawList_AddLine(dl, .(x + 4 * u, top + 10 * u), .(x + 16 * u, top + 10 * u), dark, 2 * u);
+				}
+				Gui.ImDrawList_AddLine(dl, .(c.x - 42 * u, c.y + 33 * u), .(c.x + 42 * u, c.y + 33 * u), Gui.Color(190, 190, 190), 3 * u);
+			}
+			case .Folder:
+				float x0 = c.x - 40 * u;
+				float x1 = c.x + 40 * u;
+				uint32 back = Theme.Mix(col, Gui.Color(0, 0, 0), 0.25f);
+				Gui.ImDrawList_AddRectFilled(dl, .(x0, c.y - 32 * u), .(x0 + 32 * u, c.y - 18 * u), back, 4 * u, DrawFlags.RoundCornersTop);
+				Gui.ImDrawList_AddRectFilled(dl, .(x0, c.y - 22 * u), .(x1, c.y + 30 * u), back, 4 * u, 0);
+				Gui.ImDrawList_AddRectFilled(dl, .(x0, c.y - 12 * u), .(x1, c.y + 30 * u), col, 4 * u, 0);
+				Gui.ImDrawList_AddLine(dl, .(x0 + 2 * u, c.y - 12 * u), .(x1 - 2 * u, c.y - 12 * u), Theme.Mix(col, Gui.Color(255, 255, 255), 0.4f), 1.5f * u);
+			}
+		}
+	}
+
+	extension EditorApp
+	{
+		// ------------------------------------------------------------------ state
+
+		String mCBFolder = new .() ~ delete _;
+		CBDir mCBTree ~ delete _;
+		List<String> mCBSelected = new .() ~ DeleteContainerAndItems!(_);
+		String mCBAnchor = new .() ~ delete _;
+		String mCBScrollTo = new .() ~ delete _;
+		TextBuffer mCBSearch = new .(256) ~ delete _;
+		float mCBTileSize = 92;
+		bool mCBDrawerOpen;
+		int32 mCBDrawerFrames;
+		bool mCBReveal = true;
+		bool mCBItemCtxRequest;
+		bool mCBRefocus;
+		int64 mCBSignature;
+		CBItem mCBOpenRequest ~ delete _;
+		String mCBNavigateRequest = new .() ~ delete _;
+
+		// Create / rename / delete modals
+		bool mOpenCBNew;
+		/// "Not inside a Beef project" prompt (create anyway / create a project / cancel).
+		bool mOpenCBNoProject;
+		AssetKind mCBPendKind;
+		String mCBPendFolder = new .() ~ delete _;
+		String mCBPendName = new .() ~ delete _;
+		/// The create dialog is open (keeps the Project Drawer from closing under it).
+		bool mCBModalOpen;
+		AssetKind mCBNewKind;
+		String mCBNewFolder = new .() ~ delete _;
+		TextBuffer mCBNameBuf = new .(256) ~ delete _;
+		bool mOpenCBRename;
+		CBItem mCBRenameItem ~ delete _;
+		bool mOpenCBDelete;
+		List<CBItem> mCBDeleteItems = new .() ~ DeleteContainerAndItems!(_);
+
+		// New Project modal
+		bool mOpenNewProject;
+		TextBuffer mNPName = new .(256) ~ delete _;
+		TextBuffer mNPLocation = new .(2048) ~ delete _;
+		int32 mNPType;
+		/// New Project > UMP Mod: the game SDK folder and what it resolved to.
+		TextBuffer mNPSdk = new .(2048) ~ delete _;
+		String mNPSdkSeen = new .() ~ delete _;
+		UmpSdkInfo mNPSdkInfo = new .() ~ delete _;
+		String mNPSdkError = new .() ~ delete _;
+		bool mNPSdkOk;
+		String mNPError = new .() ~ delete _;
+
+		const float cTreeWidth = 210;
+
+		// ------------------------------------------------------------------ paths
+
+		static char8 PreferredSep(StringView path)
+		{
+			if (path.Contains('\\'))
+				return '\\';
+			if (path.Contains('/'))
+				return '/';
+			return Path.DirectorySeparatorChar;
+		}
+
+		public static void JoinPath(StringView dir, StringView name, String outPath)
+		{
+			outPath.Append(dir);
+			if (!outPath.IsEmpty && !outPath.EndsWith('/') && !outPath.EndsWith('\\'))
+				outPath.Append(PreferredSep(dir));
+			outPath.Append(name);
+		}
+
+		/// True when `path` is inside `dir` (not equal to it).
+		public static bool IsUnder(StringView path, StringView dir)
+		{
+			if (dir.IsEmpty || path.Length <= dir.Length)
+				return false;
+			if (!ProjectIndex.SamePath(path.Substring(0, dir.Length), dir))
+				return false;
+			let c = path[dir.Length];
+			return c == '/' || c == '\\' || dir.EndsWith('/') || dir.EndsWith('\\');
+		}
+
+		static void TrimSeparators(String path)
+		{
+			while (path.Length > 1 && (path.EndsWith('/') || path.EndsWith('\\')) && !(path.Length == 3 && path[1] == ':'))
+				path.RemoveFromEnd(1);
+		}
+
+		void RelativeToRoot(StringView path, String outRel)
+		{
+			if (IsUnder(path, mProjectRoot))
+			{
+				var rel = path.Substring(mProjectRoot.Length);
+				while (rel.StartsWith('/') || rel.StartsWith('\\'))
+					rel.RemoveFromStart(1);
+				outRel.Append(rel);
+			}
+			else if (ProjectIndex.SamePath(path, mProjectRoot))
+				Path.GetFileName(mProjectRoot, outRel);
+			else
+				outRel.Append(path);
+		}
+
+		/// Case-insensitive "does a file or folder with this name exist in `folder`" (so a project
+		/// made on Linux still works on Windows).
+		static bool EntryExists(StringView folder, StringView name)
+		{
+			if (!Directory.Exists(folder))
+				return false;
+			String n = scope .();
+			for (let e in Directory.EnumerateFiles(folder))
+			{
+				n.Clear();
+				e.GetFileName(n);
+				if (StringView.Compare(n, name, true) == 0)
+					return true;
+			}
+			for (let e in Directory.EnumerateDirectories(folder))
+			{
+				n.Clear();
+				e.GetFileName(n);
+				if (StringView.Compare(n, name, true) == 0)
+					return true;
+			}
+			return false;
+		}
+
+		static bool SkipFolder(StringView name) => name.StartsWith(".") || name == "build" || name == "recovery";
+
+		// ------------------------------------------------------------------ name validation
+
+		static String[?] sKeywords = .("abstract", "alignof", "alloctype", "append", "as", "asm", "base", "bool", "break", "case", "catch",
+			"char16", "char32", "char8", "checked", "class", "comptype", "concrete", "const", "continue", "decltype", "default", "defer",
+			"delegate", "delete", "do", "double", "else", "enum", "explicit", "extension", "extern", "false", "finally", "fixed", "float",
+			"for", "function", "if", "implicit", "in", "int", "int16", "int32", "int64", "int8", "interface", "internal", "is", "let",
+			"mixin", "mut", "namespace", "new", "null", "nullable", "offsetof", "operator", "out", "override", "params", "private",
+			"protected", "public", "readonly", "ref", "rettype", "return", "scope", "sealed", "sizeof", "static", "strideof", "struct",
+			"switch", "this", "throw", "true", "try", "typealias", "typeof", "uint", "uint16", "uint32", "uint64", "uint8", "unchecked",
+			"unsafe", "using", "var", "virtual", "void", "volatile", "where", "while");
+
+		public static bool ValidateIdentifier(StringView name, String outError)
+		{
+			if (name.IsEmpty)
+			{
+				outError.Set("Enter a name.");
+				return false;
+			}
+			if (!EnumCases.IsIdentifier(name))
+			{
+				outError.Set("Use letters, digits and _ only, not starting with a digit.");
+				return false;
+			}
+			for (let k in sKeywords)
+			{
+				if (k == name)
+				{
+					outError.Set(scope $"'{name}' is a Beef keyword.");
+					return false;
+				}
+			}
+			return true;
+		}
+
+		/// File / folder names that are valid on Windows as well as Linux.
+		public static bool ValidateFileName(StringView name, String outError)
+		{
+			if (name.IsEmpty)
+			{
+				outError.Set("Enter a name.");
+				return false;
+			}
+			for (let c in name)
+			{
+				if ((uint8)c < 32 || "<>:\"/\\|?*".Contains(c))
+				{
+					outError.Set(scope $"'{c}' can't be used in a file name.");
+					return false;
+				}
+			}
+			if (name == "." || name == ".." || name.EndsWith('.') || name.EndsWith(' ') || name.StartsWith(' '))
+			{
+				outError.Set("The name can't start with a space or end with a dot or space.");
+				return false;
+			}
+			String upper = scope .(name);
+			int dot = upper.IndexOf('.');
+			if (dot >= 0)
+				upper.RemoveToEnd(dot);
+			upper.ToUpper();
+			if (upper == "CON" || upper == "PRN" || upper == "AUX" || upper == "NUL" ||
+				((upper.StartsWith("COM") || upper.StartsWith("LPT")) && upper.Length == 4 && upper[3].IsDigit))
+			{
+				outError.Set("That name is reserved on Windows.");
+				return false;
+			}
+			return true;
+		}
+
+		/// Is `name` already declared in namespace `ns`? (Beef allows the same name in different
+		/// namespaces.) Cached while the same query is repeated, as the dialog asks every frame.
+		bool TypeNameTaken(StringView name, StringView ns, String outWhere)
+		{
+			String key = scope .();
+			key.AppendF("{}|{}|{}", name, ns, Index.Files.Count);
+			if (mTakenKey != key)
+			{
+				mTakenKey.Set(key);
+				mTakenWhere.Clear();
+				mTakenResult = AssetOps.TypeNameTaken(Index, ns, name, mTakenWhere);
+			}
+			if (mTakenResult)
+				outWhere.Set(mTakenWhere);
+			return mTakenResult;
+		}
+
+		String mTakenKey = new .() ~ delete _;
+		String mTakenWhere = new .() ~ delete _;
+		bool mTakenResult;
+
+		/// The namespace a type is declared in (first one), "" if none.
+		void TypeNamespaceOf(StringView path, StringView typeName, String outNs)
+		{
+			String text = scope .();
+			let doc = FindDoc(path);
+			if (doc != null && doc.Unit != null)
+				text.Set(doc.Text);
+			else if (File.ReadAllText(path, text, true) case .Err)
+				return;
+			let unit = Parser.Parse(text);
+			defer delete unit;
+			List<String> nss = scope .();
+			defer { ClearAndDeleteItems!(nss); }
+			AssetOps.NamespacesOf(unit, typeName, nss);
+			if (!nss.IsEmpty)
+				outNs.Set(nss[0]);
+		}
+
+		/// Where a new asset of `kind` really goes: files and types belong in the `src` folder of
+		/// the enclosing Beef project (a folder outside any project is reported as NoProject).
+		SourcePlacement ResolveTarget(AssetKind kind, StringView folder, String outFolder)
+		{
+			if (kind == .Folder)
+			{
+				outFolder.Set(folder);
+				return .InSource;
+			}
+			String proj = scope .();
+			return AssetOps.ResolveSourceFolder(folder, outFolder, proj);
+		}
+
+		/// Validation for the "New ..." modal.
+		bool ValidateNewAsset(AssetKind kind, StringView folder, StringView name, StringView ns, String outError)
+		{
+			if (!Directory.Exists(folder))
+			{
+				outError.Set("The destination folder no longer exists.");
+				return false;
+			}
+			switch (kind)
+			{
+			case .Folder:
+				if (!ValidateFileName(name, outError))
+					return false;
+				if (EntryExists(folder, name))
+				{
+					outError.Set("A file or folder with that name already exists here.");
+					return false;
+				}
+			case .File:
+				var n = name;
+				if (n.EndsWith(".bf", .OrdinalIgnoreCase))
+					n.RemoveFromEnd(3);
+				if (!ValidateFileName(n, outError))
+					return false;
+				if (EntryExists(folder, scope String()..AppendF("{}.bf", n)))
+				{
+					outError.Set("A file with that name already exists here.");
+					return false;
+				}
+			default:
+				if (!ValidateIdentifier(name, outError))
+					return false;
+				String declFile = scope .();
+				if (TypeNameTaken(name, ns, declFile))
+				{
+					String rel = scope .();
+					RelativeToRoot(declFile, rel);
+					outError.Set(scope $"A type named '{name}' already exists in namespace {ns.IsEmpty ? "(global)" : ns} ({rel}). Pick another name.");
+					return false;
+				}
+				if (EntryExists(folder, scope String()..AppendF("{}.bf", name)))
+				{
+					outError.Set(scope $"{name}.bf already exists in this folder.");
+					return false;
+				}
+			}
+			return true;
+		}
+
+		// ------------------------------------------------------------------ folder tree
+
+		void BuildContentTree()
+		{
+			delete mCBTree;
+			mCBTree = null;
+			if (mProjectRoot.IsEmpty || !Directory.Exists(mProjectRoot))
+				return;
+			mCBTree = new .();
+			mCBTree.Path.Set(mProjectRoot);
+			Path.GetFileName(mProjectRoot, mCBTree.Name);
+			if (mCBTree.Name.IsEmpty)
+				mCBTree.Name.Set(mProjectRoot);
+			ScanContentDir(mCBTree, 0);
+			// Keep the current folder (or its nearest surviving parent).
+			String folder = scope .(mCBFolder);
+			while (!folder.IsEmpty && FindCBDir(folder) == null)
+			{
+				String parent = scope .();
+				// A remembered folder from another project can walk up to a drive root, where there is no parent.
+				if (!AssetOps.TryGetParent(folder, parent))
+					break;
+				folder.Set(parent);
+			}
+			if (folder.IsEmpty || FindCBDir(folder) == null)
+				folder.Set(mProjectRoot);
+			mCBFolder.Set(FindCBDir(folder).Path);
+		}
+
+		void ScanContentDir(CBDir dir, int depth)
+		{
+			if (depth > 12)
+				return;
+			for (let e in Directory.EnumerateFiles(dir.Path))
+			{
+				String path = new .();
+				e.GetFilePath(path);
+				if (path.EndsWith(".bf", .OrdinalIgnoreCase))
+					dir.Files.Add(path);
+				else
+					delete path;
+			}
+			for (let e in Directory.EnumerateDirectories(dir.Path))
+			{
+				String name = scope .();
+				e.GetFileName(name);
+				if (SkipFolder(name))
+					continue;
+				CBDir sub = new .();
+				sub.Name.Set(name);
+				e.GetFilePath(sub.Path);
+				sub.Parent = dir;
+				dir.Dirs.Add(sub);
+				ScanContentDir(sub, depth + 1);
+			}
+			dir.Files.Sort(scope (a, b) => StringView.Compare(a, b, true));
+			dir.Dirs.Sort(scope (a, b) => StringView.Compare(a.Name, b.Name, true));
+		}
+
+		CBDir FindCBDir(StringView path) => (mCBTree != null) ? FindCBDir(mCBTree, path) : null;
+
+		static CBDir FindCBDir(CBDir dir, StringView path)
+		{
+			if (ProjectIndex.SamePath(dir.Path, path))
+				return dir;
+			if (!IsUnder(path, dir.Path))
+				return null;
+			for (let d in dir.Dirs)
+			{
+				let found = FindCBDir(d, path);
+				if (found != null)
+					return found;
+			}
+			return null;
+		}
+
+		/// Cheap fingerprint of the folders and .bf files (names + write times) to notice
+		/// changes made outside VisualBeef.
+		int64 ComputeCBSignature()
+		{
+			if (mProjectRoot.IsEmpty || !Directory.Exists(mProjectRoot))
+				return 0;
+			int64 h = (int64)0xCBF29CE484222325;
+			HashDir(mProjectRoot, 0, ref h);
+			return h;
+		}
+
+		static void HashStr(StringView s, ref int64 h)
+		{
+			for (let c in s)
+			{
+				h ^= (uint8)c;
+				h = (int64)((uint64)h * 0x100000001B3UL);
+			}
+			h ^= 0x7F;
+		}
+
+		static void HashDir(StringView dir, int depth, ref int64 h)
+		{
+			if (depth > 12)
+				return;
+			String name = scope .();
+			for (let e in Directory.EnumerateFiles(dir))
+			{
+				name.Clear();
+				e.GetFileName(name);
+				if (!name.EndsWith(".bf", .OrdinalIgnoreCase))
+					continue;
+				HashStr(name, ref h);
+				h ^= e.GetLastWriteTimeUtc().Ticks;
+				h = (int64)((uint64)h * 0x100000001B3UL);
+			}
+			for (let e in Directory.EnumerateDirectories(dir))
+			{
+				name.Clear();
+				e.GetFileName(name);
+				if (SkipFolder(name))
+					continue;
+				HashStr(name, ref h);
+				String path = scope .();
+				e.GetFilePath(path);
+				HashDir(path, depth + 1, ref h);
+			}
+		}
+
+		/// Called at the start of every frame: picks up files created, deleted or edited outside
+		/// VisualBeef (polled about every 1.5 s).
+		void UpdateProjectBrowser()
+		{
+			if (mProjectRoot.IsEmpty || mFrame % 90 != 45 || IsIndexing)
+				return;
+			if (Gui.igIsAnyItemActive() || Gui.igIsMouseDown_Nil(0))
+				return;
+			let sig = ComputeCBSignature();
+			if (sig != mCBSignature)
+				ScanProject();
+		}
+
+		// ------------------------------------------------------------------ items
+
+		void AddTypeItems(IndexedFile file, StringView search, List<CBItem> outItems)
+		{
+			let doc = FindDoc(file.Path);
+			bool modified = doc != null && doc.Modified;
+			int shown = 0;
+			String fileName = scope .();
+			Path.GetFileName(file.Path, fileName);
+			for (let t in file.Types)
+			{
+				if (!AssetStyle.FromType(t.Kind, t.IsStaticType, let kind))
+					continue;
+				if (!t.Outer.IsEmpty)
+					continue; // nested types live inside their outer type's asset
+				shown++;
+				String match = scope .();
+				if (!search.IsEmpty)
+				{
+					if (t.Name.IndexOf(search, true) < 0 && fileName.IndexOf(search, true) < 0)
+					{
+						for (let m in t.Methods)
+						{
+							if (m.Name.IndexOf(search, true) >= 0)
+							{
+								match.AppendF("function {}", m.Name);
+								break;
+							}
+						}
+						if (match.IsEmpty)
+						{
+							for (let fld in t.Fields)
+							{
+								if (fld.Name.IndexOf(search, true) >= 0)
+								{
+									match.AppendF("variable {}", fld.Name);
+									break;
+								}
+							}
+						}
+						if (match.IsEmpty)
+							continue;
+					}
+				}
+				bool dup = false;
+				for (let existing in outItems)
+					if (existing.IsType && existing.TypeName == t.Name && ProjectIndex.SamePath(existing.Path, file.Path))
+						dup = true;
+				if (dup)
+					continue;
+				CBItem item = new .();
+				item.Kind = kind;
+				item.Name.Set((kind == .Globals) ? "Global functions" : t.Name);
+				item.TypeName.Set(t.Name);
+				item.Path.Set(file.Path);
+				item.Methods = (.)t.Methods.Count;
+				item.Fields = (.)t.Fields.Count;
+				item.Line = t.Line;
+				item.Modified = modified;
+				item.Match.Set(match);
+				CBItem.MakeKey(kind, file.Path, t.Name, item.Key);
+				outItems.Add(item);
+			}
+			if (shown == 0 && (search.IsEmpty || fileName.IndexOf(search, true) >= 0))
+			{
+				CBItem item = new .();
+				item.Kind = .File;
+				item.Name.Set(fileName);
+				item.Path.Set(file.Path);
+				item.Modified = modified;
+				CBItem.MakeKey(.File, file.Path, "", item.Key);
+				outItems.Add(item);
+			}
+		}
+
+		void AddFolderMatches(CBDir dir, StringView search, List<CBItem> outItems)
+		{
+			for (let d in dir.Dirs)
+			{
+				if (d.Name.IndexOf(search, true) >= 0)
+				{
+					CBItem item = new .();
+					item.Kind = .Folder;
+					item.Name.Set(d.Name);
+					item.Path.Set(d.Path);
+					CBItem.MakeKey(.Folder, d.Path, "", item.Key);
+					outItems.Add(item);
+				}
+				AddFolderMatches(d, search, outItems);
+			}
+		}
+
+		void CollectCBItems(StringView search, List<CBItem> outItems)
+		{
+			if (mCBTree == null)
+				return;
+			if (!search.IsEmpty)
+			{
+				AddFolderMatches(mCBTree, search, outItems);
+				for (let file in Index.Files)
+					AddTypeItems(file, search, outItems);
+				outItems.Sort(scope (a, b) =>
+					{
+						if ((a.Kind == .Folder) != (b.Kind == .Folder))
+							return (a.Kind == .Folder) ? -1 : 1;
+						return StringView.Compare(a.Name, b.Name, true);
+					});
+				return;
+			}
+			let dir = FindCBDir(mCBFolder);
+			if (dir == null)
+				return;
+			for (let d in dir.Dirs)
+			{
+				CBItem item = new .();
+				item.Kind = .Folder;
+				item.Name.Set(d.Name);
+				item.Path.Set(d.Path);
+				CBItem.MakeKey(.Folder, d.Path, "", item.Key);
+				outItems.Add(item);
+			}
+			int typeStart = outItems.Count;
+			for (let path in dir.Files)
+			{
+				let file = Index.FindFile(path);
+				if (file != null)
+					AddTypeItems(file, "", outItems);
+				else
+				{
+					CBItem item = new .();
+					item.Kind = .File;
+					Path.GetFileName(path, item.Name);
+					item.Path.Set(path);
+					CBItem.MakeKey(.File, path, "", item.Key);
+					outItems.Add(item);
+				}
+			}
+			// Assets sorted by name, like UE (folders stay first).
+			List<CBItem> assets = scope .();
+			for (int i = typeStart; i < outItems.Count; i++)
+				assets.Add(outItems[i]);
+			assets.Sort(scope (a, b) => StringView.Compare(a.Name, b.Name, true));
+			for (int i < assets.Count)
+				outItems[typeStart + i] = assets[i];
+		}
+
+		bool IsCBSelected(StringView key)
+		{
+			for (let s in mCBSelected)
+				if (s == key)
+					return true;
+			return false;
+		}
+
+		void CBSelectOnly(StringView key)
+		{
+			ClearAndDeleteItems!(mCBSelected);
+			if (!key.IsEmpty)
+				mCBSelected.Add(new String(key));
+			mCBAnchor.Set(key);
+		}
+
+		void CBToggle(StringView key)
+		{
+			for (int i < mCBSelected.Count)
+			{
+				if (mCBSelected[i] == key)
+				{
+					delete mCBSelected[i];
+					mCBSelected.RemoveAt(i);
+					return;
+				}
+			}
+			mCBSelected.Add(new String(key));
+			mCBAnchor.Set(key);
+		}
+
+		void NavigateCB(StringView path)
+		{
+			String p = scope .(path);
+			let dir = FindCBDir(p);
+			if (dir == null)
+				return;
+			mCBFolder.Set(dir.Path);
+			mCBReveal = true;
+			CBSelectOnly("");
+			SaveSettings();
+		}
+
+		// ------------------------------------------------------------------ drawing
+
+		void DrawProjectBrowserWindows()
+		{
+			if (Gui.Begin(Panels.ProjectBrowser))
+				DrawCBBody(false);
+			Gui.End();
+
+			if (mCBDrawerOpen)
+			{
+				let vp = Gui.igGetMainViewport();
+				float h = Math.Max(220, vp.WorkSize.y * 0.42f);
+				Gui.igSetNextWindowPos(.(vp.WorkPos.x, vp.WorkPos.y + vp.WorkSize.y - h), Cond.Always, .(0, 0));
+				Gui.igSetNextWindowSize(.(vp.WorkSize.x, h), Cond.Always);
+				if (mCBDrawerFrames == 0)
+					Gui.igSetNextWindowFocus();
+				bool open = true;
+				if (Gui.Begin("Project Drawer", &open, WindowFlags.NoDocking | WindowFlags.NoCollapse | WindowFlags.NoSavedSettings | WindowFlags.NoMove | WindowFlags.NoResize))
+				{
+					DrawCBBody(true);
+					// Closes like UE's drawer when you click elsewhere.
+					bool focused = Gui.igIsWindowFocused(FocusedFlags.RootAndChildWindows);
+					bool anyPopup = Gui.igIsPopupOpen_Str("", PopupFlags.AnyPopup);
+					// (Not while a create / rename / delete dialog is pending or open: it would take
+					// the drawer down with it, which looked like "+ Add does nothing".)
+					bool dialogBusy = mCBModalOpen || mOpenCBNew || mOpenCBRename || mOpenCBDelete || mOpenNewProject || mOpenCBNoProject;
+					if (mCBDrawerFrames > 2 && !focused && !anyPopup && !dialogBusy)
+						open = false;
+					if (Gui.IsKeyPressed(Key.Escape, false) && !anyPopup && !Gui.igIsAnyItemActive() && !dialogBusy)
+						open = false;
+				}
+				Gui.End();
+				mCBDrawerFrames++;
+				if (!open)
+					mCBDrawerOpen = false;
+			}
+			ProcessCBRequests();
+		}
+
+		public void ToggleProjectDrawer()
+		{
+			mCBDrawerOpen = !mCBDrawerOpen;
+			mCBDrawerFrames = 0;
+		}
+
+		void ProcessCBRequests()
+		{
+			if (!mCBNavigateRequest.IsEmpty)
+			{
+				String path = scope .(mCBNavigateRequest);
+				mCBNavigateRequest.Clear();
+				NavigateCB(path);
+			}
+			if (mCBOpenRequest != null)
+			{
+				let item = mCBOpenRequest;
+				mCBOpenRequest = null;
+				OpenAsset(item);
+				delete item;
+			}
+		}
+
+		static bool GreenButton(StringView label)
+		{
+			Gui.igPushStyleColor_U32(Col.Button, Gui.Color(36, 120, 40));
+			Gui.igPushStyleColor_U32(Col.ButtonHovered, Gui.Color(52, 150, 56));
+			Gui.igPushStyleColor_U32(Col.ButtonActive, Gui.Color(30, 100, 34));
+			bool r = Gui.Button(label);
+			Gui.igPopStyleColor(3);
+			return r;
+		}
+
+		void DrawCBBody(bool drawer)
+		{
+			if (mProjectRoot.IsEmpty || mCBTree == null)
+			{
+				Gui.TextDisabled("No project folder open.");
+				if (Gui.Button("Open Project Folder..."))
+					OpenFolderPicker();
+				Gui.SameLine();
+				if (Gui.Button("New Project..."))
+					StartNewProject();
+				return;
+			}
+
+			// ---- toolbar: + Add, Save All | up, breadcrumb ............ search
+			if (GreenButton("+ Add"))
+				Gui.OpenPopup("##cbadd");
+			if (Gui.igIsItemHovered(0))
+				Gui.Tooltip("Create a folder, class, struct, enum, interface, file or project");
+			if (Gui.BeginPopup("##cbadd"))
+			{
+				DrawAddMenu(mCBFolder);
+				Gui.EndPopup();
+			}
+			Gui.SameLine();
+			if (Gui.Button(scope $"{Icon.SaveAll}  Save All"))
+				SaveAll();
+			Gui.SameLine();
+			DrawCBFilterBar();
+			Gui.SameLine(0, 16);
+			let dir = FindCBDir(mCBFolder);
+			Gui.igBeginDisabled(dir == null || dir.Parent == null);
+			if (Gui.igArrowButton("##cbup", Dir.Up) && dir?.Parent != null)
+				mCBNavigateRequest.Set(dir.Parent.Path);
+			Gui.igEndDisabled();
+			if (Gui.igIsItemHovered(0))
+				Gui.Tooltip("Up one folder");
+			Gui.SameLine();
+			DrawBreadcrumb(dir);
+
+			// Right-aligned search box; on a narrow panel it shrinks rather than covering the
+			// breadcrumb (its last button ends at the last item's right edge).
+			float afterCrumb = Gui.igGetItemRectMax().x - Gui.igGetWindowPos().x + 12 * Look.Scale;
+			float rightPad = 40 * Look.Scale;
+			float searchW = Math.Min(260 * Look.Scale, Gui.igGetWindowSize().x * 0.3f);
+			searchW = Math.Max(Math.Min(searchW, Gui.igGetWindowSize().x - afterCrumb - rightPad), 90 * Look.Scale);
+			Gui.SameLine(Math.Max(afterCrumb, Gui.igGetWindowSize().x - searchW - rightPad));
+			Gui.igSetNextItemWidth(searchW);
+			Gui.igInputTextWithHint("##cbsearch", scope $"{Icon.Search}  Search assets", mCBSearch.Ptr, (.)mCBSearch.Capacity, 0, null, null);
+			Gui.SameLine();
+			if (Gui.SmallButton("...##cbopts"))
+				Gui.OpenPopup("##cbopts");
+			if (Gui.BeginPopup("##cbopts"))
+			{
+				Gui.Text("Tile size");
+				Gui.igSetNextItemWidth(180 * Look.Scale);
+				Gui.igSliderFloat("##tilesize", &mCBTileSize, 56, 160, "%.0f", 0);
+				if (Gui.MenuItem("Refresh", "F5"))
+					ScanProject();
+				Gui.EndPopup();
+			}
+			Gui.Separator();
+
+			// ---- folder tree | asset grid
+			if (Gui.igBeginChild_Str("##cbtree", .(cTreeWidth, 0), ChildFlags.ResizeX, 0))
+			{
+				DrawCBTree(mCBTree, true);
+				mCBReveal = false;
+			}
+			Gui.igEndChild();
+			Gui.SameLine();
+			Gui.igBeginGroup();
+			float footer = Gui.igGetFrameHeight();
+			List<CBItem> items = scope .();
+			defer { ClearAndDeleteItems!(items); }
+			CollectCBItems(mCBSearch.View, items);
+			FilterCBItems(items);
+			Gui.igPushStyleColor_U32(Col.ChildBg, Gui.Color(21, 21, 21));
+			if (Gui.igBeginChild_Str("##cbgrid", .(0, -footer), 0, 0))
+				DrawCBGrid(items, drawer);
+			Gui.igEndChild();
+			Gui.igPopStyleColor(1);
+			int selectedCount = 0;
+			for (let it in items)
+				if (IsCBSelected(it.Key))
+					selectedCount++;
+			String foot = scope .();
+			foot.AppendF("{} item{}", items.Count, (items.Count == 1) ? "" : "s");
+			if (selectedCount > 0)
+				foot.AppendF(" ({} selected)", selectedCount);
+			if (CBFilterActive)
+				foot.Append("   - filtered");
+			if (!mCBSearch.View.IsEmpty)
+				foot.Append("   - searching the whole project");
+			Gui.TextDisabled(foot);
+			Gui.igEndGroup();
+			ProcessCBDrop();
+		}
+
+		void DrawBreadcrumb(CBDir dir)
+		{
+			List<CBDir> chain = scope .();
+			for (var d = dir; d != null; d = d.Parent)
+				chain.Insert(0, d);
+			Gui.igPushStyleColor_U32(Col.Button, 0);
+			Gui.igPushStyleColor_U32(Col.ButtonHovered, Gui.Color(255, 255, 255, 30));
+			for (let d in chain)
+			{
+				if (@d.Index > 0)
+				{
+					Gui.SameLine(0, 2);
+					Gui.TextDisabled(">");
+					Gui.SameLine(0, 2);
+				}
+				Gui.PushID((int32)@d.Index);
+				bool last = @d.Index == chain.Count - 1;
+				if (last)
+					Gui.igPushStyleColor_U32(Col.Text, Gui.Color(255, 255, 255));
+				else
+					Gui.igPushStyleColor_U32(Col.Text, Gui.Color(170, 170, 170));
+				if (Gui.Button(d.Name) && !last)
+					mCBNavigateRequest.Set(d.Path);
+				Gui.igPopStyleColor(1);
+				if (@d.Index == 0 && Gui.igIsItemHovered(0))
+					Gui.Tooltip(mProjectRoot);
+				Gui.PopID();
+			}
+			Gui.igPopStyleColor(2);
+		}
+
+		void DrawCBTree(CBDir dir, bool isRoot)
+		{
+			var d = dir;
+			String name = scope .(d.Name);
+			bool chainSelected = ProjectIndex.SamePath(d.Path, mCBFolder);
+			if (!isRoot)
+			{
+				// Collapse single-folder chains ("ClockWorkEngine/src") like an IDE does.
+				while (d.Files.IsEmpty && d.Dirs.Count == 1)
+				{
+					d = d.Dirs[0];
+					name.AppendF("/{}", d.Name);
+					if (ProjectIndex.SamePath(d.Path, mCBFolder))
+						chainSelected = true;
+				}
+			}
+			int32 flags = TreeNodeFlags.OpenOnArrow | TreeNodeFlags.SpanAvailWidth | (1 << 6) /* OpenOnDoubleClick */;
+			if (d.Dirs.IsEmpty)
+				flags |= TreeNodeFlags.Leaf;
+			if (chainSelected)
+				flags |= TreeNodeFlags.Selected;
+			if (isRoot)
+				flags |= TreeNodeFlags.DefaultOpen;
+			if (mCBReveal && IsUnder(mCBFolder, d.Path))
+				Gui.igSetNextItemOpen(true, Cond.Always);
+			String label = scope .();
+			label.AppendF("{}##{}", name, d.Path);
+			Gui.igPushStyleColor_U32(Col.Text, isRoot ? Gui.Color(230, 230, 230) : Gui.Color(214, 190, 136));
+			bool open = Gui.TreeNode(label, flags);
+			Gui.igPopStyleColor(1);
+			CBFolderDropTarget(d.Path);
+			if (Gui.igIsItemClicked(0) && !Gui.igIsItemToggledOpen())
+				mCBNavigateRequest.Set(d.Path);
+			if (Gui.igBeginPopupContextItem(null, PopupFlags.MouseButtonRight))
+			{
+				Gui.TextDisabled(name);
+				Gui.Separator();
+				DrawAddMenu(d.Path);
+				if (!isRoot)
+				{
+					Gui.Separator();
+					if (Gui.MenuItem("Rename", "F2"))
+					{
+						CBItem item = new .();
+						item.Kind = .Folder;
+						item.Name.Set(d.Name);
+						item.Path.Set(d.Path);
+						CBItem.MakeKey(.Folder, d.Path, "", item.Key);
+						StartRename(item);
+						delete item;
+					}
+					if (Gui.MenuItem("Delete", "Del"))
+					{
+						ClearAndDeleteItems!(mCBDeleteItems);
+						CBItem item = new .();
+						item.Kind = .Folder;
+						item.Name.Set(d.Name);
+						item.Path.Set(d.Path);
+						CBItem.MakeKey(.Folder, d.Path, "", item.Key);
+						mCBDeleteItems.Add(item);
+						mOpenCBDelete = true;
+					}
+				}
+				Gui.EndPopup();
+			}
+			if (open)
+			{
+				for (let sub in d.Dirs)
+					DrawCBTree(sub, false);
+				Gui.TreePop();
+			}
+		}
+
+		/// Text in a table cell: cut to the cell with "..." (a tooltip carries the whole text).
+		/// `color` 0 draws it in the normal text colour; `dim` in the disabled one.
+		static void CellText(StringView text, uint32 color = 0, bool dim = false)
+		{
+			String fit = scope .();
+			FitText(text, Math.Max(8 * Look.Scale, Gui.igGetContentRegionAvail().x), fit);
+			if (color != 0)
+				Gui.TextColored(color, fit);
+			else if (dim)
+				Gui.TextDisabled(fit);
+			else
+				Gui.Text(fit);
+		}
+
+		/// A full-row Selectable whose text is cut to the cell with "..." (the id stays the same as
+		/// the text changes with the width).
+		static bool CellSelectable(StringView text, int32 flags, StringView id)
+		{
+			String fit = scope .();
+			FitText(text, Math.Max(8 * Look.Scale, Gui.igGetContentRegionAvail().x), fit);
+			fit.AppendF("###{}", id);
+			return Gui.Selectable(fit, false, flags);
+		}
+
+		static void FitText(StringView text, float maxW, String outText)
+		{
+			outText.Set(text);
+			if (Gui.CalcTextSize(outText).x <= maxW)
+				return;
+			while (outText.Length > 1)
+			{
+				outText.RemoveFromEnd(1);
+				String probe = scope .(outText);
+				probe.Append("...");
+				if (Gui.CalcTextSize(probe).x <= maxW)
+				{
+					outText.Set(probe);
+					return;
+				}
+			}
+		}
+
+		/// Splits a name over at most two lines (breaking at a word / camel-case boundary when
+		/// possible); the second line gets "..." when it still doesn't fit.
+		static void WrapName(StringView text, float maxW, String line1, String line2)
+		{
+			if (Gui.CalcTextSize(text).x <= maxW)
+			{
+				line1.Set(text);
+				return;
+			}
+			int fit = 1;
+			while (fit < text.Length && Gui.CalcTextSize(text.Substring(0, fit + 1)).x <= maxW)
+				fit++;
+			int brk = -1;
+			for (int i = fit; i > fit / 2; i--)
+			{
+				let c = text[i];
+				let prev = text[i - 1];
+				if ((c.IsUpper && !prev.IsUpper) || prev == '_' || prev == '-' || prev == '.' || prev == ' ')
+				{
+					brk = i;
+					break;
+				}
+			}
+			// No word boundary: never split mid-word ("CApplicatio / n"); shorten with "..." instead.
+			if (brk < 0)
+			{
+				FitText(text, maxW, line1);
+				return;
+			}
+			line1.Set(text.Substring(0, brk));
+			FitText(text.Substring(brk), maxW, line2);
+		}
+
+		void DrawCBGrid(List<CBItem> items, bool drawer)
+		{
+			let search = mCBSearch.View;
+			float tile = Math.Clamp(mCBTileSize, 56, 160);
+			float fontH = Gui.igGetFontSize();
+			float labelH = fontH * 3 + 8;
+			float spacing = 10;
+			Gui.igSetCursorPos(.(Gui.igGetCursorPos().x + 6, Gui.igGetCursorPos().y + 6));
+			float availW = Gui.igGetContentRegionAvail().x - 6;
+			int cols = Math.Max(1, (int)((availW + spacing) / (tile + spacing)));
+			let dl = Gui.igGetWindowDrawList();
+			float startX = Gui.igGetCursorPos().x;
+
+			if (items.IsEmpty)
+			{
+				Gui.igSetCursorPos(.(startX + 8, Gui.igGetCursorPos().y + 8));
+				if (!search.IsEmpty)
+					Gui.TextDisabled("No assets match the search.");
+				else
+				{
+					Gui.TextDisabled("This folder is empty.");
+					Gui.igSetCursorPos(.(startX + 8, Gui.igGetCursorPos().y));
+					Gui.TextDisabled("Right-click or use + Add to create a class, struct, enum, interface or folder.");
+				}
+			}
+
+			for (let item in items)
+			{
+				int i = @item.Index;
+				if (i % cols != 0)
+					Gui.SameLine(0, spacing);
+				else if (i > 0)
+				{
+					Gui.igSetCursorPos(.(startX, Gui.igGetCursorPos().y + 4));
+				}
+				Gui.PushID(item.Key);
+				Gui.igInvisibleButton("##tile", .(tile, tile + labelH), ButtonFlags.MouseButtonLeft | ButtonFlags.MouseButtonRight);
+				CBTileDragDrop(item);
+				bool hovered = Gui.igIsItemHovered(0);
+				bool selected = IsCBSelected(item.Key);
+				if (mCBScrollTo == item.Key)
+				{
+					Gui.igSetScrollHereY(0.5f);
+					mCBScrollTo.Clear();
+				}
+				if (Gui.igIsItemClicked(0))
+				{
+					if (Gui.IsCtrlDown)
+						CBToggle(item.Key);
+					else if (Gui.IsShiftDown && !mCBAnchor.IsEmpty)
+					{
+						int anchor = -1;
+						for (let other in items)
+							if (other.Key == mCBAnchor)
+								anchor = @other.Index;
+						if (anchor < 0)
+							CBSelectOnly(item.Key);
+						else
+						{
+							ClearAndDeleteItems!(mCBSelected);
+							for (int k = Math.Min(anchor, i); k <= Math.Max(anchor, i); k++)
+								mCBSelected.Add(new String(items[k].Key));
+						}
+					}
+					else
+						CBSelectOnly(item.Key);
+				}
+				if (hovered && Gui.igIsMouseDoubleClicked_Nil(0))
+				{
+					delete mCBOpenRequest;
+					mCBOpenRequest = item.Clone();
+				}
+				if (Gui.igIsItemClicked(1))
+				{
+					if (!selected)
+						CBSelectOnly(item.Key);
+					mCBItemCtxRequest = true;
+				}
+				// Drag a folder or file to the OS? Not supported; drag-to-graph is not either.
+				selected = IsCBSelected(item.Key);
+				DrawTile(dl, item, Gui.igGetItemRectMin(), tile, labelH, hovered, selected);
+				if (Gui.igIsItemHovered(1 << 12 /* ForTooltip */))
+					DrawTileTooltip(item);
+				Gui.PopID();
+			}
+			Gui.igDummy(.(0, 8));
+
+			// Click on empty space clears the selection.
+			if (Gui.igIsWindowHovered(0) && !Gui.igIsAnyItemHovered() && Gui.igIsMouseClicked_Bool(0, false))
+				CBSelectOnly("");
+
+			// Keyboard: F2 rename, Del delete, Enter open.
+			if (Gui.igIsWindowFocused(FocusedFlags.RootAndChildWindows) && !Gui.igIsAnyItemActive())
+			{
+				List<CBItem> sel = scope .();
+				for (let it in items)
+					if (IsCBSelected(it.Key))
+						sel.Add(it);
+				if (Gui.IsKeyPressed(573 /* F2 */, false) && sel.Count == 1)
+					StartRename(sel[0]);
+				if (Gui.IsKeyPressed(Key.Delete, false) && !sel.IsEmpty)
+				{
+					ClearAndDeleteItems!(mCBDeleteItems);
+					for (let it in sel)
+						mCBDeleteItems.Add(it.Clone());
+					mOpenCBDelete = true;
+				}
+				if (Gui.IsKeyPressed(Key.Enter, false) && sel.Count == 1)
+				{
+					delete mCBOpenRequest;
+					mCBOpenRequest = sel[0].Clone();
+				}
+				if (Gui.IsKeyPressed(Key.F5, false))
+				{
+					ScanProject();
+					mCBTookF5 = true; // a refresh, not Start Debugging
+				}
+				if (Gui.IsCtrlDown && Gui.IsKeyPressed(Key.A, false))
+				{
+					ClearAndDeleteItems!(mCBSelected);
+					for (let it in items)
+						mCBSelected.Add(new String(it.Key));
+				}
+			}
+
+			// Item context menu (opened from a tile right-click).
+			if (mCBItemCtxRequest)
+			{
+				mCBItemCtxRequest = false;
+				Gui.OpenPopup("##cbitemctx");
+			}
+			if (Gui.BeginPopup("##cbitemctx"))
+			{
+				List<CBItem> sel = scope .();
+				for (let it in items)
+					if (IsCBSelected(it.Key))
+						sel.Add(it);
+				if (sel.IsEmpty)
+					Gui.igCloseCurrentPopup();
+				else
+					DrawItemMenu(sel);
+				Gui.EndPopup();
+			}
+			// Empty-space context menu: the + Add menu.
+			if (Gui.igBeginPopupContextWindow("##cbvoidctx", PopupFlags.MouseButtonRight | PopupFlags.NoOpenOverItems))
+			{
+				DrawAddMenu(mCBFolder);
+				Gui.EndPopup();
+			}
+		}
+
+		void DrawTile(ImDrawList* dl, CBItem item, ImVec2 p0, float tile, float labelH, bool hovered, bool selected)
+		{
+			ImVec2 p1 = .(p0.x + tile, p0.y + tile + labelH);
+			let kc = AssetStyle.KindColor(item.Kind);
+			float fontH = Gui.igGetFontSize();
+			String name = scope .(item.Name);
+			if (item.Modified)
+				name.Append('*');
+			String line1 = scope .();
+			String line2 = scope .();
+			if (item.Kind == .Folder)
+			{
+				if (selected)
+					Gui.ImDrawList_AddRectFilled(dl, p0, .(p1.x, p1.y - fontH + 4), Theme.WithAlpha(Look.Primary, 120), 5, 0);
+				else if (hovered)
+					Gui.ImDrawList_AddRectFilled(dl, p0, .(p1.x, p1.y - fontH + 4), Gui.Color(255, 255, 255, 20), 5, 0);
+				AssetStyle.DrawIcon(dl, .Folder, .(p0.x + tile / 2, p0.y + tile * 0.52f), tile * 0.82f, kc);
+				WrapName(name, tile - 4, line1, line2);
+				float w1 = Gui.CalcTextSize(line1).x;
+				AssetStyle.Text(dl, line1, .(p0.x + (tile - w1) / 2, p0.y + tile + 2), fontH, Gui.Color(225, 225, 225));
+				if (!line2.IsEmpty)
+				{
+					float w2 = Gui.CalcTextSize(line2).x;
+					AssetStyle.Text(dl, line2, .(p0.x + (tile - w2) / 2, p0.y + tile + 2 + fontH), fontH, Gui.Color(225, 225, 225));
+				}
+				return;
+			}
+			uint32 card = selected ? Theme.Mix(Look.Header, Look.Primary, 0.35f) : (hovered ? Gui.Color(56, 56, 56) : Gui.Color(40, 40, 40));
+			Gui.ImDrawList_AddRectFilled(dl, .(p0.x + 3, p0.y + 4), .(p1.x + 3, p1.y + 4), Gui.Color(0, 0, 0, 90), 6, 0);
+			Gui.ImDrawList_AddRectFilled(dl, p0, p1, card, 6, 0);
+			// Thumbnail: dark gradient tinted with the kind's color, icon in the middle.
+			ImVec2 t0 = .(p0.x + 1, p0.y + 1);
+			ImVec2 t1 = .(p1.x - 1, p0.y + tile - 3);
+			uint32 top = Theme.Mix(Gui.Color(26, 26, 26), kc, hovered ? 0.36f : 0.26f);
+			uint32 bottom = Gui.Color(14, 14, 14);
+			Gui.ImDrawList_AddRectFilled(dl, t0, t1, top, 6, DrawFlags.RoundCornersTop);
+			Gui.ImDrawList_AddRectFilledMultiColor(dl, .(t0.x, t0.y + 6), t1, top, top, bottom, bottom);
+			AssetStyle.DrawIcon(dl, item.Kind, .(p0.x + tile / 2, p0.y + (tile - 3) / 2), tile * 0.7f, kc);
+			// Kind strip.
+			Gui.ImDrawList_AddRectFilled(dl, .(p0.x, p0.y + tile - 3), .(p1.x, p0.y + tile), kc, 0, 0);
+			// Name (up to two lines) and kind at the bottom, like UE.
+			WrapName(name, tile - 10, line1, line2);
+			uint32 nameCol = item.Modified ? Theme.Warning : Gui.Color(235, 235, 235);
+			AssetStyle.Text(dl, line1, .(p0.x + 5, p0.y + tile + 3), fontH, nameCol);
+			if (!line2.IsEmpty)
+				AssetStyle.Text(dl, line2, .(p0.x + 5, p0.y + tile + 3 + fontH), fontH, nameCol);
+			String kindText = scope .();
+			FitText(AssetStyle.KindLabel(item.Kind), tile - 10, kindText);
+			AssetStyle.Text(dl, kindText, .(p0.x + 5, p1.y - fontH * 0.86f - 4), fontH * 0.86f, Gui.Color(140, 140, 140));
+			if (selected)
+				Gui.ImDrawList_AddRect(dl, p0, p1, Look.Primary, 6, 2, 0);
+			else if (hovered)
+				Gui.ImDrawList_AddRect(dl, p0, p1, Look.Hover2, 6, 1, 0);
+		}
+
+		void DrawTileTooltip(CBItem item)
+		{
+			if (!Gui.igBeginTooltip())
+				return;
+			Gui.Text(item.Name);
+			Gui.TextColored(AssetStyle.KindColor(item.Kind), AssetStyle.KindLabel(item.Kind));
+			String rel = scope .();
+			RelativeToRoot(item.Path, rel);
+			if (item.IsType)
+			{
+				Gui.TextDisabled(scope $"{rel}  (line {item.Line})");
+				if (item.Kind == .Enum)
+					Gui.TextDisabled("Double-click to edit the enumerators");
+				else
+					Gui.TextDisabled(scope $"{item.Methods} function{(item.Methods == 1) ? "" : "s"}, {item.Fields} variable{(item.Fields == 1) ? "" : "s"}");
+				if (!item.Match.IsEmpty)
+					Gui.TextColored(Theme.Warning, scope $"matches {item.Match}");
+			}
+			else
+				Gui.TextDisabled(rel);
+			if (item.Modified)
+				Gui.TextColored(Theme.Warning, "Unsaved changes");
+			Gui.igEndTooltip();
+		}
+
+		void MenuIcon(AssetKind kind)
+		{
+			let min = Gui.igGetItemRectMin();
+			let max = Gui.igGetItemRectMax();
+			float h = max.y - min.y;
+			AssetStyle.DrawIcon(Gui.igGetWindowDrawList(), kind, .(min.x + h * 0.5f, min.y + h * 0.5f), h * 0.85f, AssetStyle.KindColor(kind));
+		}
+
+		bool IconMenuItem(AssetKind kind, StringView label, StringView shortcut = "")
+		{
+			String l = scope .();
+			l.AppendF("      {}", label);
+			bool r = Gui.MenuItem(l, shortcut);
+			MenuIcon(kind);
+			return r;
+		}
+
+		/// The "+ Add" / right-click menu, acting on `folder`.
+		void DrawAddMenu(StringView folderIn)
+		{
+			String folder = scope .(folderIn);
+			Gui.TextDisabled("CREATE");
+			if (IconMenuItem(.Folder, "New Folder"))
+				StartNewAsset(.Folder, folder);
+			Gui.Separator();
+			Gui.TextDisabled("BEEF TYPES");
+			if (IconMenuItem(.Class, "New Class..."))
+				StartNewAsset(.Class, folder);
+			if (IconMenuItem(.Struct, "New Struct..."))
+				StartNewAsset(.Struct, folder);
+			if (IconMenuItem(.Enum, "New Enum..."))
+				StartNewAsset(.Enum, folder);
+			if (IconMenuItem(.Interface, "New Interface..."))
+				StartNewAsset(.Interface, folder);
+			if (IconMenuItem(.Library, "New Node Library..."))
+				StartNewAsset(.Library, folder);
+			Gui.Separator();
+			if (IconMenuItem(.File, "New Beef File (empty)..."))
+				StartNewAsset(.File, folder);
+			if (Gui.MenuItem("      New Project..."))
+				StartNewProject(folder);
+			Gui.Separator();
+			if (Gui.MenuItem("Show in Explorer"))
+				ShowInExplorer(folder, false);
+			if (Gui.MenuItem("Copy Path"))
+				Gui.igSetClipboardText(folder);
+			if (Gui.MenuItem("Refresh", "F5"))
+				ScanProject();
+		}
+
+		/// Right-click menu of the selected tiles.
+		void DrawItemMenu(List<CBItem> sel)
+		{
+			let first = sel[0];
+			if (sel.Count == 1)
+			{
+				Gui.TextColored(AssetStyle.KindColor(first.Kind), AssetStyle.KindLabel(first.Kind));
+				Gui.SameLine();
+				Gui.Text(first.Name);
+			}
+			else
+				Gui.Text(scope $"{sel.Count} items");
+			Gui.Separator();
+			if (sel.Count == 1 && Gui.MenuItem("Open", "Enter"))
+			{
+				delete mCBOpenRequest;
+				mCBOpenRequest = first.Clone();
+			}
+			if (sel.Count == 1 && first.Kind != .Globals && Gui.MenuItem("Rename", "F2"))
+				StartRename(first);
+			if (Gui.MenuItem("Delete", "Del"))
+			{
+				ClearAndDeleteItems!(mCBDeleteItems);
+				for (let it in sel)
+					mCBDeleteItems.Add(it.Clone());
+				mOpenCBDelete = true;
+			}
+			Gui.Separator();
+			if (Gui.MenuItem("Copy Path"))
+			{
+				String paths = scope .();
+				for (let it in sel)
+				{
+					if (@it.Index > 0)
+						paths.Append('\n');
+					paths.Append(it.Path);
+				}
+				Gui.igSetClipboardText(paths);
+			}
+			if (sel.Count == 1 && first.IsType && Gui.MenuItem("Copy Type Name"))
+				Gui.igSetClipboardText(scope String(first.TypeName));
+			if (sel.Count == 1 && Gui.MenuItem("Show in Explorer"))
+				ShowInExplorer(first.Path, first.Kind != .Folder);
+		}
+
+		void ShowInExplorer(StringView path, bool isFile)
+		{
+			ProcessStartInfo psi = scope .();
+			String args = scope .();
+#if BF_PLATFORM_WINDOWS
+			psi.SetFileName("explorer.exe");
+			String winPath = scope .(path);
+			winPath.Replace('/', '\\');
+			if (isFile)
+				args.AppendF("/select,\"{}\"", winPath);
+			else
+				args.AppendF("\"{}\"", winPath);
+#else
+			psi.SetFileName("xdg-open");
+			String dir = scope .(path);
+			if (isFile)
+			{
+				dir.Clear();
+				Path.GetDirectoryPath(path, dir).IgnoreError(); // a root has no parent: dir stays empty
+			}
+			args.AppendF("\"{}\"", dir);
+#endif
+			psi.SetArguments(args);
+			psi.UseShellExecute = false;
+			psi.CreateNoWindow = true;
+			SpawnedProcess proc = scope .();
+			if (proc.Start(psi) case .Err)
+				SetStatus("Could not open the file browser");
+		}
+
+		// ------------------------------------------------------------------ opening assets
+
+		/// Loads a file into the session without making it the current document.
+		SourceDocument LoadDocQuiet(StringView path)
+		{
+			var doc = FindDoc(path);
+			if (doc != null)
+				return doc;
+			doc = new SourceDocument();
+			if (doc.Load(path) case .Err)
+			{
+				delete doc;
+				SetStatus(scope $"Could not open {path}");
+				return null;
+			}
+			if (File.GetLastWriteTime(path) case .Ok(let t))
+				doc.DiskTime = t;
+			mDocs.Add(doc);
+			Index.Update(doc.FilePath, doc.Unit);
+			doc.IndexedVersion = doc.Version;
+			return doc;
+		}
+
+		void OpenAsset(CBItem item)
+		{
+			switch (item.Kind)
+			{
+			case .Folder:
+				NavigateCB(item.Path);
+			case .File:
+				if (OpenFile(item.Path, false) != null)
+				{
+					mSelectSourceFileTab = true;
+					Panels.Focus(Panels.BeefSourceId);
+				}
+			case .Enum:
+				OpenEnumEditor(item.Path, item.TypeName);
+			default:
+				OpenTypeEditor(item.Path, item.TypeName);
+			}
+		}
+
+		// ------------------------------------------------------------------ create
+
+		void StartNewAsset(AssetKind kind, StringView folder)
+		{
+			ResetCreateTypeOptions();
+			mCBNewKind = kind;
+			if (kind == .Library)
+				mCBNewTemplate = 2;
+			mCBNewFolder.Set(folder);
+			StringView baseName;
+			switch (kind)
+			{
+			case .Folder: baseName = "NewFolder";
+			case .Class: baseName = "NewClass";
+			case .Struct: baseName = "NewStruct";
+			case .Enum: baseName = "NewEnum";
+			case .Interface: baseName = "INewInterface";
+			case .Library: baseName = "NewLibrary";
+			case .File: baseName = "NewFile";
+			default: baseName = "NewAsset";
+			}
+			if (!CheckWritable())
+				return;
+			String target = scope .();
+			ResolveTarget(kind, folder, target);
+			String ns = scope .();
+			if (kind != .Folder)
+				InferNamespace(target, ns);
+			String name = scope .(baseName);
+			String err = scope .();
+			for (int n = 1; n < 100 && !ValidateNewAsset(kind, target, name, ns, err); n++)
+			{
+				name.Set(baseName);
+				name.AppendF("{}", n);
+				err.Clear();
+			}
+			mCBNameBuf.Set(name);
+			mNsCacheFolder.Clear();
+			mOpenCBNew = true;
+		}
+
+		/// Namespace for a new file: the most common one in the folder's .bf files (then its
+		/// parents'), else the project name.
+		void InferNamespace(StringView folder, String outNs)
+		{
+			String dirPath = scope .(folder);
+			for (int depth = 0; depth < 8 && !dirPath.IsEmpty; depth++)
+			{
+				Dictionary<String, int> counts = scope .();
+				defer { for (let k in counts.Keys) delete k; }
+				let dir = FindCBDir(dirPath);
+				if (dir != null)
+				{
+					for (let path in dir.Files)
+					{
+						String text = scope .();
+						let doc = FindDoc(path);
+						if (doc != null && doc.Unit != null)
+							text.Set(doc.Text);
+						else if (File.ReadAllText(path, text, true) case .Err)
+							continue;
+						let unit = Parser.Parse(text);
+						defer delete unit;
+						for (let m in unit.Members)
+						{
+							if (m.Kind != .Namespace || m.Name.IsEmpty)
+								continue;
+							String ns = scope .(m.Name);
+							ns.Trim();
+							if (counts.TryGetValue(ns, let c))
+								counts[ns] = c + 1;
+							else
+								counts[new String(ns)] = 1;
+						}
+					}
+				}
+				String best = null;
+				int bestCount = 0;
+				for (let kv in counts)
+				{
+					if (kv.value > bestCount || (kv.value == bestCount && best != null && StringView.Compare(kv.key, best, false) < 0))
+					{
+						best = kv.key;
+						bestCount = kv.value;
+					}
+				}
+				if (best != null)
+				{
+					outNs.Set(best);
+					return;
+				}
+				if (dir == null || dir.Parent == null)
+					break;
+				dirPath.Set(dir.Parent.Path);
+			}
+			// The project name: BeefProj.toml above the folder, else the root folder's name.
+			String probe = scope .(folder);
+			for (int depth = 0; depth < 16 && !probe.IsEmpty; depth++)
+			{
+				String toml = scope .();
+				JoinPath(probe, "BeefProj.toml", toml);
+				String content = scope .();
+				if (File.ReadAllText(toml, content) case .Ok)
+				{
+					for (var line in content.Split('\n'))
+					{
+						line.Trim();
+						if (line.StartsWith("Name") && line.Contains('"'))
+						{
+							int q0 = line.IndexOf('"');
+							int q1 = line.LastIndexOf('"');
+							if (q1 > q0)
+							{
+								SanitizeIdentifier(line.Substring(q0 + 1, q1 - q0 - 1), outNs);
+								return;
+							}
+						}
+					}
+				}
+				if (ProjectIndex.SamePath(probe, mProjectRoot))
+					break;
+				String parent = scope .();
+				// At a root there is no parent (.Err); stop walking.
+				if (Path.GetDirectoryPath(probe, parent) case .Err || parent == probe)
+					break;
+				probe.Set(parent);
+			}
+			String rootName = scope .();
+			Path.GetFileName(mProjectRoot, rootName);
+			SanitizeIdentifier(rootName, outNs);
+		}
+
+		static void SanitizeIdentifier(StringView text, String outId)
+		{
+			outId.Clear();
+			for (let c in text)
+				outId.Append((c.IsLetterOrDigit || c == '_') ? c : '_');
+			if (outId.IsEmpty || outId[0].IsDigit)
+				outId.Insert(0, "_");
+		}
+
+		static void MakeTypeTemplate(AssetKind kind, StringView ns, StringView name, String outText)
+		{
+			outText.Append("using System;\n\n");
+			outText.AppendF("namespace {}\n{{\n", ns);
+			switch (kind)
+			{
+			case .Class:
+				outText.AppendF("\tclass {}\n\t{{\n", name);
+				outText.Append("\t\tpublic this()\n\t\t{\n\t\t}\n\n");
+				outText.Append("\t\tpublic void Update()\n\t\t{\n\t\t}\n");
+				outText.Append("\t}\n");
+			case .Struct:
+				outText.AppendF("\tstruct {}\n\t{{\n", name);
+				outText.Append("\t\tpublic int Value;\n");
+				outText.Append("\t}\n");
+			case .Enum:
+				outText.AppendF("\tenum {}\n\t{{\n", name);
+				outText.Append("\t\tNewEnumerator0,\n\t\tNewEnumerator1\n");
+				outText.Append("\t}\n");
+			case .Interface:
+				outText.AppendF("\tinterface {}\n\t{{\n", name);
+				outText.Append("\t}\n");
+			default:
+			}
+			outText.Append("}\n");
+		}
+
+		void CreateAsset(AssetKind kind, StringView folderIn, StringView nameIn, bool allowOutsideProject = false)
+		{
+			if (!CheckWritable())
+				return;
+			String folder = scope .(folderIn);
+			String name = scope .(nameIn);
+			name.Trim();
+			String target = scope .();
+			let placement = ResolveTarget(kind, folder, target);
+			if (placement == .NoProject && !allowOutsideProject)
+			{
+				// Not compiled anywhere: let the user decide instead of silently creating a dead file.
+				mCBPendKind = kind;
+				mCBPendFolder.Set(folder);
+				mCBPendName.Set(name);
+				mOpenCBNoProject = true;
+				return;
+			}
+			if (placement == .Redirected)
+				SetStatus(scope $"{folder} is not a source folder: creating in the project's src folder.");
+			String ns = scope .();
+			if (kind != .Folder)
+				InferNamespace(target, ns);
+			String err = scope .();
+			if (!Directory.Exists(target) && placement == .Redirected)
+			{
+				if (Directory.CreateDirectory(target) case .Err)
+				{
+					ReportError(scope $"Could not create {target}.");
+					return;
+				}
+			}
+			if (!ValidateNewAsset(kind, target, name, ns, err))
+			{
+				ReportError(err);
+				return;
+			}
+			String path = scope .();
+			switch (kind)
+			{
+			case .Folder:
+				JoinPath(target, name, path);
+				if (AssetOps.CreateFolder(path, err) case .Err)
+				{
+					ReportError(err);
+					return;
+				}
+				ScanProject();
+				String key = scope .();
+				CBItem.MakeKey(.Folder, FindCBDir(path)?.Path ?? path, "", key);
+				CBSelectOnly(key);
+				mCBScrollTo.Set(key);
+				SetStatus(scope $"Created folder {name}");
+				return;
+			case .File:
+				if (name.EndsWith(".bf", .OrdinalIgnoreCase))
+					name.RemoveFromEnd(3);
+				JoinPath(target, scope String()..AppendF("{}.bf", name), path);
+				String text = scope .();
+				text.AppendF("using System;\n\nnamespace {}\n{{\n}}\n", ns);
+				if (AssetOps.CreateTextFile(path, text, err) case .Err)
+				{
+					ReportError(err);
+					return;
+				}
+				ScanProject();
+				String key = scope .();
+				CBItem.MakeKey(.File, path, "", key);
+				CBSelectOnly(key);
+				mCBScrollTo.Set(key);
+				if (OpenFile(path, false) != null)
+					mSelectSourceFileTab = true;
+				SetStatus(scope $"Created {name}.bf");
+				return;
+			default:
+			}
+			JoinPath(target, scope String()..AppendF("{}.bf", name), path);
+			String text = scope .();
+			MakeNewTypeText(kind, ns, name, text);
+			if (AssetOps.CreateTextFile(path, text, err) case .Err)
+			{
+				ReportError(err);
+				return;
+			}
+			ScanProject();
+			CBItem item = scope .();
+			item.Kind = kind;
+			item.Name.Set(name);
+			item.TypeName.Set(name);
+			item.Path.Set(path);
+			CBItem.MakeKey(kind, path, name, item.Key);
+			CBSelectOnly(item.Key);
+			mCBScrollTo.Set(item.Key);
+			OpenAsset(item);
+			SetStatus(scope $"Created {AssetStyle.KindLabel(kind)} {name} in {name}.bf (namespace {ns})");
+		}
+
+		// ------------------------------------------------------------------ rename
+
+		void StartRename(CBItem item)
+		{
+			delete mCBRenameItem;
+			mCBRenameItem = item.Clone();
+			if (item.Kind == .File)
+			{
+				String n = scope .(item.Name);
+				if (n.EndsWith(".bf", .OrdinalIgnoreCase))
+					n.RemoveFromEnd(3);
+				mCBNameBuf.Set(n);
+			}
+			else if (item.IsType)
+				mCBNameBuf.Set(item.TypeName);
+			else
+				mCBNameBuf.Set(item.Name);
+			mOpenCBRename = true;
+		}
+
+		bool ValidateRename(CBItem item, StringView newName, String outError)
+		{
+			switch (item.Kind)
+			{
+			case .Folder, .File:
+				var n = newName;
+				if (item.Kind == .File && n.EndsWith(".bf", .OrdinalIgnoreCase))
+					n.RemoveFromEnd(3);
+				if (!ValidateFileName(n, outError))
+					return false;
+				String parent = scope .();
+				Path.GetDirectoryPath(item.Path, parent).IgnoreError(); // a root has no parent: parent stays empty
+				String full = scope .(n);
+				if (item.Kind == .File)
+					full.Append(".bf");
+				String oldName = scope .();
+				Path.GetFileName(item.Path, oldName);
+				if (StringView.Compare(full, oldName, true) != 0 && EntryExists(parent, full))
+				{
+					outError.Set("Something with that name already exists here.");
+					return false;
+				}
+			default:
+				if (!ValidateIdentifier(newName, outError))
+					return false;
+				if (newName != item.TypeName)
+				{
+					String ns = scope .();
+					TypeNamespaceOf(item.Path, item.TypeName, ns);
+					String declFile = scope .();
+					if (TypeNameTaken(newName, ns, declFile))
+					{
+						outError.Set(scope $"A type named '{newName}' already exists in namespace {ns.IsEmpty ? "(global)" : ns}.");
+						return false;
+					}
+				}
+			}
+			return true;
+		}
+
+		/// Points open documents at their new paths after a file or folder moved.
+		void RemapDocPaths(StringView oldPath, StringView newPath, bool isFolder)
+		{
+			for (let d in mDocs)
+			{
+				if (ProjectIndex.SamePath(d.FilePath, oldPath))
+					d.FilePath.Set(newPath);
+				else if (isFolder && IsUnder(d.FilePath, oldPath))
+				{
+					String p = scope .(newPath);
+					p.Append(StringView(d.FilePath, oldPath.Length));
+					d.FilePath.Set(p);
+				}
+			}
+			for (let tab in mAssetTabs)
+			{
+				if (ProjectIndex.SamePath(tab.FilePath, oldPath))
+					tab.FilePath.Set(newPath);
+				else if (isFolder && IsUnder(tab.FilePath, oldPath))
+				{
+					String p = scope .(newPath);
+					p.Append(StringView(tab.FilePath, oldPath.Length));
+					tab.FilePath.Set(p);
+				}
+			}
+			if (isFolder && (ProjectIndex.SamePath(mCBFolder, oldPath) || IsUnder(mCBFolder, oldPath)))
+			{
+				String p = scope .(newPath);
+				p.Append(StringView(mCBFolder, oldPath.Length));
+				mCBFolder.Set(p);
+			}
+		}
+
+		void RenameAsset(CBItem item, StringView newNameIn)
+		{
+			if (!CheckWritable())
+				return;
+			String newName = scope .(newNameIn);
+			newName.Trim();
+			String err = scope .();
+			if (!ValidateRename(item, newName, err))
+			{
+				ReportError(err);
+				return;
+			}
+			String parent = scope .();
+			Path.GetDirectoryPath(item.Path, parent).IgnoreError(); // a root has no parent: parent stays empty
+			switch (item.Kind)
+			{
+			case .Folder:
+				String newPath = scope .();
+				JoinPath(parent, newName, newPath);
+				if (ProjectIndex.SamePath(newPath, item.Path) && newPath == item.Path)
+					return;
+				if (AssetOps.MovePath(item.Path, newPath, true, err) case .Err)
+				{
+					ReportError(err);
+					return;
+				}
+				RemapDocPaths(item.Path, newPath, true);
+				ScanProject();
+				String key = scope .();
+				CBItem.MakeKey(.Folder, newPath, "", key);
+				CBSelectOnly(key);
+				SetStatus(scope $"Renamed folder to {newName}");
+			case .File:
+				if (newName.EndsWith(".bf", .OrdinalIgnoreCase))
+					newName.RemoveFromEnd(3);
+				String newPath = scope .();
+				JoinPath(parent, scope String()..AppendF("{}.bf", newName), newPath);
+				if (newPath == item.Path)
+					return;
+				if (AssetOps.MovePath(item.Path, newPath, false, err) case .Err)
+				{
+					ReportError(err);
+					return;
+				}
+				RemapDocPaths(item.Path, newPath, false);
+				ScanProject();
+				String key = scope .();
+				CBItem.MakeKey(.File, newPath, "", key);
+				CBSelectOnly(key);
+				SetStatus(scope $"Renamed to {newName}.bf");
+			default:
+				RenameTypeAsset(item, newName);
+			}
+			SaveSettings();
+		}
+
+		/// Top-level types (not nested in another type) of a parsed file.
+		static void GetTopLevelTypes(CompilationUnit unit, List<Member> outTypes)
+		{
+			List<Member> all = scope .();
+			unit.CollectTypes(all);
+			for (let t in all)
+			{
+				bool nested = false;
+				for (let o in all)
+					if (o != t && o.HasSpan && t.HasSpan && t.FirstTok > o.FirstTok && t.LastTok <= o.LastTok)
+						nested = true;
+				if (!nested)
+					outTypes.Add(t);
+			}
+		}
+
+		static Member FindTypeMember(SourceDocument doc, StringView name)
+		{
+			if (doc == null || doc.Unit == null)
+				return null;
+			List<Member> types = scope .();
+			GetTopLevelTypes(doc.Unit, types);
+			for (let t in types)
+				if (t.Name == name)
+					return t;
+			// Nested types as a fallback.
+			types.Clear();
+			doc.Unit.CollectTypes(types);
+			for (let t in types)
+				if (t.Name == name)
+					return t;
+			return null;
+		}
+
+		void RenameTypeAsset(CBItem item, StringView newName)
+		{
+			String oldName = scope .(item.TypeName);
+			String path = scope .(item.Path);
+			let doc = LoadDocQuiet(path);
+			let type = FindTypeMember(doc, oldName);
+			if (type == null || type.NameTok < 0)
+			{
+				SetStatus(scope $"Could not find {oldName} in {path}");
+				return;
+			}
+			List<Member> top = scope .();
+			GetTopLevelTypes(doc.Unit, top);
+			bool onlyType = top.Count == 1 && top[0] == type;
+			// Every reference in the project is renamed with it (preview first, see
+			// docs/Classes-and-Members.md); a file named after its only type follows the type once
+			// the rename is applied (Player.bf -> Hero.bf).
+			String fileName = scope .();
+			Path.GetFileNameWithoutExtension(path, fileName);
+			mPendingTypeFile.Set((onlyType && fileName == oldName) ? path : "");
+			StartProjectRename(.Type, oldName, newName, oldName, "", path);
+		}
+
+		/// After a type rename was applied: moves `path` (named after the old type) to the new
+		/// name, and asset tabs follow the type.
+		void MoveTypeFileAfterRename(StringView pathIn, StringView oldName, StringView newName)
+		{
+			String path = scope .(pathIn);
+			for (let tab in mAssetTabs)
+			{
+				if (tab.TypeName == oldName && ProjectIndex.SamePath(tab.FilePath, path))
+				{
+					tab.TypeName.Set(newName);
+					tab.SyncedVersion = -1;
+				}
+			}
+			String finalPath = scope .(path);
+			String parent = scope .();
+			Path.GetDirectoryPath(path, parent).IgnoreError(); // a root has no parent: parent stays empty
+			String newPath = scope .();
+			JoinPath(parent, scope String()..AppendF("{}.bf", newName), newPath);
+			bool caseOnly = StringView.Compare(newPath, path, true) == 0;
+			if (caseOnly || !EntryExists(parent, scope String()..AppendF("{}.bf", newName)))
+			{
+				String moveErr = scope .();
+				if (AssetOps.MovePath(path, newPath, false, moveErr) case .Ok)
+				{
+					RemapDocPaths(path, newPath, false);
+					finalPath.Set(newPath);
+					let doc = FindDoc(newPath);
+					if (doc != null && File.GetLastWriteTime(newPath) case .Ok(let t))
+						doc.DiskTime = t;
+				}
+				else
+					Notify.Log(.Warning, "Rename", scope $"{path} keeps its name: {moveErr}");
+			}
+			ScanProject();
+			String key = scope .();
+			CBItem.MakeKey(.Class, finalPath, newName, key);
+			CBSelectOnly(key);
+		}
+
+		// ------------------------------------------------------------------ delete
+
+		/// Removes every tab of a document and unloads it (no save).
+		void CloseDoc(SourceDocument doc)
+		{
+			for (int i = Tabs.Count - 1; i >= 0; i--)
+			{
+				let tab = Tabs[i];
+				if (tab.Doc != doc)
+					continue;
+				if (mSelectTab == tab)
+					mSelectTab = null;
+				if (mLastActiveTab == tab)
+					mLastActiveTab = null;
+				if (mActionTab == tab)
+					mActionTab = null;
+				Tabs.RemoveAt(i);
+				delete tab;
+			}
+			if (ActiveTab >= Tabs.Count)
+				ActiveTab = Tabs.Count - 1;
+			CloseAssetTabs(doc.FilePath, "");
+			mDocs.Remove(doc);
+			if (mSourceDoc == doc)
+				mSourceDoc = null;
+			if (mRenameTarget != null)
+				mRenameTarget = null;
+			if (Doc == doc)
+			{
+				Doc = (CurrentTab != null) ? CurrentTab.Doc : mEmptyDoc;
+				mSourceVersion = -1;
+			}
+			delete doc;
+		}
+
+		void CloseDocsUnder(StringView path, bool isFolder)
+		{
+			for (int i = mDocs.Count - 1; i >= 0; i--)
+			{
+				let d = mDocs[i];
+				if (ProjectIndex.SamePath(d.FilePath, path) || (isFolder && IsUnder(d.FilePath, path)))
+					CloseDoc(d);
+			}
+			if (isFolder)
+			{
+				for (int i = mAssetTabs.Count - 1; i >= 0; i--)
+				{
+					if (IsUnder(mAssetTabs[i].FilePath, path))
+						RemoveAssetTab(i);
+				}
+			}
+		}
+
+		static bool UsesTrash
+		{
+			get
+			{
+				return true; // the Recycle Bin on Windows, the freedesktop Trash on Linux
+			}
+		}
+
+		bool DeleteFileAsset(StringView pathIn)
+		{
+			String path = scope .(pathIn);
+			// Recycle Bin / Trash or nothing: if it can't be moved there, the file stays and the editor
+			// keeps its open copy.
+			String err = scope .();
+			if (AssetOps.Delete(path, false, err) case .Err)
+			{
+				ReportError(err);
+				return false;
+			}
+			let doc = FindDoc(path);
+			if (doc != null)
+				CloseDoc(doc);
+			return true;
+		}
+
+		bool DeleteFolderAsset(StringView pathIn)
+		{
+			String path = scope .(pathIn);
+			String err = scope .();
+			if (AssetOps.Delete(path, true, err) case .Err)
+			{
+				ReportError(err);
+				return false;
+			}
+			CloseDocsUnder(path, true);
+			return true;
+		}
+
+		/// True when deleting the type deletes its whole file (it's the file's only top-level type).
+		bool TypeOwnsFile(CBItem item)
+		{
+			let file = Index.FindFile(item.Path);
+			if (file == null)
+				return false;
+			int top = 0;
+			bool found = false;
+			for (let t in file.Types)
+			{
+				if (!t.Outer.IsEmpty)
+					continue;
+				top++;
+				if (t.Name == item.TypeName)
+					found = true;
+			}
+			return found && top == 1;
+		}
+
+		bool DeleteTypeAsset(CBItem item)
+		{
+			String path = scope .(item.Path);
+			String typeName = scope .(item.TypeName);
+			let doc = LoadDocQuiet(path);
+			if (doc == null)
+				return false;
+			let type = FindTypeMember(doc, typeName);
+			if (type == null)
+				return false;
+			List<Member> top = scope .();
+			GetTopLevelTypes(doc.Unit, top);
+			if (top.Count == 1 && top[0] == type)
+				return DeleteFileAsset(path);
+			// Only the declaration goes; refuses if the file holds other unsaved edits.
+			String err = scope .();
+			if (AssetOps.DeleteTypeAndSave(doc, typeName, err) case .Err)
+			{
+				ReportError(err);
+				return false;
+			}
+			CloseAssetTabs(path, typeName);
+			if (File.GetLastWriteTime(path) case .Ok(let wt))
+				doc.DiskTime = wt;
+			return true;
+		}
+
+		void DeleteAssets(List<CBItem> items)
+		{
+			if (!CheckWritable())
+				return;
+			int count = 0;
+			// Types first (several may share a file), then files, then folders.
+			for (let it in items)
+			{
+				if (!it.IsType || !File.Exists(it.Path))
+					continue;
+				if (DeleteTypeAsset(it))
+					count++;
+			}
+			for (let it in items)
+			{
+				if (it.Kind == .File && File.Exists(it.Path) && DeleteFileAsset(it.Path))
+					count++;
+			}
+			for (let it in items)
+			{
+				if (it.Kind == .Folder && Directory.Exists(it.Path) && DeleteFolderAsset(it.Path))
+					count++;
+			}
+			ScanProject();
+			CBSelectOnly("");
+			UpdateTitle();
+			SaveSettings();
+			SetStatus(scope $"Deleted {count} item{(count == 1) ? "" : "s"} (moved to the {FileSafety.TrashName})");
+		}
+
+		// ------------------------------------------------------------------ modals
+
+		void DrawProjectBrowserPopups()
+		{
+			DrawNewAssetPopup();
+			DrawNoProjectPopup();
+			DrawRenameAssetPopup();
+			DrawDeleteAssetsPopup();
+			DrawNewProjectPopup();
+		}
+
+		static void ErrorLine(StringView err)
+		{
+			if (err.IsEmpty)
+				Gui.TextDisabled(" ");
+			else
+				Gui.TextColored(Gui.Color(255, 110, 100), err);
+		}
+
+		void DrawNewAssetPopup()
+		{
+			if (mOpenCBNew)
+			{
+				Gui.OpenPopup("Create Asset");
+				mOpenCBNew = false;
+			}
+			if (!Gui.igBeginPopupModal("Create Asset", null, WindowFlags.AlwaysAutoResize))
+			{
+				mCBModalOpen = false;
+				return;
+			}
+			mCBModalOpen = true;
+			if (Gui.IsKeyPressed(Key.Escape, false) || mSelfTestCloseDialog)
+			{
+				mSelfTestCloseDialog = false;
+				Gui.igCloseCurrentPopup();
+			}
+			// Header: icon + "New Class"
+			{
+				let p = Gui.igGetCursorScreenPos();
+				float s = Gui.igGetFrameHeight() * 1.6f;
+				Gui.igDummy(.(s, s));
+				AssetStyle.DrawIcon(Gui.igGetWindowDrawList(), mCBNewKind, .(p.x + s / 2, p.y + s / 2), s, AssetStyle.KindColor(mCBNewKind));
+				Gui.SameLine();
+				Gui.igBeginGroup();
+				Gui.Text(scope $"New {AssetStyle.KindLabel(mCBNewKind)}");
+				String rel = scope .();
+				RelativeToRoot(mCBNewFolder, rel);
+				Gui.TextDisabled(scope $"in {rel}");
+				Gui.igEndGroup();
+			}
+			Gui.igSpacing();
+			Gui.Text((mCBNewKind == .Folder || mCBNewKind == .File) ? "Name" : "Type name (also the file name)");
+			if (Gui.igIsWindowAppearing() || mCBRefocus)
+				Gui.igSetKeyboardFocusHere(0);
+			mCBRefocus = false;
+			Gui.igSetNextItemWidth(380 * Look.Scale);
+			bool enter = Gui.igInputText("##assetname", mCBNameBuf.Ptr, (.)mCBNameBuf.Capacity, InputTextFlags.EnterReturnsTrue | InputTextFlags.AutoSelectAll, null, null);
+			String name = scope .(mCBNameBuf.View);
+			name.Trim();
+			String err = scope .();
+			String ns = scope .();
+			InferNamespaceCached(ns);
+			bool valid = ValidateNewAsset(mCBNewKind, mNsTarget, name, ns, err);
+			ErrorLine(err);
+			if (mCBNewKind != .Folder && mNsPlacement == .Redirected)
+			{
+				String rel = scope .();
+				RelativeToRoot(mNsTarget, rel);
+				Gui.TextColored(Theme.Warning, scope $"This folder isn't a source folder; the file goes to {rel}.");
+			}
+			else if (mCBNewKind != .Folder && mNsPlacement == .NoProject)
+				Gui.TextColored(Theme.Warning, "This folder isn't inside a Beef project (no BeefProj.toml): the file would not be compiled.");
+			if (valid && mCBNewKind != .Folder)
+			{
+				String fileName = scope .(name);
+				if (!fileName.EndsWith(".bf", .OrdinalIgnoreCase))
+					fileName.Append(".bf");
+				Gui.TextDisabled(scope $"Creates {fileName}  (namespace {ns})");
+			}
+			DrawCreateTypeOptions(mCBNewKind);
+			Gui.igBeginDisabled(!valid);
+			bool create = Gui.Button("Create", .(120 * Look.Scale, 0)) || (enter && valid);
+			if (enter && !valid)
+				mCBRefocus = true; // keep typing after Enter on a bad name
+			Gui.igEndDisabled();
+			Gui.SameLine();
+			if (Gui.Button("Cancel", .(120 * Look.Scale, 0)))
+				Gui.igCloseCurrentPopup();
+			if (create && valid)
+			{
+				Gui.igCloseCurrentPopup();
+				CreateAsset(mCBNewKind, mCBNewFolder, name);
+			}
+			Gui.EndPopup();
+		}
+
+		String mNsCacheFolder = new .() ~ delete _;
+		String mNsCache = new .() ~ delete _;
+		/// Where the new file really goes (the project's src folder) and how that was decided.
+		String mNsTarget = new .() ~ delete _;
+		SourcePlacement mNsPlacement;
+
+		/// The namespace preview in the modal; parsing sibling files every frame would be wasteful.
+		void InferNamespaceCached(String outNs)
+		{
+			if (mNsCacheFolder != mCBNewFolder || mNsCacheFolder.IsEmpty)
+			{
+				mNsCacheFolder.Set(mCBNewFolder);
+				mNsCache.Clear();
+				mNsTarget.Clear();
+				mNsPlacement = ResolveTarget(mCBNewKind, mCBNewFolder, mNsTarget);
+				if (mCBNewKind != .Folder)
+					InferNamespace(mNsTarget, mNsCache);
+			}
+			outNs.Set(mNsCache);
+		}
+
+		/// "Not inside a Beef project": a file here would never be compiled.
+		void DrawNoProjectPopup()
+		{
+			if (mOpenCBNoProject)
+			{
+				Gui.OpenPopup("Not in a Project");
+				mOpenCBNoProject = false;
+			}
+			if (!Gui.igBeginPopupModal("Not in a Project", null, WindowFlags.AlwaysAutoResize))
+				return;
+			mCBModalOpen = true;
+			String rel = scope .();
+			RelativeToRoot(mCBPendFolder, rel);
+			Gui.Text(scope $"{rel} isn't inside a Beef project (no BeefProj.toml above it).");
+			Gui.Text("A file created here would never be compiled.");
+			Gui.igSpacing();
+			if (Gui.Button("Create a project here...", .(190 * Look.Scale, 0)))
+			{
+				Gui.igCloseCurrentPopup();
+				StartNewProject(mCBPendFolder);
+			}
+			Gui.SameLine();
+			if (Gui.Button("Create file anyway", .(150 * Look.Scale, 0)))
+			{
+				Gui.igCloseCurrentPopup();
+				CreateAsset(mCBPendKind, mCBPendFolder, mCBPendName, true);
+			}
+			Gui.SameLine();
+			if (Gui.Button("Cancel", .(90 * Look.Scale, 0)) || Gui.IsKeyPressed(Key.Escape, false))
+				Gui.igCloseCurrentPopup();
+			Gui.EndPopup();
+		}
+
+		void DrawRenameAssetPopup()
+		{
+			if (mOpenCBRename)
+			{
+				Gui.OpenPopup("Rename Asset");
+				mOpenCBRename = false;
+			}
+			if (!Gui.igBeginPopupModal("Rename Asset", null, WindowFlags.AlwaysAutoResize))
+				return;
+			if (Gui.IsKeyPressed(Key.Escape, false) || mCBRenameItem == null)
+			{
+				Gui.igCloseCurrentPopup();
+				Gui.EndPopup();
+				return;
+			}
+			let item = mCBRenameItem;
+			Gui.Text(scope $"Rename {AssetStyle.KindLabel(item.Kind)} '{item.IsType ? item.TypeName : item.Name}'");
+			if (item.IsType)
+				Gui.TextDisabled("The declaration is renamed; references in other code are not.");
+			if (Gui.igIsWindowAppearing() || mCBRefocus)
+				Gui.igSetKeyboardFocusHere(0);
+			mCBRefocus = false;
+			Gui.igSetNextItemWidth(380 * Look.Scale);
+			bool enter = Gui.igInputText("##newname", mCBNameBuf.Ptr, (.)mCBNameBuf.Capacity, InputTextFlags.EnterReturnsTrue | InputTextFlags.AutoSelectAll, null, null);
+			String name = scope .(mCBNameBuf.View);
+			name.Trim();
+			String err = scope .();
+			bool valid = ValidateRename(item, name, err);
+			ErrorLine(err);
+			Gui.igBeginDisabled(!valid);
+			bool go = Gui.Button("Rename", .(120 * Look.Scale, 0)) || (enter && valid);
+			if (enter && !valid)
+				mCBRefocus = true; // keep typing after Enter on a bad name
+			Gui.igEndDisabled();
+			Gui.SameLine();
+			if (Gui.Button("Cancel", .(120 * Look.Scale, 0)))
+				Gui.igCloseCurrentPopup();
+			if (go && valid)
+			{
+				Gui.igCloseCurrentPopup();
+				let it = mCBRenameItem;
+				mCBRenameItem = null;
+				RenameAsset(it, name);
+				delete it;
+			}
+			Gui.EndPopup();
+		}
+
+		void DrawDeleteAssetsPopup()
+		{
+			if (mOpenCBDelete)
+			{
+				Gui.OpenPopup("Delete Assets");
+				mOpenCBDelete = false;
+			}
+			if (!Gui.igBeginPopupModal("Delete Assets", null, WindowFlags.AlwaysAutoResize))
+				return;
+			if (Gui.IsKeyPressed(Key.Escape, false) || mCBDeleteItems.IsEmpty)
+			{
+				Gui.igCloseCurrentPopup();
+				Gui.EndPopup();
+				return;
+			}
+			Gui.Text(scope $"Delete {mCBDeleteItems.Count} item{(mCBDeleteItems.Count == 1) ? "" : "s"}?");
+			Gui.igSpacing();
+			for (let it in mCBDeleteItems)
+			{
+				Gui.TextColored(AssetStyle.KindColor(it.Kind), scope $"  {AssetStyle.KindLabel(it.Kind)}");
+				Gui.SameLine(130);
+				String rel = scope .();
+				RelativeToRoot(it.Path, rel);
+				switch (it.Kind)
+				{
+				case .Folder:
+					let dir = FindCBDir(it.Path);
+					int files = (dir != null) ? dir.CountFilesRecursive() : 0;
+					Gui.Text(scope $"{rel}/  - the folder and everything in it ({files} .bf file{(files == 1) ? "" : "s"})");
+				case .File:
+					Gui.Text(rel);
+				default:
+					if (TypeOwnsFile(it))
+						Gui.Text(scope $"{it.TypeName}  - deletes {rel} (its only type)");
+					else
+						Gui.Text(scope $"{it.TypeName}  - removes its declaration from {rel}");
+				}
+				let doc = FindDoc(it.Path);
+				if (doc != null && doc.Modified)
+				{
+					Gui.SameLine();
+					Gui.TextColored(Theme.Warning, "(unsaved changes)");
+				}
+			}
+			Gui.igSpacing();
+			if (UsesTrash)
+				Gui.TextDisabled(scope $"Files and folders go to the {FileSafety.TrashName}.");
+			else
+				Gui.TextColored(Theme.Warning, "This can't be undone: files and folders are deleted permanently.");
+			Gui.igSpacing();
+			Gui.igPushStyleColor_U32(Col.Button, Gui.Color(150, 40, 40));
+			Gui.igPushStyleColor_U32(Col.ButtonHovered, Gui.Color(185, 55, 55));
+			bool go = Gui.Button("Delete", .(120 * Look.Scale, 0));
+			Gui.igPopStyleColor(2);
+			Gui.SameLine();
+			if (Gui.igIsWindowAppearing())
+				Gui.igSetKeyboardFocusHere(0);
+			if (Gui.Button("Cancel", .(120 * Look.Scale, 0)))
+				Gui.igCloseCurrentPopup();
+			if (go)
+			{
+				Gui.igCloseCurrentPopup();
+				List<CBItem> items = scope .();
+				for (let it in mCBDeleteItems)
+					items.Add(it);
+				mCBDeleteItems.Clear();
+				DeleteAssets(items);
+				ClearAndDeleteItems!(items);
+			}
+			Gui.EndPopup();
+		}
+
+		// ------------------------------------------------------------------ new project
+
+		public void StartNewProject(StringView location = "")
+		{
+			mNPName.Set("NewProject");
+			if (!location.IsEmpty)
+				mNPLocation.Set(location);
+			else
+				mNPLocation.Set(mProjectRoot);
+			mNPType = 0;
+			mNPError.Clear();
+			mOpenNewProject = true;
+		}
+
+		static StringView[4] sProjectTypes = .("Console Application", "Library", "Windows Application", "UMP Mod  (a game mod for the UMP launcher)");
+		static StringView[3] sTargetTypes = .("BeefConsoleApplication", "BeefLib", "BeefGUIApplication");
+
+		/// The BeefSpace.toml a project at `location` belongs to (nearest at or above it, not
+		/// above the open project root), or empty.
+		void FindWorkspaceFor(StringView location, String outWsFile)
+		{
+			String dir = scope .(location);
+			TrimSeparators(dir);
+			bool insideRoot = !mProjectRoot.IsEmpty && (ProjectIndex.SamePath(dir, mProjectRoot) || IsUnder(dir, mProjectRoot));
+			for (int depth = 0; depth < 24 && !dir.IsEmpty; depth++)
+			{
+				String probe = scope .();
+				JoinPath(dir, "BeefSpace.toml", probe);
+				if (File.Exists(probe))
+				{
+					outWsFile.Set(probe);
+					return;
+				}
+				if (insideRoot && ProjectIndex.SamePath(dir, mProjectRoot))
+					return;
+				String parent = scope .();
+				Path.GetDirectoryPath(dir, parent).IgnoreError(); // a root has no parent: parent is empty and checked below
+				if (parent.IsEmpty || parent == dir)
+					return;
+				dir.Set(parent);
+			}
+		}
+
+		/// Keys of the `Projects = {...}` inline table, or -1s when there is none.
+		static void FindProjectsTable(StringView text, out int open, out int close)
+		{
+			open = -1;
+			close = -1;
+			int lineStart = 0;
+			while (lineStart < text.Length)
+			{
+				int lineEnd = text.IndexOf('\n', lineStart);
+				if (lineEnd < 0)
+					lineEnd = text.Length;
+				var line = StringView(text, lineStart, lineEnd - lineStart);
+				var trimmed = line;
+				trimmed.TrimStart();
+				if (trimmed.StartsWith('['))
+					return; // past the root table
+				if (trimmed.StartsWith("Projects"))
+				{
+					var rest = trimmed.Substring(8);
+					rest.TrimStart();
+					if (rest.StartsWith('='))
+					{
+						int brace = text.IndexOf('{', lineStart);
+						if (brace < 0)
+							return;
+						int depth = 0;
+						bool inStr = false;
+						for (int i = brace; i < text.Length; i++)
+						{
+							let c = text[i];
+							if (inStr)
+							{
+								if (c == '\\')
+									i++;
+								else if (c == '"')
+									inStr = false;
+								continue;
+							}
+							if (c == '"')
+								inStr = true;
+							else if (c == '{')
+								depth++;
+							else if (c == '}')
+							{
+								depth--;
+								if (depth == 0)
+								{
+									open = brace;
+									close = i;
+									return;
+								}
+							}
+						}
+						return;
+					}
+				}
+				lineStart = lineEnd + 1;
+			}
+		}
+
+		/// True when the workspace's Projects table already has `name`.
+		static bool WorkspaceHasProject(StringView text, StringView name)
+		{
+			FindProjectsTable(text, let open, let close);
+			if (open < 0)
+				return false;
+			int depth = 0;
+			int i = open + 1;
+			while (i < close)
+			{
+				let c = text[i];
+				if (c == '{')
+					depth++;
+				else if (c == '}')
+					depth--;
+				else if (depth == 0 && (c.IsLetter || c == '_' || c == '"'))
+				{
+					int s = i;
+					bool quoted = c == '"';
+					if (quoted)
+					{
+						i++;
+						s = i;
+						while (i < close && text[i] != '"')
+							i++;
+					}
+					else
+					{
+						while (i < close && (text[i].IsLetterOrDigit || text[i] == '_' || text[i] == '-'))
+							i++;
+					}
+					let key = StringView(text, s, i - s);
+					if (StringView.Compare(key, name, true) == 0)
+						return true;
+					while (i < close && text[i] != '=' && text[i] != ',')
+						i++;
+					continue;
+				}
+				i++;
+			}
+			return false;
+		}
+
+		static Result<void> RegisterProject(StringView wsFile, StringView name, StringView relPath, bool create)
+		{
+			String entry = scope .();
+			entry.AppendF("{} = {{Path = \"{}\"}}", name, relPath);
+			String text = scope .();
+			if (create)
+			{
+				text.AppendF("FileVersion = 1\nProjects = {{{}}}\n\n[Workspace]\nStartupProject = \"{}\"\n", entry, name);
+				return File.WriteAllText(wsFile, text);
+			}
+			if (File.ReadAllText(wsFile, text, true) case .Err)
+				return .Err;
+			bool crlf = text.Contains("\r\n");
+			StringView nl = crlf ? "\r\n" : "\n";
+			FindProjectsTable(text, let open, let close);
+			if (open >= 0)
+			{
+				var inner = StringView(text, open + 1, close - open - 1);
+				inner.Trim();
+				String ins = scope .();
+				if (!inner.IsEmpty)
+					ins.Append(", ");
+				ins.Append(entry);
+				// Keep any whitespace before the closing brace after the new entry.
+				int at = close;
+				while (at > open + 1 && text[at - 1] == ' ')
+					at--;
+				text.Insert(at, ins);
+			}
+			else
+			{
+				// No Projects line: add one after FileVersion (or at the top).
+				String line = scope .();
+				line.AppendF("Projects = {{{}}}{}", entry, nl);
+				int fv = text.IndexOf("FileVersion");
+				int at = 0;
+				if (fv >= 0)
+				{
+					int eol = text.IndexOf('\n', fv);
+					at = (eol < 0) ? text.Length : eol + 1;
+					if (eol < 0)
+						line.Insert(0, nl);
+				}
+				text.Insert(at, line);
+			}
+			if (!text.Contains("[Workspace]"))
+			{
+				if (!text.EndsWith('\n'))
+					text.Append(nl);
+				text.AppendF("{0}[Workspace]{0}StartupProject = \"{1}\"{0}", nl, name);
+			}
+			return File.WriteAllText(wsFile, text);
+		}
+
+		static void RelativePath(StringView fromDir, StringView toPath, String outRel)
+		{
+			if (IsUnder(toPath, fromDir))
+			{
+				var rel = toPath.Substring(fromDir.Length);
+				while (rel.StartsWith('/') || rel.StartsWith('\\'))
+					rel.RemoveFromStart(1);
+				outRel.Append(rel);
+			}
+			else
+				outRel.Append(toPath);
+			outRel.Replace('\\', '/');
+		}
+
+		bool ValidateNewProject(StringView name, StringView location, String outError)
+		{
+			if (!ValidateIdentifier(name, outError))
+				return false;
+			if (location.IsEmpty)
+			{
+				outError.Set("Choose a location.");
+				return false;
+			}
+			if (!Directory.Exists(location))
+			{
+				outError.Set("The location folder doesn't exist.");
+				return false;
+			}
+			if (EntryExists(location, name))
+			{
+				outError.Set(scope $"'{name}' already exists in that folder.");
+				return false;
+			}
+			String ws = scope .();
+			FindWorkspaceFor(location, ws);
+			if (!ws.IsEmpty)
+			{
+				String text = scope .();
+				if (File.ReadAllText(ws, text, true) case .Ok)
+				{
+					if (WorkspaceHasProject(text, name))
+					{
+						outError.Set(scope $"The workspace already has a project named '{name}'.");
+						return false;
+					}
+				}
+			}
+			return true;
+		}
+
+		void CreateProject(StringView nameIn, int32 type, StringView locationIn)
+		{
+			String name = scope .(nameIn);
+			String location = scope .(locationIn);
+			TrimSeparators(location);
+			String err = scope .();
+			if (!ValidateNewProject(name, location, err))
+			{
+				SetStatus(err);
+				return;
+			}
+			String projDir = scope .();
+			JoinPath(location, name, projDir);
+			String srcDir = scope .();
+			JoinPath(projDir, "src", srcDir);
+			if (Directory.CreateDirectory(srcDir) case .Err)
+			{
+				SetStatus(scope $"Could not create {srcDir}");
+				return;
+			}
+			String toml = scope .();
+			toml.Append("FileVersion = 1\n");
+			toml.Append("Dependencies = {corlib = \"*\"}\n\n");
+			toml.AppendF("[Project]\nName = \"{}\"\n", name);
+			toml.AppendF("TargetType = \"{}\"\n", sTargetTypes[Math.Clamp(type, 0, 2)]);
+			if (type != 1)
+				toml.AppendF("StartupObject = \"{}.Program\"\n", name);
+			String tomlPath = scope .();
+			JoinPath(projDir, "BeefProj.toml", tomlPath);
+			String program = scope .();
+			program.AppendF(
+				"""
+				using System;
+
+				namespace {0}
+				{{
+					class Program
+					{{
+						public static int Main(String[] args)
+						{{
+							Console.WriteLine("Hello from {0}");
+							return 0;
+						}}
+					}}
+				}}
+
+				""", name);
+			String programPath = scope .();
+			JoinPath(srcDir, "Program.bf", programPath);
+			if ((File.WriteAllText(tomlPath, toml) case .Err) || (File.WriteAllText(programPath, program) case .Err))
+			{
+				SetStatus(scope $"Could not write the project files in {projDir}");
+				return;
+			}
+
+			// No project open yet: the location becomes the project root.
+			if (mProjectRoot.IsEmpty)
+				mProjectRoot.Set(location);
+
+			// Register in the workspace (or make one at the project root).
+			String ws = scope .();
+			FindWorkspaceFor(location, ws);
+			bool created = ws.IsEmpty;
+			if (created)
+			{
+				bool inRoot = ProjectIndex.SamePath(location, mProjectRoot) || IsUnder(location, mProjectRoot);
+				JoinPath(inRoot ? mProjectRoot : location, "BeefSpace.toml", ws);
+			}
+			String wsDir = scope .();
+			Path.GetDirectoryPath(ws, wsDir).IgnoreError(); // a root has no parent: parent stays empty
+			String rel = scope .();
+			RelativePath(wsDir, projDir, rel);
+			bool registered = RegisterProject(ws, name, rel, created) case .Ok;
+
+			ScanProject();
+			SaveSettings();
+			UpdateTitle();
+			if (FindCBDir(srcDir) != null)
+			{
+				mCBFolder.Set(FindCBDir(srcDir).Path);
+				mCBReveal = true;
+				CBSelectOnly("");
+			}
+			OpenFunction(programPath, "Program", "Main");
+			if (!registered)
+				SetStatus(scope $"Created {name}, but could not update {ws}");
+			else
+				SetStatus(scope $"Created project {name} and {(created ? "created" : "registered it in")} {ws}");
+		}
+
+		/// New Project > UMP Mod: the Game SDK row (a folder chooser) and what it found.
+		void DrawNewModSdkRow()
+		{
+			Gui.Text("Game SDK");
+			Gui.igSetNextItemWidth(370 * Look.Scale);
+			Gui.igInputText("##npsdk", mNPSdk.Ptr, (.)mNPSdk.Capacity, 0, null, null);
+			Gui.SameLine();
+			if (Gui.Button("Browse...##sdk", .(82 * Look.Scale, 0)))
+			{
+				char8[4096] buf = default;
+				int32 r = Host.vbh_native_dialog(1, scope String(mNPSdk.View), &buf, 4096);
+				if (r == 1)
+					mNPSdk.Set(StringView(&buf));
+				else if (r < 0)
+					SetStatus("No native folder picker here: type the SDK folder path");
+			}
+			ResolveNewModSdk();
+			if (mNPSdkOk)
+				Gui.TextDisabled(scope $"{mNPSdkInfo.ProjectName} (game {mNPSdkInfo.GameId}); UMP libraries in {mNPSdkInfo.UmpRoot}");
+			else
+				Gui.TextDisabled("The SDK UMP generated for the game: <UMP launcher folder>\\sdk\\<game>\\<Game>SDK.");
+		}
+
+		/// Resolves the Game SDK field when it changed (UmpModProject.ResolveSdk).
+		void ResolveNewModSdk()
+		{
+			if (mNPSdk.View == mNPSdkSeen)
+				return;
+			mNPSdkSeen.Set(mNPSdk.View);
+			mNPSdkError.Clear();
+			mNPSdkOk = !mNPSdkSeen.IsEmpty && UmpModProject.ResolveSdk(mNPSdkSeen, mNPSdkInfo, mNPSdkError);
+			if (mNPSdkSeen.IsEmpty)
+				mNPSdkError.Set("Choose the game's SDK folder: the one UMP generated for the game (<UMP launcher folder>\\sdk\\<game>\\<Game>SDK).");
+		}
+
+		/// File > New Project > UMP Mod: writes the mod (UmpModProject) and opens its folder as the project.
+		public bool CreateModProject(StringView nameIn, StringView locationIn, UmpSdkInfo sdk)
+		{
+			String name = scope .(nameIn);
+			name.Trim();
+			String location = scope .(locationIn);
+			TrimSeparators(location);
+			String projDir = scope .();
+			String err = scope .();
+			if (!UmpModProject.Write(location, name, "0.1.0", "", "", sdk, projDir, err))
+			{
+				SetStatus(err);
+				return false;
+			}
+			mProjectRoot.Set(projDir);
+			ScanProject();
+			SaveSettings();
+			UpdateTitle();
+			String srcDir = scope .();
+			JoinPath(projDir, "src", srcDir);
+			String main = scope .();
+			JoinPath(srcDir, "ModMain.bf", main);
+			OpenFile(main, false);
+			SetStatus(scope $"Created the UMP mod {name} in {projDir}");
+			return true;
+		}
+
+		void DrawNewProjectPopup()
+		{
+			if (mOpenNewProject)
+			{
+				Gui.OpenPopup("New Beef Project");
+				mOpenNewProject = false;
+			}
+			if (!Gui.igBeginPopupModal("New Beef Project", null, WindowFlags.AlwaysAutoResize))
+				return;
+			if (Gui.IsKeyPressed(Key.Escape, false) || mSelfTestClosePopups)
+			{
+				mSelfTestClosePopups = false;
+				Gui.igCloseCurrentPopup();
+			}
+			Gui.Text("Project name");
+			if (Gui.igIsWindowAppearing() || mCBRefocus)
+				Gui.igSetKeyboardFocusHere(0);
+			mCBRefocus = false;
+			Gui.igSetNextItemWidth(460 * Look.Scale);
+			bool enter = Gui.igInputText("##npname", mNPName.Ptr, (.)mNPName.Capacity, InputTextFlags.EnterReturnsTrue | InputTextFlags.AutoSelectAll, null, null);
+			Gui.Text("Type");
+			Gui.igSetNextItemWidth(460 * Look.Scale);
+			if (Gui.igBeginCombo("##nptype", scope String(sProjectTypes[mNPType]), 0))
+			{
+				for (int32 i < 4)
+					if (Gui.Selectable(sProjectTypes[i], i == mNPType))
+						mNPType = i;
+				Gui.igEndCombo();
+			}
+			Gui.Text("Location");
+			Gui.igSetNextItemWidth(370 * Look.Scale);
+			Gui.igInputText("##nploc", mNPLocation.Ptr, (.)mNPLocation.Capacity, 0, null, null);
+			Gui.SameLine();
+			if (Gui.Button("Browse...", .(82 * Look.Scale, 0)))
+			{
+				char8[4096] buf = default;
+				int32 r = Host.vbh_native_dialog(1, scope String(mNPLocation.View), &buf, 4096);
+				if (r == 1)
+					mNPLocation.Set(StringView(&buf));
+				else if (r < 0)
+					SetStatus("No native folder picker here: type the location path");
+			}
+			if (mNPType == 3)
+				DrawNewModSdkRow();
+			String name = scope .(mNPName.View);
+			name.Trim();
+			String location = scope .(mNPLocation.View);
+			location.Trim();
+			TrimSeparators(location);
+			String err = scope .();
+			// A UMP mod's name is its display name ("Hello Mod"): the folder and id are made from it.
+			bool valid = (mNPType == 3) ? Directory.Exists(location) : ValidateNewProject(name, location, err);
+			if (!valid && mNPType == 3)
+				err.Set("The location folder doesn't exist.");
+			if (valid && mNPType == 3)
+			{
+				String folder = scope .();
+				UmpModProject.FolderName(name, folder);
+				if (!mNPSdkOk)
+				{
+					valid = false;
+					err.Set(mNPSdkError.IsEmpty ? "Choose the game's SDK folder." : mNPSdkError);
+				}
+				else if (folder.IsEmpty)
+				{
+					valid = false;
+					err.Set("Give the mod a name with letters or digits.");
+				}
+				else
+				{
+					String id = scope .();
+					UmpModProject.Slug(name, id);
+					String projDir = scope .();
+					JoinPath(location, folder, projDir);
+					if (Directory.Exists(projDir))
+					{
+						valid = false;
+						err.Set(scope $"A folder named {folder} already exists there.");
+					}
+					else
+					{
+						Gui.TextDisabled(scope $"Creates {projDir}");
+						Gui.TextDisabled(scope $"    mod id {id}, game {mNPSdkInfo.GameId}, version 0.1.0, needs runtime ABI {mNPSdkInfo.RuntimeAbi}");
+						Gui.TextDisabled("    BeefSpace.toml, BeefProj.toml, ModConfig.json, src/ModMain.bf");
+						Gui.TextDisabled("The new mod folder is opened as the project.");
+					}
+				}
+			}
+			else if (valid)
+			{
+				String ws = scope .();
+				FindWorkspaceFor(location, ws);
+				String projDir = scope .();
+				JoinPath(location, name, projDir);
+				Gui.TextDisabled(scope $"Creates {projDir}");
+				Gui.TextDisabled("    BeefProj.toml and src/Program.bf");
+				if (ws.IsEmpty)
+				{
+					String wsAt = scope .();
+					JoinPath((mProjectRoot.IsEmpty || !(ProjectIndex.SamePath(location, mProjectRoot) || IsUnder(location, mProjectRoot))) ? location : mProjectRoot, "BeefSpace.toml", wsAt);
+					Gui.TextDisabled(scope $"and a new workspace {wsAt}");
+				}
+				else
+					Gui.TextDisabled(scope $"and adds it to {ws}");
+				if (mProjectRoot.IsEmpty)
+					Gui.TextDisabled("The location is opened as the project folder.");
+			}
+			ErrorLine(err);
+			Gui.igBeginDisabled(!valid);
+			bool go = Gui.Button("Create Project", .(140 * Look.Scale, 0)) || (enter && valid);
+			if (enter && !valid)
+				mCBRefocus = true; // keep typing after Enter on a bad name
+			Gui.igEndDisabled();
+			Gui.SameLine();
+			if (Gui.Button("Cancel", .(120 * Look.Scale, 0)))
+				Gui.igCloseCurrentPopup();
+			if (go && valid)
+			{
+				Gui.igCloseCurrentPopup();
+				if (mNPType == 3)
+					CreateModProject(name, location, mNPSdkInfo);
+				else
+					CreateProject(name, mNPType, location);
+			}
+			Gui.EndPopup();
+		}
+	}
+}

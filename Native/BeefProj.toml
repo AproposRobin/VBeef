@@ -1,0 +1,21 @@
+FileVersion = 1
+Dependencies = {corlib = "*"}
+
+[Project]
+Name = "VisualBeefNative"
+TargetType = "BeefLib"
+DefaultNamespace = "ImGui"
+
+[Configs.Debug.Win64]
+LibPaths = ["$(ProjectDir)/bin/win64/vbhost.lib"]
+PostBuildCmds = ["CopyToDependents(\"$(ProjectDir)/bin/win64/vbhost.dll\")"]
+
+[Configs.Release.Win64]
+LibPaths = ["$(ProjectDir)/bin/win64/vbhost.lib"]
+PostBuildCmds = ["CopyToDependents(\"$(ProjectDir)/bin/win64/vbhost.dll\")"]
+
+[Configs.Debug.Linux64]
+OtherLinkFlags = "$(LinkFlags) -L$(ProjectDir)/bin/linux64 -lvbhost -Wl,-rpath,$(ProjectDir)/bin/linux64"
+
+[Configs.Release.Linux64]
+OtherLinkFlags = "$(LinkFlags) -L$(ProjectDir)/bin/linux64 -lvbhost -Wl,-rpath,$ORIGIN"

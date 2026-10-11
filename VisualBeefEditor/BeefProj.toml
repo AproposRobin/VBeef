@@ -1,0 +1,29 @@
+FileVersion = 1
+Dependencies = {corlib = "*", VisualBeefCore = "*", VisualBeefNative = "*"}
+
+[Project]
+Name = "VisualBeefEditor"
+TargetType = "BeefGUIApplication"
+StartupObject = "VisualBeef.Editor.Program"
+DefaultNamespace = "VisualBeef.Editor"
+
+[Configs.Debug.Win64]
+PostBuildCmds = ["CopyFilesIfNewer(\"$(ProjectDir)/assets\", \"$(TargetDir)\")"]
+
+[Configs.Release.Win64]
+PostBuildCmds = ["CopyFilesIfNewer(\"$(ProjectDir)/assets\", \"$(TargetDir)\")"]
+
+[Configs.Debug.Linux64]
+PostBuildCmds = ["CopyFilesIfNewer(\"$(ProjectDir)/assets\", \"$(TargetDir)\")"]
+
+[Configs.Release.Linux64]
+PostBuildCmds = ["CopyFilesIfNewer(\"$(ProjectDir)/assets\", \"$(TargetDir)\")"]
+
+[Platform.Windows]
+IconFile = "Resources/VisualBeef.ico"
+Description = "VisualBeef visual editor for Beef"
+Company = "AproposRobin"
+Product = "VisualBeef"
+Copyright = "Copyright 2026 AproposRobin"
+FileVersion = "0.0.0.0"
+ProductVersion = "0.0.0-dev"

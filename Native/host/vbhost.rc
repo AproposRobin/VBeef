@@ -1,0 +1,33 @@
+// VERSIONINFO for vbhost.dll. The version, company and copyright come from the generated
+// vbversion.h (Native\build_windows.ps1 writes it from VisualBeefCore\src\Document\CommandLine.bf
+// and NOTICE), so this resource cannot drift from the editor's version or the package's.
+#include "vbversion.h"
+
+1 VERSIONINFO
+ FILEVERSION     VB_VER_MAJOR,VB_VER_MINOR,VB_VER_PATCH,0
+ PRODUCTVERSION  VB_VER_MAJOR,VB_VER_MINOR,VB_VER_PATCH,0
+ FILEFLAGSMASK   0x3fL
+ FILEFLAGS       0x0L
+ FILEOS          0x40004L
+ FILETYPE        0x2L
+ FILESUBTYPE     0x0L
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName",      VB_COMPANY
+      VALUE "FileDescription",  "VisualBeef host (SDL2 + Dear ImGui)"
+      VALUE "FileVersion",      VB_FILE_VERSION_STR
+      VALUE "InternalName",     "vbhost"
+      VALUE "LegalCopyright",   VB_COPYRIGHT
+      VALUE "OriginalFilename", "vbhost.dll"
+      VALUE "ProductName",      "VisualBeef"
+      VALUE "ProductVersion",   VB_VER_STR
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

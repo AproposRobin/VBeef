@@ -1,0 +1,161 @@
+# Windows build, tests, packages and (when enabled) code signing. docs/CI.md describes every step, variable and secret;
+# scripts/ci-github-local.ps1 runs the same steps (scripts/ci-windows.ps1) on a developer machine.
+name: Windows
+
+on:
+  push:
+    branches: [master, main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  # Tool locations. The pins (versions and sha256) are in scripts/ci-windows.ps1; the tools are downloaded from
+  # their upstream release pages and checked against those hashes before use.
+  VB_TOOLS: C:\vb\tools
+  VB_WORK: C:\vb\work
+  VB_DIST: C:\vb\dist
+  # The suites look for Beef here (hard-coded in the tests), so the pinned Beef is unpacked into this folder.
+  VB_BEEF_HOME: C:\Program Files\BeefLang
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history: the file version of the exe is major.minor.patch.<commit count> (scripts/package.ps1).
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Cache tool downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.VB_TOOLS }}\dl
+          # The downloads are verified against sha256 pins in scripts/ci-windows.ps1 whatever the cache holds.
+          key: vbtools-65ee0f1c-317492c4-f15cff5f-v1
+
+      - name: Fetch Beef 0.43.6, llvm-mingw, SDL2
+        shell: powershell
+        run: scripts\ci-windows.ps1 -Step fetch -Tools $env:VB_TOOLS -Work $env:VB_WORK -BeefHome $env:VB_BEEF_HOME
+
+      - name: Native host (vbhost.dll from source)
+        shell: powershell
+        run: scripts\ci-windows.ps1 -Step host -Tools $env:VB_TOOLS -Work $env:VB_WORK -BeefHome $env:VB_BEEF_HOME
+
+      - name: Build (BeefBuild)
+        shell: powershell
+        run: scripts\ci-windows.ps1 -Step build -Tools $env:VB_TOOLS -Work $env:VB_WORK -BeefHome $env:VB_BEEF_HOME
+
+      - name: Tests
+        shell: powershell
+        run: scripts\ci-windows.ps1 -Step test -Tools $env:VB_TOOLS -Work $env:VB_WORK -BeefHome $env:VB_BEEF_HOME
+
+      - name: Packages
+        shell: powershell
+        run: scripts\ci-windows.ps1 -Step package,stage-sign -Tools $env:VB_TOOLS -Work $env:VB_WORK -Dist $env:VB_DIST -BeefHome $env:VB_BEEF_HOME
+
+      - name: Upload unsigned packages
+        id: upload-packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: visualbeef-win64-unsigned
+          path: |
+            ${{ env.VB_DIST }}\*.zip
+            ${{ env.VB_DIST }}\*.zip.sha256
+          if-no-files-found: error
+
+      # ---- Code signing (SignPath Foundation), docs/Code-Signing.md ------------------------------------------------
+      # Skipped until the repository variable SIGNPATH_ENABLED is 'true' (set it only after the project is approved).
+      # Only release tags are signed. The binaries in the zip are built by the steps above from the tagged commit;
+      # the signed copies replace them and the zips are rebuilt.
+      - name: Upload binaries to sign
+        id: upload-to-sign
+        if: ${{ vars.SIGNPATH_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: visualbeef-win64-to-sign
+          path: ${{ env.VB_WORK }}\to-sign\*
+          if-no-files-found: error
+
+      - name: Submit signing request (SignPath)
+        if: ${{ vars.SIGNPATH_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v') }}
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.upload-to-sign.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: ${{ env.VB_WORK }}\signed
+
+      - name: Repackage with the signed binaries
+        if: ${{ vars.SIGNPATH_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v') }}
+        shell: powershell
+        run: scripts\ci-windows.ps1 -Step package-signed -Tools $env:VB_TOOLS -Work $env:VB_WORK -Dist $env:VB_DIST -BeefHome $env:VB_BEEF_HOME -SignedDir "$env:VB_WORK\signed"
+
+      - name: Upload signed packages
+        if: ${{ vars.SIGNPATH_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: visualbeef-win64-signed
+          path: |
+            ${{ env.VB_DIST }}\signed\*.zip
+            ${{ env.VB_DIST }}\signed\*.zip.sha256
+          if-no-files-found: error
+
+      - name: Upload build logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-build-logs
+          path: |
+            ${{ env.VB_WORK }}\*.log
+            ${{ env.VB_WORK }}\*.err
+            ${{ env.VB_WORK }}\suites\*.log
+          if-no-files-found: ignore
+
+  release:
+    # A v* tag publishes the packages on the GitHub Releases page (the download page). The signed packages are
+    # attached when signing ran, the unsigned ones otherwise. The build job holds no write permission.
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    needs: windows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download signed packages
+        if: ${{ vars.SIGNPATH_ENABLED == 'true' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: visualbeef-win64-signed
+          path: release
+
+      - name: Download unsigned packages
+        if: ${{ vars.SIGNPATH_ENABLED != 'true' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: visualbeef-win64-unsigned
+          path: release
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          ls -l release
+          gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1 \
+            || gh release create "$TAG" --repo "$REPO" --verify-tag --title "VisualBeef $TAG" --notes "Windows packages built by GitHub Actions from this tag. See docs/Code-Signing.md to verify them."
+          gh release upload "$TAG" --repo "$REPO" --clobber release/*.zip release/*.zip.sha256

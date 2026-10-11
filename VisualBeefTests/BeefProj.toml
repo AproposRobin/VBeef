@@ -1,0 +1,7 @@
+FileVersion = 1
+Dependencies = {corlib = "*", VisualBeefCore = "*", VisualBeefMeta = "*"}
+
+[Project]
+Name = "VisualBeefTests"
+StartupObject = "VisualBeef.Tests.Program"
+DefaultNamespace = "VisualBeef.Tests"
