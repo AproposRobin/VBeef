@@ -9,6 +9,114 @@ order: 25
 
 Newest first. Dates are commit dates; commit ids refer to the development history before the public repository was created.
 
+## 0.2.0-alpha
+
+- In-editor updates from GitHub Releases (Help > Check for Updates, Preferences > Updates).
+- The README stands on its own: it no longer links to pages that are not in the public repository.
+- Crash report check fixed.
+- Linux build fixed.
+- The vocabulary check allows the product name.
+
+## Unreleased: updates from GitHub Releases
+
+- The editor updates itself from the public repository's GitHub Releases, like the UniversalUMP launcher: a signed
+  `release.json` (Ed25519 over a canonical text: version, channel, sequence, tag, each file's platform, name, size and
+  SHA-256) is read from `releases/latest/download/release.json` (stable) or the newest published release (preview),
+  verified against the key in `VisualBeefCore/src/Update/ReleaseKeys.bf` (empty: updates are not set up), and offered only
+  when its sequence (or, for a fresh copy, its version) is above the running one. The package is downloaded with the
+  system's curl, its size and SHA-256 checked, and installed on **Restart to finish** (refused with unsaved files): on
+  Windows by a helper copy of the editor that keeps a `previous` copy and restores it when the new version does not start
+  within 60 s; on Linux the AppImage is replaced and restarted. Docs: [Updating.md](Updating.md), [Releasing.md](Releasing.md).
+- UI: a notice line under the toolbar (Update / Release notes / Later, progress, Restart to finish), **Help > Check for
+  Updates...**, **Editor Preferences > Updates** (Check at Start, Channel Stable / Preview, Check Now). Settings
+  `updates.check`, `updates.channel`.
+- Release side: `scripts/release.mjs` (`keygen`, `public`, `sign`, `verify`, `publish`, `vectors`); tags now build one
+  draft pre-release with the Windows and Linux packages (the Linux workflow runs on tags too), published by the owner after
+  signing.
+- Ed25519 from the launcher: in Debug builds a `static readonly int64[32]` initialised with a list ending in zeros came out
+  with garbage in its last element (Beef 0.43.6), so every signature failed in Debug only; `L` and `gf1` are filled by the
+  static constructor now. New suite `update` (98 checks), `update -net` by hand.
+
+## 2026-10-11: 0.1.9-alpha
+
+Alpha build with per-function Local variables in the Outline and the pin actions Make variable / Make local variable, multiple function outputs, the Node Library kind and global variables, typed pin controls and the single Switch node, hook nodes for UMP visual mods, the debugger attaching to a running game, the minimap pass with saved views and Home / Fit, comment bubbles with a pin, the pending wire while the Node menu is open, and host assertions that log instead of showing a dialog. Still alpha.
+
+## 2026-10-12: Debugger phase 2: Attach to Game
+
+- **Debug > Attach to Game...** lists the running processes with the UMP runtime (`UMPRuntime.dll`) and the mods each has loaded, says whether the picked game runs this project's mod (loaded, the same build as `build\Release_Win64`, from this folder, symbol file present), and attaches Beef's debugger engine (`Debugger_Attach`, flags 0) to it.
+- Breakpoints on the mod's nodes stop the game (it pauses); the Sheet opens on the node, Locals and Call Stack show the mod's frame, Step / Continue work. The Call Stack folds frames without source into dimmed **game code** rows (Show game code frames expands them) and ends with a `game code (callers not shown: no symbols)` row when the game's executable is not read.
+- **Detach** (Shift+F5, the red toolbar button, Debug > Detach) leaves the game running; so do closing the editor and the editor crashing (the engine's thread sets kill-on-exit off). The status bar is red while attached: `Attached to HogwartsLegacy.exe (pid) - running` / `- game paused at ModMain.Tick: F5 Continue, Shift+F5 Detach`.
+- Beef 0.43.6's debugger engine crashes (access violation on its thread, which ended the editor) reading Hogwarts Legacy's protected executable. On attach, a main executable without a symbol file here is served to the engine as stripped headers (the engine DLL's ReadFile import is redirected in the editor's process), so it is never parsed. `VisualBeefTests attachprobe <pid> [seconds] [images...]` reproduces and checks this on a stand-in process.
+- Fixed on the way: an attached session no longer starts pipe reader threads (a stale engine handle blocked one and the program could not exit); reader threads are background threads.
+- Live proof (Epic Hogwarts Legacy client, fresh launcher 20261011-b802a7e, a `modauthor` Release mod with `mTicks += 1` in Tick): attach, stop on that node in `ModMain.Tick` (frames: the mod, `UMPRuntime.ModLoader.DispatchTick`, `FUMPTickHook.HookedTick`), `this.mTicks = 2635`, Step Over, Continue, Detach, the game ran on and stopped gracefully with `--stop`.
+- Counts: `debug` 74 checks (25 new: the Debuggee fixture started as its own process, found by module, attached by pid twice, break, local, Step Over, Continue, Detach with the process still running), `VB_SELFTEST=attach` 13 checks at 1280x800 / 1920x1080, Dark / Darker, 100 % / 125 %; `VB_SELFTEST=attachlive` 9 checks on the game; no `[ASSERT]` lines.
+
+## 2026-10-12: Typed pin values and the one Switch node
+
+The owner's rules (A) and (B) of 2026-10-12 (branch `wt/typed-pins`). Tests: `flow` +45 (`PinTests.bf`), a
+`factory` case, `VB_SELFTEST=session` steps 99-111 (session 37 checks, captures `pins-values`, `pins-enum-open`,
+`pins-refuse`, `pins-switch`).
+
+* **Every unwired input pin shows the control for its type**, on the node and in Properties (`PinValue` in the
+  core, `PinValueEditor` in the editor): enum -> a dropdown of the enum's members (`.Member`, also read from
+  `EnumName.Member`); `String` / `StringView` -> a text field without quotes (quotes and escapes added on
+  write); `bool` -> checkbox; numbers -> a field that refuses what the type cannot hold (`300` for `uint8`, `1.5`
+  for `int`, a negative for `uint`) with the reason in a toast and a red frame, written `1.5f` for `float`;
+  `char8` / `char32` -> one character, `'x'`. Class / struct / pointer pins have no editor (a dim `null` /
+  `default`). A value that is not a plain literal (an expression) shows read-only with a **Custom** badge and is
+  edited as text in Properties. Receivers and pins of unknown type stay expression text.
+* **One Switch node.** Properties > Cases > **Switch On** (a type picker: whole numbers, characters, `String`,
+  any enum). Changing it keeps the cases that still fit and starts a new type with one case; an enum gets one
+  output per member. **Update members** (and Reload node) follow the enum when it changes. Case values are typed
+  with the same controls. The Node menu has one `Switch`, and dragging off an enum-typed output offers
+  `Switch on <Enum>` as the first row, placed with the wire connected.
+
+## 2026-10-12: No code signing
+
+- Owner decision: no code-signing certificate and no SignPath application. Releases are unsigned; trust comes from the public GitHub workflow, build attestations and checksums. The signing steps, variables, `package.ps1 -SignedDir`, the `stage-sign` / `package-signed` CI steps and the SignPath pages are removed (branch `wt/no-signpath`).
+
+## 2026-10-12: Inputs stay on their function, several outputs, local variables
+
+The owner's requests after using 0.1.8 (branch `wt/locals`), each exercised by the new
+`VB_SELFTEST=fnlocals` (28 checks) and `LocalsTests.bf` (`classes` +31, `flow` +3).
+
+* **Add Input no longer jumps to another function.** The Sheet tab's identity in the tab bar was
+  `<file>|<method key>`, and the key holds the parameter types, so Add Input / remove / a type
+  change made a new tab id: the tab bar put another function's Sheet in front and Properties
+  followed it. Tabs now have a stable id, `SourceDocument.SetSignature` reports the function's new
+  key (`LastSignatureKey`) and the tab follows it (never another overload of the same name), and
+  the new row's name box gets the keyboard focus.
+* **Several outputs.** Properties > Outputs: the Return Value and one row per further output (an
+  `out` parameter), with the read-only header under them. The Return node has an input per
+  output and writes `value = ...; name = ...; return ...;`; read back from the assignments right
+  before a `return`, byte for byte. Adding an output gives every Return its default in the same
+  undo step. See [Classes-and-Members.md](Classes-and-Members.md#outputs).
+* **Local variables instead of the Local Variable node.** The declarations at the top of a body
+  are the function's local variables: listed in the Outline under the open function (LOCAL
+  VARIABLES, +, drag for Get / Set, rename in place), shown in Properties when selected (type,
+  Ownership with **Made for this call** = `scope .()`, Initial Value), written first in
+  order, byte for byte. The Local Variable node is gone from the Node menu and the hotkeys; **L**
+  adds a local variable. A declaration in the middle of a body stays as it was, with **Move to
+  Locals** offered (only when asked: it can change when the value is computed). See
+  [Classes-and-Members.md](Classes-and-Members.md#local-variables).
+* **Make variable from a pin.** The pin context menu: **Make variable** / **Make local variable**
+  on a data output (the variable, typed like the pin, and a Set fed by it spliced after the pin's
+  node), **Make variable (Get)** on a data input. One undo step each (`SourceDocument.DropLastUndo`
+  merges the member's own edit with the nodes).
+* **Layout rule** (Editor-UI.md > Layout): lists on the left (Outline), the properties of the selection on
+  the right (Properties).
+* Fixed on the way: an ImGui `Mismatching PushID/PopID!` assertion (imgui_tables.cpp:1594) from the
+  first draft of the Locals rows (value rows drawn inside a row's ID scope); the orphan record of a
+  function with local variables is restored with them declared first.
+* Tests changed with the model: edits scenarios 18 / 20 use `var` declarations where they wire a
+  declaration's output (a typed one at the top is now a local variable), two factory cases put a
+  print first, hotkeys have 10 defaults (L is the Sheet's own key), compile cases move top
+  declarations back into the flow before wiring their values.
+* Not changed: `orphans` on the three UMP folders reports 19 refused reconnect commits ("For Loop
+  'Count' takes int, but the wire brings bool") on master too: a counting loop header with `&&`
+  in its condition (`for (int i = 0; i < 10000 && !done; i++)`) is read as a For Loop whose Count
+  is the whole `10000 && !done`.
+
 ## 2026-10-12: Node Library (static class) and global variables
 
 - New type kind **Node Library** = Beef `static class Name` (byte for byte; `class` with only static members stays a Class). Project Browser > New Node Library..., New Class > Template, Type Settings > Kind. Own Outline entry, Type Settings without the instance-only rows, no constructors / destructor / parent / interfaces.

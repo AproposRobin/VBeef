@@ -37,6 +37,7 @@ parser
 catalog
 diagnostics
 hotkeys
+update
 ump
 vocabulary
 stress
@@ -62,21 +63,22 @@ Expected output on the tree this page was written against (2026-10-10, after the
 
 | Command | Expected last line | Time |
 |---|---|---|
-| `edits` | `total: edits ok, factory failures 0, flow failures 0` (edit scenarios 1-24 with 0 failures, factory 63 cases, flow 154 checks including the 75 call checks and the 7 Defer / Using body checks) | seconds |
-| `flow` | `flow checks: 154  failures: 0` (59 switch / macro checks + 13 counting For Loop checks + 75 call checks + 7 Defer / Using body checks) | < 1 s |
+| `edits` | `total: edits ok, factory failures 0, flow failures 0` (edit scenarios 1-24 with 0 failures, factory 63 cases, flow 157 checks including the 75 call checks, the 7 Defer / Using body checks and the 3 local variable splice checks; the 7 Defer / Using body checks) | seconds |
+| `flow` | `flow checks: 157  failures: 0` (59 switch / macro checks + 13 counting For Loop checks + 75 call checks + 7 Defer / Using body checks + 3 `LocalsTests.RunFlow`: a Set spliced after a call, after the local variables) | < 1 s |
 | `calls` | `call checks: 75  failures: 0` | < 1 s |
 | `lifetime` | `lifetime checks: 112  failures: 0` | < 1 s |
 | `textforms` | `text form checks: 91  failures: 0` | < 1 s |
-| `classes` | `class checks: 476  failures: 0` (31 Node Library: kind change, static writing, validator, catalog categories, + 179 + 136 in the ownership and initial values group + 38 in set on create, + 19 from the 2026-10-11 bug hunt, + 26 from the suspected-issues pass: typed primitives, a rename with a refused commit, constructor chains, code-point characters, + 12 from the newcomer pass: interface functions, usings, overload ties, + 10 Passing: the chooser's choices, out / ref / in written and read back, + 14 Return defaults per type and a fresh bool function written with `return false;`, + 3 Set labels: Variable on Set nodes, Receiver on calls, + 5 Construct needs a constructor: the error, the classes that need no choice, cleared by an input, a warning when read from code, + 3 a print read back takes Object: the pin, byte for byte, a wired int) | < 1 s |
+| `classes` | `class checks: 529  failures: 0` (53 `LocalsTests.RunClasses` (2026-10-12): local variables read, written, added / renamed / retyped / reordered / removed / moved, outputs on Return nodes and calls, a signature change keeps its function's key, variables made from a pin in one undo step, + 31 Node Library: kind change, static writing, validator, catalog categories, + 179 + 136 in the ownership and initial values group + 38 in set on create, + 19 from the 2026-10-11 passover, + 26 from the suspected-issues pass: typed primitives, a rename with a refused commit, constructor chains, code-point characters, + 12 from the newcomer pass: interface functions, usings, overload ties, + 10 Passing: the chooser's choices, out / ref / in written and read back, + 14 Return defaults per type and a fresh bool function written with `return false;`, + 3 Set labels: Variable on Set nodes, Receiver on calls, + 5 Construct needs a constructor: the error, the classes that need no choice, cleared by an input, a warning when read from code, + 3 a print read back takes Object: the pin, byte for byte, a wired int) | < 1 s |
 | `safety` | `safety: failures=0` (18 groups, 136 `ok` lines) | seconds |
 | `vocabulary` | `vocabulary: source files=90 string literals=8700 docs=22 hits=0 failures=0` | < 1 s |
 | `parser` | `parser checks: 297  failures: 0` (then the 32 declaration-form checks of `classes`; exit code covers both) | < 1 s |
 | `catalog` | `catalog checks: 234 passed, 0 failed` | under 1 s once the corlib cache exists |
 | `diagnostics` | `diagnostics checks: 49  failures: 0` | < 1 s |
 | `hotkeys` | `hotkey checks: 36  failures: 0` | < 1 s |
-| `ump` | `ump checks: 48  failures: 0` (16 for New Project > UMP Mod: names, the SDK folder resolved, the files written) | < 1 s |
+| `update` | `update checks: 98  failures: 0` | < 1 s |
+| `ump` | `ump checks: 49  failures: 0` (16 for New Project > UMP Mod: names, the SDK folder resolved, the files written) | < 1 s |
 | `stress` | `stress checks: 68  failures: 0` (4 context checks + 16 runs of 50 random edits x 4 checks) | about 2 s |
-| `debug -out <dir>` | `debug checks: 49  failures: 0` | about 8 s (one small BeefBuild, three runs under the debugger) |
+| `debug -out <dir>` | `debug checks: 74  failures: 0` | about 8 s (one small BeefBuild, three runs under the debugger, two attaches) |
 | `debugmap` (UMP `src`, `UMPRuntime/src`, `UnrealSDKCore/src`, ClockWork) | `debugmap: files=204 methods=1702 statements=25724 values=49778 without-line=57 failures=0` | about 15 s |
 | `ump -sdk <launcher data>\sdk\hogwarts-legacy\HogwartsLegacySDK` (emitter v5) | `ump checks: 46  failures: 0` | 18 s on the first run (parse + cache), about 1 s after |
 | `compile -out <dir>` | `compile: cases=42 compiled=30 refusals=12 failures=0` | about 1.5 s warm, longer on the first BeefBuild |
@@ -359,6 +361,27 @@ error (not the new one, not the statement that moved up into the deleted one's p
 is marked `NodeGone`; undo brings the node back with its error; a node inserted before it does not take
 it; the node edited in the graph keeps it until the next compile; a reopened file finds it by content.
 
+### `update`
+
+The updater without the network (`UpdateTests.bf`; [Releasing.md](Releasing.md)): base64, SHA-512 (FIPS 180-4 `abc`),
+SHA-256 of a file, the JSON reader (escapes, surrogate pairs, depth limit, trailing comma, raw line break); Ed25519
+RFC 8032 test 1 (public key, signature, verify, changed signature, other message); the descriptor `scripts/release.mjs
+vectors` signs with its fixed TEST seed: fields, the canonical text byte for byte, verification in Beef, an empty key list
+("not set up"), another key, a key list, every signed field changed (refused), the unsigned notes changed (still
+verifies), a malformed and a missing signature; a descriptor signed in Beef with a key made at test time; shape refusals
+(not JSON, an array, format 2, another product, an unknown channel, sequence 0 or fractional, a tag or file name with a
+path, an upper-case or short SHA-256, a negative size, a platform twice, a line break in a signed field, over 64 KiB);
+the sequence rules (higher offered, equal and lower refused, unknown sequence falls back to the version, never a
+downgrade); version order; the platform file per kind of install; a download with the right / wrong SHA-256 and size;
+the package layout check; swap and restore of an install folder (files and folders replaced, user files kept, the
+`previous` copy, the restore byte for byte, new files removed, an empty package refused); the preview release list
+(drafts and releases without `release.json` skipped, an error object, an unsafe tag); `installed.json` and
+`last-result.json`; the HTTP header reader (status and ETag of the last redirect hop, 304). 98 checks, in Debug and Release.
+
+`update -net` (by hand, needs the network, not in CI): a real stable and preview check against the public repository
+through curl, the ETag cache of the releases list, a download through GitHub's redirect with progress, and the size cap.
+2026-10-11: 8 checks, `failures: 0` (no release published yet: "No VisualBeef release is published yet." on both).
+
 ### `hotkeys`
 Node hotkeys and favorites (`HotkeyTests.bf`, the `NodeHotkeys` map of VisualBeefCore,
 [Editor-UI.md](Editor-UI.md#node-hotkeys-and-favorites)), 36 checks in 4 groups: the 11 defaults
@@ -385,7 +408,21 @@ from nodes (Main's entry node, binding to its first statement and shown on the e
 `this` and a member through its expression, a call refused, an unknown name with the reason); Step
 Over (the next node), Step Into (inside `Add`), Step Out (back in `Hello`, the field changed);
 Continue to exit code 7 with the program's output; then a run with `crash` (a null object): the stop
-by the fault on the Set node, and Stop; then a run with `loop`: Pause shows the main thread down to `Main`, Continue, Stop. 47 checks. Needs the Beef install.
+by the fault on the Set node, and Stop; then a run with `loop`: Pause shows the main thread down to `Main`, Continue, Stop.
+Then attach: the PDB named in the exe's debug record exists, attaching to a process that does not
+exist fails with a reason, the fixture started on its own (`loop`, not under the debugger) is found by
+its module, attached by process id; the breakpoint on the Sleep node in the loop stops it (bound in
+the attached process), frames without source are on the stack, `g.mCount` reads 3, Step Over stays in
+Main, Continue reaches the breakpoint again, Detach ends the session and the process keeps running;
+a second attach to the same process stops again (the first detach let it run). The test ends the
+process. 74 checks. Needs the Beef install.
+
+### `attachprobe <pid> [seconds] [images...]`
+A diagnostic, not a suite: attaches the engine to a running process, prints its messages, pauses half
+way (frames of the stop), continues, detaches and says whether the process still runs. Images given
+after the seconds are served to the engine as stripped headers (Architecture.md, "Images the engine
+must not read"). With a stand-in process that maps a file (`LoadLibraryEx` with
+`DONT_RESOLVE_DLL_REFERENCES`) it shows whether the engine can read that file.
 
 ### `compile [-out <dir>] [-v]`
 The strongest check of code generation (`CompileTests.bf`). Each *case* is a small Beef program
@@ -550,8 +587,24 @@ The editor was verified by driving a real window:
   2026-10-11, 0.1.5 merge: `session,debug` `done failures=0` with 82 session checks + 14 debug checks (the scratch project's `Main` is `Greeter g = scope .(); g.Hello();`); `reload-check` 3 checks, `unreadable` 11 checks, `open:Reader.Read(),ids` 0 conflicting IDs (21,195 rows), each `done failures=0`.
   **`reload-check`** is the second run in a new process on the same project and `VB_HOME`: the file
   opens unchanged, its graphs check clean, the indicator is green.
-* **`newcomer`** (`VB_SELFTEST=newcomer`, `SelfTestNewcomer.bf`; an empty scratch folder as the project, a fresh `VB_HOME`): a first-time user's path through the calls the UI makes. File > New Project `Mod`, New Struct `Point`, New Interface `IGreeter` with a function (written as a declaration), New Class `Greeter` implementing it (the stub), Add Variable `List<int>` (Owned, made here; `using System.Collections;` added) and `int mCount = 3`, a constructor `(int start)`, Set on create (refused on `mCount` because `this(int)` exists, then a `String mName`), a For Loop with a print, `TryGet(out int value)` with Set value and Return, `Run` with a Defer, a call, a Branch on `TryGet`'s value and the out pin printed, then in `Main` Construct Greeter (from another file, with the create constructor's input), Defer -> Delete and Run on its Receiver, Save All, a Release compile, close / reopen byte for byte, Reload node, Reload Sheet, undo / redo / undo, and a debugger stop on the print in the loop (`i = 0`) then Continue to exit code 0. `[NEWCOMER]` lines log what each chooser offered and the code written. 2026-10-11: 15 checks, `done failures=0`; the program prints `Hello from Mod`, 0-9, 3, `Run done`. 2026-10-11: 25 checks, `done failures=0`; added: the For Loop's Counter pin `i` wired into the print and read back after reopen, `TryGet` made through the Add Function dialog's Inputs rows with Passing out (the chooser offers value, out, ref, in), Properties > Inputs reads out and writes ref (undone), the Return in `TryGet` starts with `false`, the Set of the parameter labels its pin Variable, the template's print in `Main` takes Object and accepts a wired int, a bare Construct Greeter shows "needs a constructor" until one is chosen.
-* **`modauthor`** (`VB_SELFTEST=modauthor`, `SelfTestModAuthor.bf`; an empty scratch folder as the project, a fresh `VB_HOME`, the game SDK in `VB_MODAUTHOR_SDK`, default `D:\UnrealUMP\UnrealUMP\Sdks\HogwartsLegacySDK`): a first UMP mod. File > New Project > UMP Mod `Hello Mod` with the Game SDK row resolved (game id, UMP libraries, runtime ABI), the OnWorldReady override, `UWorld* mWorld`, `bool mLevelLogged`, `String mConfigText`, a static `uint64 OnDaysInYear(uint64 year)` returning `Original_DaysInYear(year)`, Hook Days In Year in Initialize with OnDaysInYear picked from its Callback pin's Node menu, File.ReadAllText of the mod's ModConfig.json (`using System.IO;` added) and a second Log of it, Tick's Branch / Get Current Level Name (bool input starts `false`) / Set, Shutdown's Remove All, Save All, a Release compile to `HelloMod.dll`, ModConfig.json checked against UMP's docs/Mods.md and `Info()`, close / reopen, Reload Sheet, Reload node and identity commits byte for byte. `[MODAUTHOR]` lines log Node menu timings and what each chooser offered. 2026-10-11: 22 checks, `done failures=0` (also as `newcomer,modauthor` in one run). 2026-10-11: 42 checks over UMP's v5 SDK: the hook part uses the Node menu only (Try hook with a Branch on its bool, Call original through two Casts, ReadModFile, Get ModDirectoryPath, To Owned String, Unhook with its unread-Result note), catalog and raw-name search checks. `newproject-mod:<sdk folder>` opens the New Project dialog on UMP Mod for captures (`close-popups` closes it).
+* **`newcomer`** (`VB_SELFTEST=newcomer`, `SelfTestNewcomer.bf`; an empty scratch folder as the project, a fresh `VB_HOME`): a first-time user's path through the calls the UI makes. File > New Project `Mod`, New Struct `Point`, New Interface `IGreeter` with a function (written as a declaration), New Class `Greeter` implementing it (the stub), Add Variable `List<int>` (Owned, made here; `using System.Collections;` added) and `int mCount = 3`, a constructor `(int start)`, Set on create (refused on `mCount` because `this(int)` exists, then a `String mName`), a For Loop with a print, `TryGet(out int value)` with Set value and Return, `Run` with a Defer, a call, a Branch on `TryGet`'s value and the out pin printed, then in `Main` Construct Greeter (from another file, with the create constructor's input), Defer -> Delete and Run on its Receiver, Save All, a Release compile, close / reopen byte for byte, Reload node, Reload Sheet, undo / redo / undo, and a debugger stop on the print in the loop (`i = 0`) then Continue to exit code 0. `[NEWCOMER]` lines log what each chooser offered and the code written. 2026-10-11: 15 checks, `done failures=0`; the program prints `Hello from Mod`, 0-9, 3, `Run done`. 2026-10-11 (`wt/newcomer2`): 25 checks, `done failures=0`; added: the For Loop's Counter pin `i` wired into the print and read back after reopen, `TryGet` made through the Add Function dialog's Inputs rows with Passing out (the chooser offers value, out, ref, in), Properties > Inputs reads out and writes ref (undone), the Return in `TryGet` starts with `false`, the Set of the parameter labels its pin Variable, the template's print in `Main` takes Object and accepts a wired int, a bare Construct Greeter shows "needs a constructor" until one is chosen.
+* **`attach`** (`VB_SELFTEST=attach`, `SelfTestAttach.bf`; the `Debuggee` fixture's workspace as the
+  project, `VB_ATTACH_MODULE=Debuggee.exe`, the fixture running as `Debuggee.exe loop` started by the
+  caller): Attach to Game with a made-up module (the empty list, Attach disabled; capture
+  `attach-empty`), then the fixture listed with a green symbol line (`attach-dialog`), Attach, the
+  stop on the Sleep node with the red status and the game code rows collapsed (`attach-stopped`),
+  Locals (`attach-locals`), the rows expanded (`attach-frames`), the breakpoint removed and Continue
+  (`attach-running`), Detach with the process still running (`attach-detached`). 2026-10-12: 13
+  checks, `done failures=0`, at 1280x800 and 1920x1080, Dark and Darker, `VB_UI_SCALE` 1.0 and 1.25;
+  no `[ASSERT]` lines.
+* **`attachlive`** (`VB_SELFTEST=attachlive`, `VB_ATTACH_FILE=<the mod's ModMain.bf>`,
+  `VB_ATTACH_TEXT=<the statement to stop on>`): the live proof on a game started by the UMP launcher
+  with the mod installed: the dialog (`live-dialog`), Attach, the stop in the mod's Tick
+  (`live-stopped`, `live-locals`), `[ATTACHLIVE]` lines with the frames and locals, Step Over,
+  Continue without the breakpoint (`live-running`), Detach (`live-detached`). 2026-10-12 on the Epic
+  Hogwarts Legacy client: 9 checks, `done failures=0`, the game ran on after Detach.
+* **`fnlocals`** (`VB_SELFTEST=fnlocals`, `SelfTestLocals.bf`; an empty scratch folder as the project, a fresh `VB_HOME`): the 2026-10-12 owner requests through the calls the UI makes. Add Input, remove and a type change keep TryGet's Sheet in front and Properties on it, the new row focused; Outputs with two `out` rows and a Return writing `value = 0; name = null; return false;`; L adds `int newLocal = 0;` selected in the Outline with its name box focused, renamed there to `count`; a String local variable made here (`scope .()`); Get / Set count from the Node menu (no Local Variable node offered); Make variable / Make local variable / Make variable (Get) from pins, one undo step each; Save All and a Release compile; close / reopen byte for byte; no `[ASSERT]` line in the session log. Captures `fn-outputs`, `local-props`, `outline-locals`. 2026-10-12: 28 checks, `done failures=0`.
+* **`modauthor`** (`VB_SELFTEST=modauthor`, `SelfTestModAuthor.bf`; an empty scratch folder as the project, a fresh `VB_HOME`, the game SDK in `VB_MODAUTHOR_SDK`, default `D:\UnrealUMP\UnrealUMP\Sdks\HogwartsLegacySDK`): a first UMP mod. File > New Project > UMP Mod `Hello Mod` with the Game SDK row resolved (game id, UMP libraries, runtime ABI), the OnWorldReady override, `UWorld* mWorld`, `bool mLevelLogged`, `String mConfigText`, a static `uint64 OnDaysInYear(uint64 year)` returning `Original_DaysInYear(year)`, Hook Days In Year in Initialize with OnDaysInYear picked from its Callback pin's Node menu, File.ReadAllText of the mod's ModConfig.json (`using System.IO;` added) and a second Log of it, Tick's Branch / Get Current Level Name (bool input starts `false`) / Set, Shutdown's Remove All, Save All, a Release compile to `HelloMod.dll`, ModConfig.json checked against UMP's docs/Mods.md and `Info()`, close / reopen, Reload Sheet, Reload node and identity commits byte for byte. `[MODAUTHOR]` lines log Node menu timings and what each chooser offered. 2026-10-11: 22 checks, `done failures=0` (also as `newcomer,modauthor` in one run). 2026-10-11 (`wt/hook-nodes`): 42 checks over UMP's v5 SDK: the hook part uses the Node menu only (Try hook with a Branch on its bool, Call original through two Casts, ReadModFile, Get ModDirectoryPath, To Owned String, Unhook with its unread-Result note), catalog and raw-name search checks. `newproject-mod:<sdk folder>` opens the New Project dialog on UMP Mod for captures (`close-popups` closes it).
 * **`nodoc`** (`VB_SELFTEST=nodoc`, `SelfTest.bf`; run with no project, a fresh `VB_HOME`): asks for the Add Variable and Add Function dialogs and Type Settings with no document loaded. Add Variable / Add Function need a selected type: with no document they are refused (counted in `mDialogRefusals`, nothing opens) and `FindType` returns null. Before the fix the first frame crashed (access violation reading null in `FindType`, `Doc.Unit` is null for the empty document). 2026-10-11: 3 checks, `done failures=0`.
 * **`disk`** (`VB_SELFTEST=disk`, chained after `session,debug` as `session,debug,disk`, or in a second process on the project `session` left, like `reload-check`, with `VB_SELFTEST_DELETE_OK=1`. 2026-10-12, undoplace: `session,debug,disk` chains, 108 + 20 + 17 checks `done failures=0`; it used to fail its first save because session step 32 stopped undoing when the text equalled the saved file and left the Branch and the value-less print in Hello's graph. `reload-check` does not follow `disk` (the scratch `src` was deleted and rewritten, no compile record). 2026-10-12, 0.1.7 merge: `disk` 17 checks `done failures=0`; `SelfTestDisk.bf`, 17 checks): the disk going wrong under the open editor, through
   Save All and Reload From Disk. A read-only `Greeter.bf`: Save All is refused ("Save failed: Could not replace ... The original

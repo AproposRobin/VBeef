@@ -124,6 +124,7 @@ namespace VisualBeef.Editor
 		{
 			mSelClassName.Set(typeName);
 			mSelClassActive = true;
+			mSelLocalActive = false;
 			mSelVarActive = false;
 			mSelVarSigPending = true;
 			Panels.Focus(Panels.PropertiesId);

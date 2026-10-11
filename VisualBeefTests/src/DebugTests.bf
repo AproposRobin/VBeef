@@ -236,6 +236,164 @@ namespace VisualBeef.Tests
 				outText.AppendF("{} {}:{}", s.Frames[0].Name, s.Frames[0].File, s.Frames[0].Line);
 		}
 
+		/// Attach (how a game with a visual mod is debugged): the fixture is started as its own
+		/// process (looping), found by its module, attached by process id; a breakpoint on the node
+		/// in the loop stops it, a local is read, Step Over and Continue work, Detach leaves it
+		/// running. A second attach to the same process stops again (the first detach let it run
+		/// on), then the process is ended by the test.
+		static void RunAttach(DebugTarget target, StringView outDir, StringView file, SourceDocument doc, MethodGraph main)
+		{
+			Node sleep = FindCall(main.Graph, "Sleep");
+			let sleepLine = (sleep != null) ? DebugMap.LineOf(main.Graph, sleep) : 0;
+			Check(sleepLine > 0, scope $"the Sleep node in Main's loop has a line ({sleepLine})");
+			if (sleepLine <= 0)
+				return;
+
+			// The PDB the program names is the one written next to the build output.
+			SymbolInfo sym = scope .();
+			Check(sym.Read(target.Exe) && File.Exists(sym.PdbPath) && sym.PdbPath.EndsWith(".pdb", .OrdinalIgnoreCase), scope $"the program names its symbol file: '{sym.PdbPath}'");
+
+			String err = scope .();
+			{
+				DebugSession s = scope .();
+				Check(!s.Attach(int32.MaxValue - 7, err) && !err.IsEmpty && !s.IsActive, scope $"attaching to a process that does not exist fails with a reason: {err}");
+			}
+
+			ProcessStartInfo psi = scope .();
+			psi.SetFileName(target.Exe);
+			psi.SetArguments("loop");
+			psi.SetWorkingDirectory(target.WorkDir);
+			psi.UseShellExecute = false;
+			psi.CreateNoWindow = true;
+			SpawnedProcess proc = scope .();
+			if (proc.Start(psi) case .Err)
+			{
+				Check(false, "the fixture starts as its own process");
+				return;
+			}
+			let pid = (int32)proc.ProcessId;
+			defer
+			{
+				if (GameProcesses.IsRunning(pid))
+					proc.Kill();
+			}
+			Thread.Sleep(700);
+			Check(GameProcesses.IsRunning(pid), scope $"the looping fixture runs as process {pid}");
+			String modPath = scope .();
+			Check(GameProcesses.FindModule(pid, "Debuggee.exe", modPath) && DebugSession.SamePath(modPath, target.Exe), scope $"its module is found by name in the process: {modPath}");
+			List<GameProcess> found = scope .();
+			defer { ClearAndDeleteItems!(found); }
+			GameProcesses.Find(found, "Debuggee.exe");
+			bool listed = false;
+			for (let gp in found)
+				if (gp.ProcessId == pid && gp.ExeName.Equals("Debuggee.exe", .OrdinalIgnoreCase))
+					listed = true;
+			Check(listed, scope $"the process list by module has it ({found.Count} found)");
+
+			String output = scope .();
+			for (int round < 2)
+			{
+				DebugSession s = scope .();
+				s.SourceRoot.Set(outDir);
+				let bp = s.AddBreakpoint(file, sleepLine, sleep);
+				err.Clear();
+				let ok = s.Attach(pid, err);
+				Check(ok && s.Attached && s.ProcessId == pid, scope $"attach {round + 1}: attached to process {pid} {err}");
+				if (!ok)
+					return;
+				Check(WaitStop(s, output, 30000) && s.State == .Stopped && s.Reason == .Breakpoint, scope $"attach {round + 1}: the breakpoint in the loop stops the process (state {s.State}, reason {s.Reason})");
+				String at = scope .();
+				Where(s, at);
+				MethodGraph stopMg = null;
+				let node = s.Frames.IsEmpty ? null : DebugMap.NodeAt(doc, s.Frames[0].Line, out stopMg);
+				Check(node == sleep && stopMg == main && s.HitBreakpoint() == bp, scope $"attach {round + 1}: stopped on the Sleep node ({at})");
+				Check(bp.Bound && bp.BoundLine == sleepLine, scope $"attach {round + 1}: the breakpoint bound in the attached process ({bp.BoundLine})");
+				int sourceless = 0;
+				for (let f in s.Frames)
+					if (!f.HasSource)
+						sourceless++;
+				Check(sourceless > 0, scope $"attach {round + 1}: frames without source (the code that started the program) are on the stack ({sourceless} of {s.Frames.Count})");
+				EvalValue v = scope .();
+				Check(s.Evaluate("g.mCount", 0, v) && v.Value == "3", scope $"attach {round + 1}: g.mCount = {v.Value}");
+				if (round == 0)
+				{
+					s.StepOver();
+					Check(WaitStop(s, output, 10000) && s.State == .Stopped && s.Reason == .Step, scope $"attach 1: Step Over stops (reason {s.Reason})");
+					at.Clear();
+					Where(s, at);
+					let stepNode = s.Frames.IsEmpty ? null : DebugMap.NodeAt(doc, s.Frames[0].Line, out stopMg);
+					Check(stopMg == main && stepNode != null, scope $"attach 1: the step stays in Main ({at})");
+					s.Continue();
+					Check(WaitStop(s, output, 10000) && s.State == .Stopped && s.Reason == .Breakpoint, "attach 1: Continue runs the loop to the breakpoint again");
+				}
+				s.Detach();
+				Check(WaitStop(s, output, 10000) && s.State == .NotDebugging && s.Detached, scope $"attach {round + 1}: Detach ends the session ({s.State})");
+				Thread.Sleep(500);
+				Check(GameProcesses.IsRunning(pid), scope $"attach {round + 1}: the process keeps running after Detach");
+			}
+		}
+
+		/// `attachprobe <pid> [seconds]`: attaches the debugger engine to a running process, lets it
+		/// run (prints the engine's messages and errors), then detaches. A diagnostic for processes
+		/// the engine cannot handle; the process keeps running whatever happens here.
+		public static int RunProbe(String[] args)
+		{
+			int32 pid = 0;
+			if (args.Count >= 2 && int32.Parse(args[1]) case .Ok(let v))
+				pid = v;
+			if (pid == 0)
+			{
+				Console.WriteLine("usage: attachprobe <pid> [seconds] [images not to read...]");
+				return 2;
+			}
+			int seconds = 10;
+			if (args.Count > 2 && int.Parse(args[2]) case .Ok(let sec))
+				seconds = sec;
+			DebugSession s = scope .();
+			for (int i = 3; i < args.Count; i++)
+				s.AlsoSkip.Add(new String(args[i]));
+			String err = scope .();
+			let sw = scope Stopwatch(true);
+			if (!s.Attach(pid, err))
+			{
+				Console.WriteLine("attach failed: {}", err);
+				return 1;
+			}
+			Console.WriteLine("attached to {} in {} ms; not read: '{}'", pid, sw.ElapsedMilliseconds, s.SkippedImage);
+			List<DebugEvent> events = scope .();
+			bool paused = false;
+			while (sw.ElapsedMilliseconds < seconds * 1000 && s.IsActive)
+			{
+				// Half way: Pause, list the frames of the stop, Continue.
+				if (!paused && sw.ElapsedMilliseconds > seconds * 500 && s.State == .Running)
+				{
+					paused = true;
+					s.Pause();
+					if (WaitStop(s, scope .(), 10000) && s.State == .Stopped)
+					{
+						Console.WriteLine("  paused: {} frames", s.Frames.Count);
+						for (let f in s.Frames)
+							if (@f.Index < 8)
+								Console.WriteLine("    {} {}:{}", f.Name, f.File, f.Line);
+						s.Continue();
+					}
+					else
+						Console.WriteLine("  pause: no stop ({})", s.State);
+				}
+				s.Update();
+				s.TakeEvents(events);
+				for (let e in events)
+					Console.WriteLine("  [{} ms] {} {}", sw.ElapsedMilliseconds, e.Kind, e.Text);
+				ClearAndDeleteItems!(events);
+				Thread.Sleep(5);
+			}
+			Console.WriteLine("state {} after {} ms; skipped first-chance exceptions {}; images not read {}", s.State, sw.ElapsedMilliseconds, s.SkippedExceptions, DebugEngine.SkippedImages);
+			s.Detach();
+			WaitStop(s, scope .(), 10000);
+			Console.WriteLine("probe done: {} running={}", s.State, GameProcesses.IsRunning(pid));
+			return 0;
+		}
+
 		public static int RunSession(String[] args)
 		{
 			String outDir = scope .();
@@ -446,6 +604,7 @@ namespace VisualBeef.Tests
 				s.Stop();
 				Check(WaitStop(s, output, 10000) && s.State == .NotDebugging && s.ProcessId != 0, "Stop ends the looping program");
 			}
+			RunAttach(target, outDir, file, doc, main);
 			Console.WriteLine("debug checks: {}  failures: {}", sChecks, sFailures);
 			return sFailures == 0 ? 0 : 1;
 		}

@@ -707,7 +707,7 @@ namespace VisualBeef.Editor
 
 		/// The Initial value rows of a Local Variable node whose value is not wired: the same
 		/// modes as a member variable's, written into the value pin. True when the pin changed.
-		bool DrawLocalInitRows(MethodGraph mg, Node node, ref bool commit)
+		bool DrawLocalInitRows(MethodGraph mg, Node node, ref bool commit, StringView id = "lv")
 		{
 			let valuePin = node.FindInput("value");
 			if (valuePin == null || mg?.Graph == null || mg.Graph.IsLinked(valuePin))
@@ -734,7 +734,7 @@ namespace VisualBeef.Editor
 				ValueBufFor(init, mInitValueBuf);
 				mInitArgsBuf.Set(init.Args);
 			}
-			if (!DrawValueRows("lv", t, init, mInitValueBuf, mInitArgsBuf, types))
+			if (!DrawValueRows(id, t, init, mInitValueBuf, mInitArgsBuf, types))
 			{
 				String line = scope .();
 				line.AppendF("{} {}", typeText, node.Text);

@@ -104,6 +104,8 @@ namespace VisualBeef.Tests
 				if (!n.Key.StartsWith("orphan"))
 					nodes.Add(n);
 			nodes.Sort(scope (a, b) => String.Compare(a.Key, b.Key, false));
+			for (let l in g.Locals)
+				o.AppendF("local {} {} = {}\n", l.Text2, l.Text, l.FindInput("value")?.Default);
 			String title = scope .();
 			for (let n in nodes)
 			{
@@ -270,6 +272,14 @@ namespace VisualBeef.Tests
 					let sw = NodeFactory.Switch(g, "Mode", labels);
 					g.Connect(NodeFactory.Get(g, "mMode", "Mode").Result, sw.FindInput("value"));
 					g.Connect(sw.FindOutput("case1"), Say(g, "\"run\"").ExecIn);
+					Chain(g, sw);
+				});
+
+			Case("switch on enum with every arm empty", "Host.Target()", scope [&] (g) =>
+				{
+					StringView[3] labels = .(".Idle", ".Run", ".Jump");
+					let sw = NodeFactory.Switch(g, "Mode", labels);
+					g.Connect(NodeFactory.Get(g, "mMode", "Mode").Result, sw.FindInput("value"));
 					Chain(g, sw);
 				});
 
@@ -620,11 +630,11 @@ namespace VisualBeef.Tests
 
 			Case("local variable", "Host.Target()", scope [&] (g) =>
 				{
-					let l = NodeFactory.LocalVar(g, "count", "int");
-					l.FindInput("value").Default.Set("3");
+					// One of the function's Locals, read by a Get.
+					NodeFactory.AddLocal(g, "count", "int", "3");
 					let s = NodeFactory.Set(g, "mValue", "int");
 					g.Connect(NodeFactory.Get(g, "count", "int").Result, s.FindInput("value"));
-					Chain(g, l, s);
+					Chain(g, s);
 				});
 
 			Case("branch", "Host.Target()", scope [&] (g) =>
@@ -751,7 +761,7 @@ namespace VisualBeef.Tests
 					g.Connect(NodeFactory.Get(g, "mValue", "int").Result, c.FindInput("value"));
 					let l = NodeFactory.LocalVar(g, "f", "float");
 					g.Connect(c.Result, l.FindInput("value"));
-					Chain(g, l);
+					Chain(g, Say(g, "\"cast\""), l); // not first: a declaration at the top with a value of its own is one of the Locals
 				});
 
 			Case("index", "Host.Target()", scope [&] (g) =>
@@ -806,7 +816,7 @@ namespace VisualBeef.Tests
 					let c = NodeFactory.Cast(g, ".");
 					g.Connect(NodeFactory.Get(g, "mValue", "int").Result, c.FindInput("value"));
 					g.Connect(c.Result, l.FindInput("value"));
-					Chain(g, l);
+					Chain(g, Say(g, "\"cast\""), l);
 				});
 
 			Case("value made in place", "Host.Target()", scope [&] (g) =>
@@ -845,8 +855,7 @@ namespace VisualBeef.Tests
 
 			Case("lambda with a block body and captures", "Host.Target()", scope [&] (g) =>
 				{
-					let l = NodeFactory.LocalVar(g, "total", "int");
-					l.FindInput("value").Default.Set("0");
+					NodeFactory.AddLocal(g, "total", "int", "0");
 					StringView[1] fName = .("f");
 					StringView[1] fType = .("delegate void(int)");
 					let each = NodeFactory.Call(g, "Each", true, true, "", fName, fType, "void");
@@ -857,7 +866,7 @@ namespace VisualBeef.Tests
 					let say = Say(g, "\"item\"");
 					g.Connect(add.Then, say.ExecIn);
 					g.Connect(lam.Result, each.FindArg(0));
-					Chain(g, l, each);
+					Chain(g, each);
 				});
 
 			Case("local function", "Host.Target()", scope [&] (g) =>

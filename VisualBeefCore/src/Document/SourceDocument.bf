@@ -471,6 +471,8 @@ namespace VisualBeef.Document
 		public const int LayoutFormatVersion = 2;
 		/// Why the last save or layout write failed.
 		public String LastError = new .() ~ delete _;
+		/// The key of the function SetSignature last changed (its key follows its parameter types).
+		public String LastSignatureKey = new .() ~ delete _;
 		public int32 Version;
 		/// Editor bookkeeping: last write time seen on disk, a pending external change, the
 		/// version last indexed, and the version last sent to the compiler.
@@ -1456,6 +1458,10 @@ namespace VisualBeef.Document
 			for (let n in fresh.Nodes)
 				if (n.Line > 0 && n.Kind != .Entry)
 					b.Add(new $"{(int)n.Kind}:{n.Text}");
+			for (let n in g.Locals)
+				a.Add(new $"local:{n.Text}");
+			for (let n in fresh.Locals)
+				b.Add(new $"local:{n.Text}");
 			if (a.Count != b.Count)
 				return false;
 			// Order-free: a graph edited and committed earlier lists its nodes in another order.
@@ -1608,6 +1614,9 @@ namespace VisualBeef.Document
 		{
 			let fresh = GraphBuilder.Build(Unit, mg.Method, mg.Owner);
 			defer delete fresh;
+			// Locals: what the code now declares at the top of the body (a Local Variable node
+			// wired right after Entry became one), with the new text and trivia.
+			kept.AdoptLocals(fresh);
 			KeyAssigner.Assign(fresh);
 			KeyAssigner.Assign(kept);
 
@@ -1986,6 +1995,14 @@ namespace VisualBeef.Document
 				mUndo.RemoveAt(0);
 			}
 			ClearAndDeleteItems!(mRedo);
+		}
+
+		/// Drops the newest undo step, so the edit made after it belongs to the step before
+		/// (two edits that are one action: a member variable and the nodes that use it).
+		public void DropLastUndo()
+		{
+			if (!mUndo.IsEmpty)
+				delete mUndo.PopBack();
 		}
 
 		public bool CanUndo => !mUndo.IsEmpty;
@@ -2508,6 +2525,15 @@ namespace VisualBeef.Document
 
 			if (index >= 0 && index < Methods.Count && Methods[index].Method.Name == name && Methods[index].Key != oldKey)
 				RemapMethodKey(oldKey, Methods[index].Key);
+			LastSignatureKey.Set((index >= 0 && index < Methods.Count && Methods[index].Method.Name == name) ? Methods[index].Key : "");
+			// Outputs added, removed or reordered: the Returns follow (a new output starts with its
+			// type's default, so the function still compiles), in the same undo step.
+			if (!LastSignatureKey.IsEmpty)
+			{
+				let mg = FindMethod(LastSignatureKey);
+				if (mg != null && mg.Graphable && mg.IsBuilt && NodeFactory.SyncReturnOutPins(mg.Graph, mg.Method))
+					Commit(mg);
+			}
 			return true;
 		}
 

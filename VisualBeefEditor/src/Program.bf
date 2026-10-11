@@ -142,6 +142,10 @@ namespace VisualBeef.Editor
 
 		public static int Main(String[] args)
 		{
+			// The update helper (a copy of the editor in <data>/update/helper, started by Restart to finish): it installs
+			// the staged version and exits without opening a window (VisualBeef.Update.UpdateApply).
+			if (args.Count > 0 && args[0] == VisualBeef.Update.UpdateApply.HelperSwitch)
+				return VisualBeef.Update.UpdateApply.RunHelper(args);
 			EditorArgs parsed = scope .();
 			String argRoot = scope .();
 			String argFile = scope .();
@@ -201,6 +205,7 @@ namespace VisualBeef.Editor
 			EditorApp app = new .();
 			app.HandleArgs(parsed, argRoot, argFile);
 			app.CheckRecovery();
+			app.InitUpdates();
 			bool iconsLoaded = false;
 
 			while (!app.QuitNow)

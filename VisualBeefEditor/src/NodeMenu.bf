@@ -394,6 +394,8 @@ namespace VisualBeef.Editor
 		NodeItem mCustom ~ delete _;
 		NodeItem mCustomMember ~ delete _;
 		NodeItem mCustomExpr ~ delete _;
+		/// Dragged off an enum-typed output: `Switch on <EnumName>`, the first row.
+		NodeItem mSwitchOn ~ delete _;
 
 		public this(EditorApp app)
 		{
@@ -423,31 +425,7 @@ namespace VisualBeef.Editor
 		/// Switch and the Blueprint flow macros (see docs/Flow-Nodes.md).
 		void AddFlowItems(MethodGraph mg)
 		{
-			Add(.Switch, "Flow Control", "Switch on Int", "int", "0\n1").Tooltip.Set("switch (value) { case 0: ... case 1: ... default: ... }");
-			Add(.Switch, "Flow Control", "Switch on String", "String", "\"a\"\n\"b\"").Tooltip.Set("switch (text) { case \"a\": ... default: ... }");
-			Add(.Switch, "Flow Control", "Switch on Enum", "var", "").Tooltip.Set("switch (value) { case .A: ... } - add the cases in Properties");
-			if (mg != null && mg.Doc != null && mg.Doc.Unit != null)
-			{
-				List<Member> types = scope .();
-				mg.Doc.Unit.CollectTypes(types);
-				for (let t in types)
-				{
-					if (t.TypeKind != "enum")
-						continue;
-					List<EnumCase> cases = scope .();
-					defer { ClearAndDeleteItems!(cases); }
-					if (!EnumCases.Parse(mg.Doc.Unit, t, cases) || cases.IsEmpty)
-						continue;
-					String labels = scope .();
-					for (let c in cases)
-					{
-						if (!labels.IsEmpty)
-							labels.Append('\n');
-						labels.AppendF(".{}", c.Name);
-					}
-					Add(.Switch, "Flow Control", scope $"Switch on {t.Name}", t.Name, labels).Tooltip.AppendF("switch (value) {{ one case per {} value }}", t.Name);
-				}
-			}
+			Add(.Switch, "Flow Control", "Switch", "int", "0\n1").Tooltip.Set("switch (value) { case 0: ... default: ... } - change what it switches on (a number, a character, text or an enum) in Properties");
 			Add(.Flow, "Flow Control", "Sequence", FlowMacros.Sequence, "2").Tooltip.Set("Runs each Then block in order (written as consecutive { } blocks under // vb:sequence)");
 			Add(.Flow, "Flow Control", "Do Once", FlowMacros.DoOnce).Tooltip.Set("if (!__doOnce_N) { __doOnce_N = true; ... }");
 			Add(.Flow, "Flow Control", "Do Once  (Reset)", FlowMacros.DoOnceReset).Tooltip.Set("__doOnce_N = false;");
@@ -740,6 +718,12 @@ namespace VisualBeef.Editor
 					Add(.GetVar, "Variables | Parameters", scope $"Get {p.Name}", p.Name, p.Type).Tooltip.AppendF("{} {}  (parameter)", p.Type, p.Name);
 					Add(.SetVar, "Variables | Parameters", scope $"Set {p.Name}", p.Name, p.Type).Tooltip.AppendF("{} = value  ({})", p.Name, p.Type);
 				}
+				// The function's Locals (Properties > Locals), like member variables.
+				for (let n in mg.Graph.Locals)
+				{
+					Add(.GetVar, "Variables | Locals", scope $"Get {n.Text}", n.Text, n.Text2).Tooltip.AppendF("{} {}  (Local of {})", n.Text2, n.Text, mg.Method.Name);
+					Add(.SetVar, "Variables | Locals", scope $"Set {n.Text}", n.Text, n.Text2).Tooltip.AppendF("{} = value  ({})", n.Text, n.Text2);
+				}
 				for (let n in mg.Graph.Nodes)
 				{
 					if (n.Kind == .LocalVar)
@@ -787,7 +771,7 @@ namespace VisualBeef.Editor
 			Add(.Return, "Flow Control", "Return").Tooltip.AppendF("return{};", mReturnType.IsEmpty || mReturnType == "void" ? "" : " value");
 			Add(.Break, "Flow Control", "Break").Tooltip.Set("break;");
 			Add(.Continue, "Flow Control", "Continue").Tooltip.Set("continue;");
-			Add(.LocalVar, "Variables", "Local Variable").Tooltip.Set("let/var name = value;");
+
 
 			// Everyday calls (the Beef equivalents of Blueprint's Print String etc.). With corlib
 			// indexed the Math functions come from the catalog with their real overloads.
@@ -1423,6 +1407,35 @@ namespace VisualBeef.Editor
 			mVisibleCount++;
 		}
 
+		/// Dragged off an enum-typed output pin: the `Switch on <EnumName>` item, one case per member
+		/// (the first row of the menu). Null for any other context. The caller owns the item.
+		public NodeItem MakeSwitchOn()
+		{
+			if (mContext != .DataOut || mContextType.IsEmpty)
+				return null;
+			let ct = MemberInit.TypeOf(mContextType, Types);
+			if (ct.Kind != .Enum || ct.IsPointer)
+				return null;
+			List<String> ms = scope .();
+			defer { ClearAndDeleteItems!(ms); }
+			MemberInit.EnumMembers(ct.BaseText, Types, ms);
+			if (ms.IsEmpty)
+				return null;
+			NodeItem item = new .();
+			item.Kind = .Switch;
+			item.Category.Set("Suggested");
+			item.Label.AppendF("Switch on {}", BaseTypeName(mContextType));
+			item.A.Set(ct.BaseText);
+			for (let m in ms)
+			{
+				if (!item.B.IsEmpty)
+					item.B.Append('\n');
+				item.B.Append(m);
+			}
+			item.Tooltip.AppendF("switch ({}) {{ one case per member }}", ct.BaseText);
+			return item;
+		}
+
 		/// Recomputes what is shown. Runs when the search text, the context checkbox or the
 		/// catalog changes, not every frame.
 		void Refilter(StringView search)
@@ -1437,6 +1450,7 @@ namespace VisualBeef.Editor
 			DeleteAndNullify!(mCustom);
 			DeleteAndNullify!(mCustomMember);
 			DeleteAndNullify!(mCustomExpr);
+			DeleteAndNullify!(mSwitchOn);
 			if (!search.IsEmpty)
 			{
 				var name = search;
@@ -1485,6 +1499,18 @@ namespace VisualBeef.Editor
 			if (mCustom != null) ConsiderLocal(mCustom);
 			if (mCustomMember != null) ConsiderLocal(mCustomMember);
 			if (mCustomExpr != null) ConsiderLocal(mCustomExpr);
+			mSwitchOn = MakeSwitchOn();
+			if (mSwitchOn != null)
+			{
+				let before = scored.Count;
+				ConsiderLocal(mSwitchOn);
+				if (scored.Count > before)
+				{
+					scored.Remove(mSwitchOn);
+					mSwitchOn.Score += 1000;
+					scored.Insert(0, mSwitchOn);
+				}
+			}
 
 			// Favorites and recents first when nothing is typed.
 			if (search.IsEmpty)

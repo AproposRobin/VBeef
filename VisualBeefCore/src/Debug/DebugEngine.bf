@@ -230,12 +230,235 @@ namespace VisualBeef.Debug
 			Bind!(CallStack_GetStackFrameInfo, "CallStack_GetStackFrameInfo");
 			if (!ok)
 				return false;
+			InstallReadHook();
 			return true;
 #else
 			sError.Set("the debugger is only available on Windows");
 			return false;
 #endif
 		}
+
+		// ------------------------------------------------------------ images the engine must not read
+
+		/// The engine reads every module of the debugged process from its file, for symbols and
+		/// unwind data. Beef 0.43.6's reader crashes (an access violation on the engine's thread,
+		/// which ends the editor) on some protected game executables: HogwartsLegacy.exe (457 MB,
+		/// a protector's section layout) does it every time; reproduced without the game by mapping
+		/// the file into a stand-in process (`VisualBeefTests attachprobe`).
+		/// For an image listed here the engine reads a stripped copy of its headers instead of the
+		/// file: the same image base and size, no sections and no data directories (no exports,
+		/// exception data or debug record), then end of file. The module is known to the engine
+		/// (addresses inside it are attributed to it, frames in it have no names) and nothing in it
+		/// is parsed. Other modules (the mod DLL with its symbols) are read as usual.
+		/// Done by pointing the engine DLL's import of kernel32 ReadFile (its IAT entry, in this
+		/// process only) at HookReadFile.
+		const int MaxSkip = 4;
+		const int HeadSize = 4096;
+		static char16[MaxSkip][1024] sSkip;
+		static int[MaxSkip] sSkipLen;
+		static uint8[MaxSkip][HeadSize] sSkipHead;
+		static int sSkipCount;
+		/// Handles of open skipped images, found at their first read (slot + 1; 0 = free).
+		static void*[16] sSkipHandles;
+		static int[16] sSkipHandleSlot;
+		/// How many reads were served from a stripped copy (since the last ClearSkippedImages).
+		public static int SkippedImages;
+
+		public static void ClearSkippedImages()
+		{
+			sSkipCount = 0;
+			SkippedImages = 0;
+			for (int i < 16)
+				sSkipHandles[i] = null;
+		}
+
+		/// Adds an image (full path) the engine reads as stripped headers only. False when its
+		/// headers cannot be read (then it is not listed).
+		public static bool SkipImage(StringView path)
+		{
+			if (sSkipCount >= MaxSkip)
+				return false;
+			let k = sSkipCount;
+			uint8* head = &sSkipHead[k];
+			Internal.MemSet(head, 0, HeadSize);
+			{
+				FileStream fs = scope .();
+				if (fs.Open(path, .Read, .ReadWrite) case .Err)
+					return false;
+				if (!(fs.TryRead(.(head, HeadSize)) case .Ok(let got)) || got < 512)
+					return false;
+			}
+			if (*(uint16*)head != 0x5A4D)
+				return false;
+			int32 pe = *(int32*)(head + 0x3C);
+			if (pe < 0 || pe + 24 + 240 > HeadSize || *(uint32*)(head + pe) != 0x00004550)
+				return false;
+			uint8* fileHdr = head + pe + 4;
+			let optSize = *(uint16*)(fileHdr + 16);
+			uint8* opt = head + pe + 24;
+			let magic = *(uint16*)opt;
+			int dirs = (magic == 0x20B) ? 112 : 96;
+			uint32 numDirs = *(uint32*)(opt + dirs - 4);
+			// No sections, no COFF symbols, every data directory empty; the section table bytes are cleared.
+			*(uint16*)(fileHdr + 2) = 0;
+			*(uint32*)(fileHdr + 8) = 0;
+			*(uint32*)(fileHdr + 12) = 0;
+			for (uint32 d < Math.Min(numDirs, 16))
+				*(uint64*)(opt + dirs + d * 8) = 0;
+			int secTable = pe + 24 + optSize;
+			if (secTable < HeadSize)
+				Internal.MemSet(head + secTable, 0, HeadSize - secTable);
+			let w = path.ToScopedNativeWChar!();
+			int n = 0;
+			while (w[n] != 0 && n < 1023)
+			{
+				char16 c = (char16)w[n];
+				if (c == '/')
+					c = '\\';
+				sSkip[k][n] = c;
+				n++;
+			}
+			sSkip[k][n] = 0;
+			sSkipLen[k] = n;
+			sSkipCount++;
+			return true;
+		}
+
+#if BF_PLATFORM_WINDOWS
+		public function int32 ReadFileFn(void* h, void* buf, uint32 n, uint32* read, void* overlapped);
+		static ReadFileFn sRealReadFile;
+
+		[Import("kernel32.lib"), CLink, CallingConvention(.Stdcall)]
+		static extern int32 SetFilePointerEx(void* h, int64 dist, int64* newPos, uint32 method);
+		[Import("kernel32.lib"), CLink, CallingConvention(.Stdcall)]
+		static extern uint32 GetFinalPathNameByHandleW(void* h, char16* path, uint32 len, uint32 flags);
+		[Import("kernel32.lib"), CLink, CallingConvention(.Stdcall)]
+		static extern int32 VirtualProtect(void* addr, uint size, uint32 newProtect, uint32* oldProtect);
+
+		static char16 Lower(char16 c) => (c >= 'A' && c <= 'Z') ? (char16)(c + 32) : c;
+
+		/// The skipped image whose path `path` (a final path, maybe with the long-path prefix) ends with, or -1.
+		static int SkipSlot(char16* path, int len)
+		{
+			for (int k < sSkipCount)
+			{
+				let sl = sSkipLen[k];
+				if (sl == 0 || sl > len)
+					continue;
+				bool same = true;
+				for (int i < sl)
+				{
+					if (Lower(path[len - sl + i]) != Lower(sSkip[k][i]))
+					{
+						same = false;
+						break;
+					}
+				}
+				if (same)
+					return k;
+			}
+			return -1;
+		}
+
+		/// Runs on the engine's own thread: no allocation, stack buffers only.
+		static int32 HookReadFile(void* h, void* buf, uint32 n, uint32* read, void* overlapped)
+		{
+			if (sSkipCount > 0 && overlapped == null)
+			{
+				int64 pos = -1;
+				if (SetFilePointerEx(h, 0, &pos, 1 /* FILE_CURRENT */) != 0)
+				{
+					int slot = -1;
+					int known = -1;
+					for (int i < 16)
+						if (sSkipHandles[i] == h)
+							known = i;
+					if (pos == 0)
+					{
+						// A file read from its start: find out whether it is a skipped image.
+						char16[1024] path = ?;
+						let len = GetFinalPathNameByHandleW(h, &path, 1024, 0);
+						if (len > 0 && len < 1024)
+							slot = SkipSlot(&path, (int)len);
+						if (slot < 0 && known >= 0)
+							sSkipHandles[known] = null; // a reused handle value
+						else if (slot >= 0 && known < 0)
+						{
+							for (int i < 16)
+							{
+								if (sSkipHandles[i] == null)
+								{
+									sSkipHandles[i] = h;
+									sSkipHandleSlot[i] = slot;
+									break;
+								}
+							}
+						}
+					}
+					else if (known >= 0)
+						slot = sSkipHandleSlot[known];
+					if (slot >= 0)
+					{
+						// Serve the stripped headers, then end of file; move the file pointer the same way.
+						uint32 got = 0;
+						if (pos < HeadSize)
+						{
+							got = (uint32)Math.Min((int64)n, HeadSize - pos);
+							Internal.MemCpy(buf, &sSkipHead[slot][(int)pos], got);
+							SetFilePointerEx(h, pos + got, null, 0 /* FILE_BEGIN */);
+						}
+						if (read != null)
+							*read = got;
+						SkippedImages++;
+						return 1;
+					}
+				}
+			}
+			return sRealReadFile(h, buf, n, read, overlapped);
+		}
+
+		/// Points the engine DLL's import of kernel32 ReadFile at HookReadFile.
+		static void InstallReadHook()
+		{
+			if (sRealReadFile != null)
+				return;
+			uint8* b = (uint8*)(void*)sModule;
+			int32 lfanew = *(int32*)(b + 0x3C);
+			uint8* opt = b + lfanew + 24;
+			if (*(uint16*)opt != 0x20B)
+				return;
+			uint32 importRva = *(uint32*)(opt + 112 + 8);
+			if (importRva == 0)
+				return;
+			for (uint8* desc = b + importRva; *(uint32*)(desc + 12) != 0; desc += 20)
+			{
+				StringView dll = .((char8*)(b + *(uint32*)(desc + 12)));
+				if (!dll.Equals("KERNEL32.dll", true))
+					continue;
+				uint32 nameRva = *(uint32*)desc;
+				uint64* names = (uint64*)(b + ((nameRva != 0) ? nameRva : *(uint32*)(desc + 16)));
+				uint64* slots = (uint64*)(b + *(uint32*)(desc + 16));
+				for (int i = 0; names[i] != 0; i++)
+				{
+					if ((names[i] >> 63) != 0)
+						continue;
+					StringView fn = .((char8*)(b + (uint32)(names[i] & 0x7FFFFFFF) + 2));
+					if (fn != "ReadFile")
+						continue;
+					uint32 old = 0;
+					if (VirtualProtect(&slots[i], 8, 0x04 /* PAGE_READWRITE */, &old) == 0)
+						return;
+					sRealReadFile = (ReadFileFn)(void*)(int)slots[i];
+					ReadFileFn hook = => HookReadFile;
+					slots[i] = (uint64)(int)(void*)hook;
+					VirtualProtect(&slots[i], 8, old, &old);
+					return;
+				}
+			}
+		}
+#else
+		static void InstallReadHook() {}
+#endif
 
 		/// Creates the engine's global debugger once (Debugger_Create; the IDE does it at start).
 		/// Symbol servers are switched off: a session never goes to the network.

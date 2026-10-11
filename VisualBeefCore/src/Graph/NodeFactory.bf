@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using VisualBeef.Syntax;
+using VisualBeef.Catalog;
 
 namespace VisualBeef.Graph
 {
@@ -209,6 +210,8 @@ namespace VisualBeef.Graph
 				baseName.Append("Value");
 			bool Taken(StringView name)
 			{
+				if (g.FindLocal(name) != null)
+					return true;
 				for (let n in g.Nodes)
 				{
 					if ((n.Kind == .LocalVar || n.Kind == .ForEach || n.IsCountingLoop) && n.Text == name)
@@ -449,6 +452,166 @@ namespace VisualBeef.Graph
 			RenumberCases(n);
 		}
 
+		/// The case label a new case of a switch on this kind starts with.
+		public static void DefaultCaseLabel(PinValueKind kind, String outLabel)
+		{
+			switch (kind)
+			{
+			case .Text: outLabel.Append("\"\"");
+			case .Char: outLabel.Append("'a'");
+			default: outLabel.Append('0');
+			}
+		}
+
+		/// The switched type of a Switch node (its Value pin's type), "" when not known.
+		public static StringView SwitchType(Node n)
+		{
+			let v = n.FindInput("value");
+			return (v == null) ? default : StringView(v.TypeName);
+		}
+
+		/// The kinds a switch can be on: whole numbers, characters, text and enums.
+		public static bool CanSwitchOn(PinValueKind kind) => kind == .Enum || kind == .Text || kind == .Number || kind == .Char;
+
+		/// Does a case label (`1`, `2, 3`, `"a"`, `.Idle`, `Mode.Idle`) belong to a switch on `type`?
+		public static bool CaseFits(PinValueKind kind, StringView type, StringView label, List<String> members)
+		{
+			bool any = false;
+			for (var part in label.Split(','))
+			{
+				part.Trim();
+				if (part.IsEmpty)
+					return false;
+				any = true;
+				if (kind == .Enum)
+				{
+					if (!PinValue.EnumMemberOf(part, type, let m))
+						return false;
+					bool found = members == null || members.IsEmpty;
+					if (!found)
+						for (let x in members)
+							if (x == m)
+								found = true;
+					if (!found)
+						return false;
+				}
+				else if (PinValue.KindOf(type, part, "", null) != kind)
+					return false;
+			}
+			return any;
+		}
+
+		/// Does an enum Switch miss a member of its enum, or has a case for one it no longer has?
+		public static bool SwitchMembersStale(Node n, TypeService types)
+		{
+			let type = SwitchType(n);
+			if (PinValue.KindOf(type, "", "", types) != .Enum)
+				return false;
+			List<String> members = scope .();
+			defer { ClearAndDeleteItems!(members); }
+			PinValue.Members(type, types, members);
+			if (members.IsEmpty)
+				return false;
+			List<String> present = scope .();
+			defer { ClearAndDeleteItems!(present); }
+			for (let p in n.Outputs)
+			{
+				if (p.Kind != .Exec || p.Name == "default" || p.Name == "then")
+					continue;
+				if (!CaseFits(.Enum, type, p.Label, members))
+					return true;
+				for (var part in p.Label.Split(','))
+				{
+					part.Trim();
+					if (PinValue.EnumMemberOf(part, type, let m))
+						present.Add(new String(m));
+				}
+			}
+			for (let m in members)
+			{
+				bool has = false;
+				for (let x in present)
+					if (x == m)
+						has = true;
+				if (!has)
+					return true;
+			}
+			return false;
+		}
+
+		/// Makes a Switch node switch on `type`: an enum gets one case per member, other types keep
+		/// the cases that fit (case outputs and their wires stay) and get one starter case when none
+		/// is left. Also what Reload node does for an enum switch whose members changed: new members
+		/// are added, members that no longer exist are removed. False (with `why`) for a type a
+		/// switch cannot be on.
+		public static bool SetSwitchType(Graph g, Node n, StringView type, TypeService types, String why)
+		{
+			let kind = PinValue.KindOf(type, "", "", types);
+			if (!CanSwitchOn(kind) || TypeRules.IsFloat(type))
+			{
+				why.Set("A switch works on whole numbers, characters, text and enums.");
+				return false;
+			}
+			let value = n.FindInput("value");
+			if (value == null)
+				return false;
+			if (value.TypeName != type)
+			{
+				DeleteAndNullify!(value.WildcardType);
+				value.TypeName.Set(type);
+			}
+			List<String> members = scope .();
+			defer { ClearAndDeleteItems!(members); }
+			if (kind == .Enum)
+				PinValue.Members(type, types, members);
+			List<Pin> cases = scope .();
+			for (let p in n.Outputs)
+				if (p.Kind == .Exec && p.Name != "default" && p.Name != "then")
+					cases.Add(p);
+			List<String> present = scope .();
+			defer { ClearAndDeleteItems!(present); }
+			for (let p in cases)
+			{
+				if (!CaseFits(kind, type, p.Label, members))
+					RemoveCase(g, n, p);
+				else if (kind == .Enum)
+					for (var part in p.Label.Split(','))
+					{
+						part.Trim();
+						if (PinValue.EnumMemberOf(part, type, let m))
+							present.Add(new String(m));
+					}
+			}
+			if (kind == .Enum)
+			{
+				for (let m in members)
+				{
+					bool has = false;
+					for (let x in present)
+						if (x == m)
+							has = true;
+					if (!has)
+						AddCase(g, n, scope $".{m}");
+				}
+			}
+			else
+			{
+				bool anyLeft = false;
+				for (let p in n.Outputs)
+					if (p.Kind == .Exec && p.Name != "default" && p.Name != "then")
+						anyLeft = true;
+				if (!anyLeft)
+				{
+					String label = scope .();
+					DefaultCaseLabel(kind, label);
+					AddCase(g, n, label);
+				}
+			}
+			n.Edited = true;
+			g.Version++;
+			return true;
+		}
+
 		/// Moves a case up (-1) or down (+1) among the cases; Default and Completed stay put.
 		public static bool MoveCase(Graph g, Node n, Pin p, int delta)
 		{
@@ -662,6 +825,101 @@ namespace VisualBeef.Graph
 			return n;
 		}
 
+		/// The Return node's output pins, one per `out` parameter of `method` (`out:<name>`, labelled
+		/// with the name): a Return writes `name = value;` for each pin that has a value, then
+		/// `return`. `withDefaults`: a placed Return starts each with its type's default.
+		public static void AddReturnOutPins(Graph g, Node n, Member method, bool withDefaults)
+		{
+			if (method == null || method.Params == null)
+				return;
+			for (let p in method.Params)
+			{
+				if (p.Modifier != "out" || p.Name.IsEmpty)
+					continue;
+				let pin = g.AddDataIn(n, scope $"out:{p.Name}", p.Name);
+				pin.Optional = true;
+				pin.TypeName.Set(p.Type);
+				if (withDefaults)
+					ReturnDefault(p.Type, pin.Default);
+			}
+		}
+
+		/// After the function's outputs changed (Properties > Outputs): every Return of the function
+		/// (not those inside a lambda or local function) has one input per `out` parameter, in
+		/// order; a new one starts with its type's default so the function still compiles, one
+		/// that is gone is removed. True when a Return changed.
+		public static bool SyncReturnOutPins(Graph g, Member method)
+		{
+			if (g == null || method == null)
+				return false;
+			HashSet<Node> nested = scope .();
+			for (let n in g.Nodes)
+				if (n.Kind == .Lambda || n.Kind == .LocalFunc)
+					g.GetInside(n, nested);
+			bool any = false;
+			for (let n in g.Nodes)
+			{
+				if (n.Kind != .Return || nested.Contains(n))
+					continue;
+				List<Pin> old = scope .();
+				for (let p in n.Inputs)
+					if (p.Name.StartsWith("out:"))
+						old.Add(p);
+				List<Pin> ordered = scope .();
+				bool changed = false;
+				if (method.Params != null)
+				{
+					for (let prm in method.Params)
+					{
+						if (prm.Modifier != "out" || prm.Name.IsEmpty)
+							continue;
+						Pin found = null;
+						for (let p in old)
+							if (StringView(p.Name, 4) == prm.Name)
+								found = p;
+						if (found == null)
+						{
+							found = g.AddDataIn(n, scope $"out:{prm.Name}", prm.Name);
+							found.Optional = true;
+							ReturnDefault(prm.Type, found.Default);
+							n.Inputs.Remove(found);
+							changed = true;
+						}
+						else if (found.TypeName != prm.Type)
+							changed = true;
+						found.TypeName.Set(prm.Type);
+						ordered.Add(found);
+					}
+				}
+				for (let p in old)
+				{
+					if (ordered.Contains(p))
+						continue;
+					g.RemovePin(p);
+					changed = true;
+				}
+				for (let p in ordered)
+					n.Inputs.Remove(p);
+				for (let p in ordered)
+					n.Inputs.Add(p);
+				if (!changed)
+				{
+					// Same pins: only their order may have changed.
+					for (int i < Math.Min(old.Count, ordered.Count))
+						if (old[i] != ordered[i])
+							changed = true;
+				}
+				if (changed)
+				{
+					n.Edited = true;
+					any = true;
+				}
+			}
+			if (any)
+				g.Version++;
+			return any;
+		}
+
 		/// The value a new Return starts with: `false` for bool, `0` for numbers, `null` for classes,
 		/// interfaces, delegates, arrays, pointers and nullables, `default` for structs, enums,
 		/// characters and types not known; nothing for `void`, `var` and `ref` returns (a `ref`
@@ -711,6 +969,23 @@ namespace VisualBeef.Graph
 			Node n = NewExec(g, .Code);
 			n.Text.Set(code);
 			g.AddExecOut(n, "then");
+			return n;
+		}
+
+		/// A new Local of the function (Graph.Locals, written at the top of the body after the
+		/// others): `type name = value;`, or `type name;` with no value. Not a node on the Sheet.
+		public static Node AddLocal(Graph g, StringView name, StringView type, StringView value = "", int index = -1)
+		{
+			let n = LocalVar(g, name, type);
+			n.FindInput("value").Default.Set(value);
+			g.Nodes.Remove(n);
+			n.Edited = true;
+			n.Moved = true;
+			if (index >= 0 && index <= g.Locals.Count)
+				g.Locals.Insert(index, n);
+			else
+				g.Locals.Add(n);
+			g.Version++;
 			return n;
 		}
 

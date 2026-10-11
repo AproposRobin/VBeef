@@ -105,6 +105,10 @@ namespace VisualBeef.Editor
 			OpenNodeMenu(tab, .(x, y), (pin != null) ? pin.Id : 0);
 			mNodeMenu.OpenRequested = false; // no popup: the pick below is what its click does
 			NodeItem found = null;
+			NodeItem switchOn = (label.StartsWith("Switch on ")) ? mNodeMenu.MakeSwitchOn() : null;
+			defer { delete switchOn; }
+			if (switchOn != null && switchOn.Label.StartsWith(label))
+				found = switchOn;
 			for (let it in mNodeMenu.Items)
 				if (it.Label.StartsWith(label))
 				{
@@ -1262,6 +1266,14 @@ namespace VisualBeef.Editor
 					"session 36 node library: the function and the variable are written static");
 				let tmg = ldoc.FindMethod(key);
 				SelfTestCheck(tmg != null && tmg.Graph.StaticContext && tmg.Graph.InLibrary, "session 36 node library: its sheet has no this");
+				if (tmg != null)
+				{
+					// Twice returns a value, so the project still compiles for the debug step after it.
+					let ret = NodeFactory.Return(tmg.Graph, "int");
+					ret.FindInput("value").Default.Set("x * 2");
+					tmg.Graph.Connect(tmg.Graph.Entry.Then, ret.ExecIn);
+					ldoc.Commit(tmg);
+				}
 				mSessionLibDepth = SessionDoc.UndoDepth;
 				SaveAll();
 				mSessionWait = 30;
@@ -1350,6 +1362,210 @@ namespace VisualBeef.Editor
 				SelfTestCheck(SessionDoc.Text == mSessionSaved, "session 36 node library: the Greeter sheet is back as saved");
 
 				SaveAll();
+			default:
+				return SessionPinSteps(step - 99);
+			}
+			return false;
+		}
+
+		int mSessionPinDepth;
+		bool mSessionPinPanned;
+		String mSessionPinBefore = new .() ~ delete _;
+		String mSessionPlan = new .() ~ delete _;
+		String mSessionShow = new .() ~ delete _;
+
+		static Pin FirstPinOf(Node n)
+		{
+			for (let p in n.Inputs)
+				if (p.Kind == .Data && p.Name != "target")
+					return p;
+			return null;
+		}
+
+		/// Typed pin values and the one Switch node (docs/Editor-UI.md > Pin values): the controls are
+		/// ImGui widgets, so this drives the rules (PinValue) they call, then places a
+		/// `Switch on DayOfWeek` from a drag off an enum output and checks the Beef.
+		bool SessionPinSteps(int sub)
+		{
+			let doc = SessionDoc;
+			switch (sub)
+			{
+			case 0:
+				mSessionPinBefore.Set(doc.Text);
+				mSessionPinDepth = doc.UndoDepth;
+				doc.AddField(FindTypeIn(doc, "Greeter"), "DayOfWeek", "mDay", ".Friday");
+				doc.AddMethod(FindTypeIn(doc, "Greeter"), "void", "Plan", "", mSessionPlan);
+				doc.AddMethod(FindTypeIn(doc, "Greeter"), "void", "Show", "DayOfWeek d, bool loud, int times, uint8 level, float scale, char8 mark, String name", mSessionShow);
+				let mg = SessionOpen(mSessionPlan);
+				SelfTestCheck(mg != null && SessionMethod(mSessionShow) != null, scope $"session 37 pins: Plan and Show added ({mSessionPlan}, {mSessionShow})");
+				if (mg != null)
+					SessionPick(mg.Graph.Entry.Then, "Show(", 320, 0);
+				mSessionWait = 3;
+			case 1:
+				let mg = SessionOpen(mSessionPlan);
+				let show = FindNodeOf(mg.Graph, .Call, "Show");
+				if (show == null)
+				{
+					SelfTestCheck(false, "session 37 pins: no Show node");
+					return true;
+				}
+				let ts = TypeService.Current;
+				int matched = 0;
+				for (let p in show.Inputs)
+				{
+					if (p.Kind != .Data || p.Name == "target")
+						continue;
+					let kind = PinValue.KindOf(p.TypeName, p.Default, p.Name, ts);
+					PinValueKind want = .Expr;
+					switch (p.TypeName)
+					{
+					case "DayOfWeek": want = .Enum;
+					case "bool": want = .Bool;
+					case "int", "uint8", "float": want = .Number;
+					case "char8": want = .Char;
+					case "String": want = .Text;
+					}
+					if (kind == want)
+						matched++;
+				}
+				SelfTestCheck(matched == 7, scope $"session 37 pins: each unwired pin of Show has the control for its type ({matched} of 7)");
+				BeginEdit();
+				for (let p in show.Inputs)
+				{
+					if (p.Kind != .Data || p.Name == "target")
+						continue;
+					StringView typed = "";
+					switch (p.TypeName)
+					{
+					case "DayOfWeek": typed = "Friday";
+					case "bool": typed = "true";
+					case "int": typed = "3";
+					case "uint8": typed = "7";
+					case "float": typed = "1.5";
+					case "char8": typed = "x";
+					case "String": typed = "say hi";
+					}
+					PinValueKind kind = PinValue.KindOf(p.TypeName, "", p.Name, ts);
+					String lit = scope .();
+					String why = scope .();
+					if (PinValue.Write(kind, p.TypeName, typed, false, lit, why))
+						p.Default.Set(lit);
+					else
+						SelfTestCheck(false, scope $"session 37 pins: {p.TypeName} refused '{typed}': {why}");
+				}
+				show.Edited = true;
+				CommitCurrent();
+				mSessionWait = 3;
+			case 2:
+				const String want = "Show(.Friday, true, 3, 7, 1.5f, 'x', \"say hi\");";
+				SelfTestCheck(doc.Text.Contains(want), "session 37 pins: the enum is `.Friday`, the string is quoted, the float has its `f`, the character `'x'`");
+				if (!doc.Text.Contains(want))
+					Notify.Log(.Info, "SelfTest", scope $"[SELFTEST] text: {doc.Text}");
+				// A value the type cannot hold is refused with the reason, and nothing changes.
+				String lit = scope .();
+				String why = scope .();
+				bool refused = !PinValue.Write(.Number, "uint8", "300", false, lit, why) && why.Contains("does not fit uint8") && lit.IsEmpty;
+				SelfTestCheck(refused, scope $"session 37 pins: uint8 refuses 300 ({why})");
+				let mg = SessionOpen(mSessionPlan);
+				SessionPick(null, "Get mDay", 640, 320);
+				mSessionWait = 3;
+			case 3:
+				let mg = SessionOpen(mSessionPlan);
+				let get = FindNodeOf(mg.Graph, .Get, "mDay");
+				if (get == null)
+				{
+					SelfTestCheck(false, "session 37 pins: no Get mDay");
+					return true;
+				}
+				bool picked = SessionPick(get.Result, "Switch on DayOfWeek", 960, 0);
+				SelfTestCheck(picked, "session 37 switch: dragging off an enum output offers `Switch on DayOfWeek` first");
+				mSessionWait = 3;
+			case 4:
+				let mg = SessionOpen(mSessionPlan);
+				let get = FindNodeOf(mg.Graph, .Get, "mDay");
+				let sw = FindNodeOf(mg.Graph, .Switch);
+				let show = FindNodeOf(mg.Graph, .Call, "Show");
+				if (sw == null || get == null || show == null)
+				{
+					SelfTestCheck(false, "session 37 switch: no Switch placed");
+					return true;
+				}
+				List<String> members = scope .();
+				defer { ClearAndDeleteItems!(members); }
+				PinValue.Members("DayOfWeek", TypeService.Current, members);
+				int caseCount = 0;
+				for (let p in sw.Outputs)
+					if (p.Kind == .Exec && p.Name != "default" && p.Name != "then")
+						caseCount++;
+				let valueLink = mg.Graph.FindLinkTo(sw.FindInput("value"));
+				SelfTestCheck(NodeFactory.SwitchType(sw) == "DayOfWeek" && caseCount == members.Count && members.Count > 0 && sw.FindOutput("default") != null,
+					scope $"session 37 switch: a Switch on DayOfWeek with one output per member ({caseCount} of {members.Count}) and Default");
+				SelfTestCheck(valueLink != null && valueLink.From == get.Result, "session 37 switch: the dragged output is wired to the Switch's Value");
+				BeginEdit();
+				mg.Graph.Connect(show.Then, sw.ExecIn);
+				CommitCurrent();
+				mSessionWait = 3;
+			case 5:
+				SelfTestCheck(doc.Text.Contains("switch (mDay)") && doc.Text.Contains("case .Friday:"), "session 37 switch: the Beef is `switch (mDay) { case .Sunday: ... }`");
+				if (!doc.Text.Contains("case .Friday:"))
+					Notify.Log(.Info, "SelfTest", scope $"[SELFTEST] text: {doc.Text}");
+				let mg = SessionOpen(mSessionPlan);
+				let show = FindNodeOf(mg.Graph, .Call, "Show");
+				if (show != null)
+					CurrentTab.SelectOnly(show.Id);
+				SessionFrameSelection();
+				mSessionPinPanned = false;
+			case 6:
+				mSessionStep--;
+				if (!mSessionPinPanned)
+				{
+					// The frame lands a frame later; then the node moves up so all of it is above the bottom panel.
+					mSessionPinPanned = true;
+					CurrentTab.ZoomLevel -= 2;
+					mSessionWait = 3;
+					return false;
+				}
+				if (SelfTestShot("pins-values"))
+					mSessionStep++;
+			case 7:
+				// The dropdown, open on its first frame.
+				let mg = SessionOpen(mSessionPlan);
+				let show = FindNodeOf(mg.Graph, .Call, "Show");
+				mGraphPanel.mPinEditor.SelfTestOpenPin = FirstPinOf(show).Id;
+			case 8:
+				mSessionStep--;
+				if (SelfTestShot("pins-enum-open"))
+					mSessionStep++;
+			case 9:
+				// A number the type cannot hold typed into `level` (uint8): the frame turns red.
+				mGraphPanel.mPinEditor.SelfTestOpenPin = 0;
+				mGraphPanel.mPinEditor.SelfTestClose = true;
+				let mg = SessionOpen(mSessionPlan);
+				let show = FindNodeOf(mg.Graph, .Call, "Show");
+				for (let p in show.Inputs)
+					if (p.Name != "target" && p.TypeName == "uint8")
+						mGraphPanel.mPinEditor.SelfTestType(p.Id, "300");
+			case 10:
+				mSessionStep--;
+				if (SelfTestShot("pins-refuse"))
+					mSessionStep++;
+			case 11:
+				mGraphPanel.mPinEditor.SelfTestRelease();
+				let mg = SessionOpen(mSessionPlan);
+				let sw = FindNodeOf(mg.Graph, .Switch);
+				if (sw != null)
+					CurrentTab.SelectOnly(sw.Id);
+				SessionFrameSelection();
+			case 12:
+				mSessionStep--;
+				if (SelfTestShot("pins-switch"))
+					mSessionStep++;
+			default:
+				mGraphPanel.mPinEditor.SelfTestRelease();
+				while (doc.UndoDepth > mSessionPinDepth)
+					doc.Undo();
+				SelfTestCheck(doc.Text == mSessionPinBefore, "session 37 pins: undone, the file is as before");
+				SaveAll();
 				return true;
 			}
 			return false;
@@ -1378,8 +1594,9 @@ namespace VisualBeef.Editor
 			for (let it in rows)
 				if (it.Category.Contains(category) && it.Label.Contains(labelPart))
 				{
-					found = it;
-					break;
+					// Get and Set rows tie on score: the order between them is not defined, Get is the one wanted.
+					if (found == null || (!found.Label.StartsWith("Get") && it.Label.StartsWith("Get")))
+						found = it;
 				}
 			if (found == null)
 			{

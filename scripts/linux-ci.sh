@@ -47,7 +47,7 @@ run() {
   echo "$name: exit $code, $last"
 }
 
-for s in edits flow calls lifetime textforms classes safety parser catalog diagnostics hotkeys ump stress vocabulary; do
+for s in edits flow calls lifetime textforms classes safety parser catalog diagnostics hotkeys update ump stress vocabulary; do
   run "$s" "$s"
 done
 run compile compile -out "$SCRATCH/compile"

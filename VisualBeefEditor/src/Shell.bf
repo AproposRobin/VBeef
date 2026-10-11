@@ -208,7 +208,7 @@ namespace VisualBeef.Editor
 		/// How long the idle loop may sleep: short while a text field is active (caret blink),
 		/// shorter while the background indexer runs (progress in the status bar, and the result
 		/// is taken within a tenth of a second).
-		public int32 IdleTimeoutMs => (IsDebugging && !IsDebugStopped) ? 30 : (mNodeMenu != null && mNodeMenu.SearchPending) ? 20 : ((mIndexJob != null) ? 100 : (Gui.igIsAnyItemActive() ? 500 : 1000));
+		public int32 IdleTimeoutMs => (IsDebugging && !IsDebugStopped) ? 30 : (mUpdates != null && mUpdates.Busy) ? 250 : (mNodeMenu != null && mNodeMenu.SearchPending) ? 20 : ((mIndexJob != null) ? 100 : (Gui.igIsAnyItemActive() ? 500 : 1000));
 
 		// ---------------------------------------------------------------- compile state
 

@@ -21,7 +21,7 @@ Linux (experimental, tested under WSL2): the Windows build is the main platform.
 
 ## Install
 
-VisualBeef ships with UnrealUMP and is also available on its own. Either way the folder is the same:
+VisualBeef is a standalone download. The folder is:
 
 ```
 VisualBeefEditor.exe      the editor
@@ -32,13 +32,10 @@ docs\                     these pages; start with Getting-Started.md
 VERSION.txt               the VisualBeef version (first line)
 ```
 
-* **With UnrealUMP**: the UnrealUMP package has it as `tools\VisualBeef\`; nothing to install. The launcher's
-  "Open in VisualBeef" and `UnrealUMP.exe --open-visual <mod>` start `tools\VisualBeef\VisualBeefEditor.exe`
-  (Settings > Developer > VisualBeef path overrides it), and Settings > About shows the version that came
-  with your launcher. A launcher update replaces the folder together with the launcher.
-* **Standalone**: unzip `VisualBeef-<version>-win64.zip` and run `VisualBeefEditor.exe`, optionally with a
+* Unzip `VisualBeef-<version>-win64.zip` and run `VisualBeefEditor.exe`, optionally with a
   project folder or `.bf` file.
-  `VisualBeefEditor.exe --version` prints the version.
+  `VisualBeefEditor.exe --version` prints the version. New versions are offered in the editor and installed when you
+  choose ([Updating.md](Updating.md)).
 * The Beef runtime is linked into the exe, so no Beef DLL is needed to *run* the editor. To **compile** a
   graph you still need the Beef toolchain 0.43.6 (below).
 * Settings, layout, logs and caches go to the per-user folder (`VB_HOME` moves it), never next to the exe.
@@ -58,8 +55,7 @@ Windows: `scripts\package.ps1 -Minimal` writes `dist\VisualBeef-minimal\` and `d
 (+ `.sha256`): `VisualBeefEditor.exe`, `vbhost.dll`, `assets\`, `VERSION.txt`, `LICENSE`, `NOTICE`, `THIRD_PARTY.md`,
 `THIRD_PARTY\`. Linux: `scripts/package_linux.sh` (on Linux) builds Release and
 writes `dist/VisualBeef-<version>-alpha-linux64.tar.gz` (+ `.sha256`) with `VisualBeefEditor`, `libvbhost.so` (found
-through an `$ORIGIN` rpath), `assets/`, the same licence files and a short `README-linux.txt`. The `-alpha` suffix is a
-valid UnrealUMP `tools\VisualBeef\VERSION.txt` line (it accepts `[A-Za-z0-9][A-Za-z0-9._+-]{0,63}`).
+through an `$ORIGIN` rpath), `assets/`, the same licence files and a short `README-linux.txt`. The version line accepts `[A-Za-z0-9][A-Za-z0-9._+-]{0,63}`, so `-alpha` is valid.
 
 ## Run and open a project
 
@@ -74,8 +70,7 @@ VisualBeefEditor.exe --version                        print the version (also --
 ```
 
 Exit codes are 0 (ok), 1 (the window or a file could not be created) and 2 (bad command line).
-UnrealUMP starts the editor this way for its visual mods, and `--new-ump-mod` writes a new UMP mod's
-entry class.
+`--new-ump-mod` writes a new UMP mod's entry class (see [UMP-Integration.md](UMP-Integration.md)).
 
 Use **File > Open Project Folder...** (native folder picker) and choose the folder that holds your
 Beef projects. Every `.bf` file under it is indexed (`build`, `recovery` and dot-folders are
@@ -216,6 +211,7 @@ the shortcuts above were exercised by hand; their menu and toolbar equivalents w
 | Library index cache (corlib, BeefLibs, workspace libraries) | `%LOCALAPPDATA%\VisualBeef\index` (safe to delete) |
 | Favorite nodes and node hotkeys | `settings.json` (`editor.favorites`, `editor.nodeHotkeys`) |
 | Recent nodes | `%LOCALAPPDATA%\VisualBeef\node_menu.txt` |
+| Downloaded updates, the previous version, the update log ([Updating.md](Updating.md)) | `%LOCALAPPDATA%\VisualBeef\update` |
 
 ## Next
 

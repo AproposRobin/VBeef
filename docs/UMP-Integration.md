@@ -1,16 +1,16 @@
 ---
 audience: developer
 title: UMP integration
-summary: How UnrealUMP launches VisualBeef for visual mods: command line, exit codes and project files.
+summary: How VisualBeef opens UMP mod projects and how a launcher starts it: command line, exit codes and project files.
 order: 17
 ---
 
 # UMP integration
 
-VisualBeef is its own product (its own name, repository, docs and version). UnrealUMP uses it for
-**visual mods**: the launcher creates a normal Beef mod project, starts VisualBeef on it, and builds
-and publishes the result like any other mod. Nothing of VisualBeef moves into UMP and nothing of UMP
-moves into VisualBeef; the two meet only through what this page describes. A visual mod is plain
+VisualBeef can open UMP mod projects. A mod is a normal Beef project, so
+VisualBeef needs nothing from UMP and UMP needs nothing from VisualBeef; the two meet only through what this
+page describes. A launcher can create a mod project, start VisualBeef on it, and build and publish the result
+like any other mod. A visual mod is plain
 Beef compiled by BeefBuild, so it runs at native speed: the graphs are a way of editing the code, not
 a runtime.
 

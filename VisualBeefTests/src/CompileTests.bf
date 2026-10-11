@@ -121,7 +121,26 @@ namespace VisualBeef.Tests
 			return null;
 		}
 
-		static Node FindLocal(Graph g, StringView name) => FindNode(g, .LocalVar, name);
+		/// A local declaration the case wires a value into. Declarations at the top of a body are
+		/// the function's Locals (no wires): they go back into the flow first, in order.
+		static Node FindLocal(Graph g, StringView name)
+		{
+			if (!g.Locals.IsEmpty)
+			{
+				let first = g.ExecTarget(g.Entry.Then);
+				Pin prev = g.Entry.Then;
+				for (let l in g.Locals)
+				{
+					g.Nodes.Add(l);
+					g.Connect(prev, l.ExecIn);
+					prev = l.Then;
+				}
+				if (first != null)
+					g.Connect(prev, first.ExecIn);
+				g.Locals.Clear();
+			}
+			return FindNode(g, .LocalVar, name);
+		}
 
 		static Node NewWriteLine(Graph g, StringView format)
 		{

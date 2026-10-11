@@ -5,6 +5,7 @@ using ImGui;
 using VisualBeef.Graph;
 using VisualBeef.Document;
 using VisualBeef.Syntax;
+using VisualBeef.Catalog;
 
 namespace VisualBeef.Editor
 {
@@ -28,6 +29,8 @@ namespace VisualBeef.Editor
 		int32 mParamRowsVersion = -1;
 		String mRetType = new .() ~ delete _;
 		String mFnNameEdit = new .() ~ delete _;
+		/// The Inputs row whose name gets the keyboard focus on the next draw (a row just added).
+		int mFocusParamRow = -1;
 		Dictionary<String, List<String>> mEnumCaseCache = new .() ~ { for (let kv in _) { delete kv.key; DeleteContainerAndItems!(kv.value); } delete _; };
 		double mEnumCacheTime;
 
@@ -125,104 +128,27 @@ namespace VisualBeef.Editor
 			t == "uint" || t == "uint8" || t == "uint16" || t == "uint32" || t == "uint64";
 		static bool IsFloatType(StringView t) => t == "float" || t == "double";
 
-		/// Value widget for an unlinked data input, by pin type. Returns true when committed.
+		PinValueEditor mPropPinEditor = new .() ~ delete _;
+
+		/// Value widget for an unlinked data input, by pin type (the same rules as the node canvas:
+		/// PinValue). Returns true when committed.
 		bool PinValueWidget(Node node, Pin p)
 		{
-			StringView t = p.TypeName;
-			t.Trim();
-			StringView def = p.Default;
-			def.Trim();
-			// bool: checkbox
-			if (t == "bool" || def == "true" || def == "false")
+			let kind = PinValue.KindOf(p.TypeName, p.Default, p.Name, TypeService.Current);
+			if (PinValueEditor.Handles(kind))
+				return mPropPinEditor.Draw(this, node, p, kind, Gui.igGetContentRegionAvail().x);
+			if (kind == .None)
 			{
-				bool v = def == "true";
-				if (Gui.Checkbox("##v", &v))
-				{
-					BeginEdit();
-					p.Default.Set(v ? "true" : "false");
-					return true;
-				}
+				Gui.TextColored(Look.ForegroundDim, p.Default.IsEmpty ? "wire it, or use a Construct node" : StringView(p.Default));
 				return false;
 			}
-			// int: numeric drag (text stays the source of truth; only plain literals become drags)
-			if (IsIntType(t) && (def.IsEmpty || int64.Parse(def) case .Ok))
-			{
-				int32 v = 0;
-				if (int32.Parse(def) case .Ok(let parsed))
-					v = parsed;
-				if (Gui.igDragInt("##v", &v, 0.2f, 0, 0, "%d", 0))
-				{
-					if (!mDetailsEditPushed)
-					{
-						BeginEdit();
-						mDetailsEditPushed = true;
-					}
-					p.Default.Clear();
-					p.Default.AppendF("{}", v);
-				}
-				return Gui.igIsItemDeactivatedAfterEdit();
-			}
-			// float / double: numeric drag, keeping the literal suffix (1.5f)
-			if (IsFloatType(t) && !def.IsEmpty)
-			{
-				StringView num = def;
-				char8 suffix = 0;
-				if (num.EndsWith('f') || num.EndsWith('F') || num.EndsWith('d') || num.EndsWith('D'))
-				{
-					suffix = num[num.Length - 1];
-					num.RemoveFromEnd(1);
-				}
-				if (double.Parse(num) case .Ok(let dv))
-				{
-					float v = (float)dv;
-					if (Gui.igDragFloat("##v", &v, 0.01f, 0, 0, "%.3f", 0))
-					{
-						if (!mDetailsEditPushed)
-						{
-							BeginEdit();
-							mDetailsEditPushed = true;
-						}
-						p.Default.Clear();
-						String n = scope .();
-						v.ToString(n);
-						if (!n.Contains('.') && !n.Contains('E') && !n.Contains('e'))
-							n.Append(".0");
-						p.Default.Append(n);
-						if (suffix != 0)
-							p.Default.Append(suffix);
-					}
-					return Gui.igIsItemDeactivatedAfterEdit();
-				}
-			}
-			// enum: combo of the enum's cases
-			if (!t.IsEmpty && t[0].IsUpper)
-			{
-				let cases = GetEnumCases(t);
-				if (cases != null && !cases.IsEmpty)
-				{
-					bool committed = false;
-					if (Gui.igBeginCombo("##v", def.IsEmpty ? "(none)" : scope String(def), 0))
-					{
-						for (let c in cases)
-						{
-							String v = scope $".{c}";
-							if (Gui.Selectable(v, def == v || def.EndsWith(v)))
-							{
-								BeginEdit();
-								p.Default.Set(v);
-								committed = true;
-							}
-						}
-						Gui.igEndCombo();
-					}
-					return committed;
-				}
-			}
-			// anything else: Beef expression text
+			// Beef expression text: an unknown type, a receiver, or a value that is not a plain literal (Custom).
 			String before = scope .(p.Default);
-			bool done = PropertyGrid.Text("##v", p.Default, let changed, false, null, (p.Name == "target") ? "this" : "");
+			bool done = PropertyGrid.Text("##v", p.Default, let changed, false, null, (p.Name == "target") ? "this" : (kind == .Custom ? "an expression" : ""));
 			if (changed && !mDetailsEditPushed)
 				BeginEditBefore(p.Default, before);
+			if (kind == .Custom && Gui.igIsItemHovered(0))
+				Gui.Tooltip("Custom: not a plain value of this pin's type, so it is kept as the expression you typed");
 			return done;
 		}
 
@@ -249,11 +175,15 @@ namespace VisualBeef.Editor
 					mSelVarSig = sig;
 					mSelVarActive = false;
 					mSelClassActive = false;
+					mSelLocalActive = false;
 				}
 				if (mSelClassActive && DrawTypeSettings())
 				{
 				}
 				else if (mSelVarActive && DrawVariableDetails())
+				{
+				}
+				else if (mSelLocalActive && DrawLocalDetails())
 				{
 				}
 				else if (tab == null || mg == null)
@@ -302,6 +232,19 @@ namespace VisualBeef.Editor
 			Pin move = null;
 			int moveDelta = 0;
 			int idx = 0;
+			let types = TypeService.Current;
+			String swType = scope .(NodeFactory.SwitchType(node));
+			let swKind = PinValue.KindOf(swType, "", "", types);
+			PropertyGrid.Row("Switch On", "What the switch looks at: a whole number, a character, text or any enum. Changing it keeps the cases that still fit");
+			if (TypeButton("##swtype", swType, -1, .SwitchValue, null))
+			{
+				String why = scope .();
+				BeginEdit();
+				if (NodeFactory.SetSwitchType(mg.Graph, node, swType, types, why))
+					commit = true;
+				else
+					Notify.Warn(why);
+			}
 			for (let p in node.Outputs)
 			{
 				if (p.Kind != .Exec || p.Name == "then")
@@ -321,7 +264,13 @@ namespace VisualBeef.Editor
 				else
 				{
 					String name = scope $"Case {idx}";
-					if (GridText(name, "##label", p.Label, "What this case matches: 1, 2, 3  or  \"name\"  or  .EnumCase", true))
+					if (NodeFactory.CaseFits(swKind, swType, p.Label, null) && !p.Label.Contains(',') && PinValueEditor.Handles(swKind))
+					{
+						PropertyGrid.Row(name, "What this case matches");
+						if (mPropPinEditor.Draw(this, node, p.Id, swType, p.Label, false, swKind, Gui.igGetContentRegionAvail().x))
+							commit = true;
+					}
+					else if (GridText(name, "##label", p.Label, "What this case matches: several values 2, 3  or  \"name\"  or  .EnumCase", true))
 						commit = true;
 					PropertyGrid.BeginRow();
 					Gui.igTableSetColumnIndex(1);
@@ -345,10 +294,36 @@ namespace VisualBeef.Editor
 				Gui.PopID();
 			}
 			PropertyGrid.WideRow();
+			if (swKind == .Enum)
+			{
+				if (Gui.Button("Update members"))
+				{
+					String why = scope .();
+					BeginEdit();
+					if (NodeFactory.SetSwitchType(mg.Graph, node, swType, types, why))
+						commit = true;
+					else
+						Notify.Warn(why);
+				}
+				if (Gui.igIsItemHovered(0))
+					Gui.Tooltip("Adds a case for every member the enum has now and removes cases of members it no longer has");
+				Gui.SameLine();
+			}
 			if (Gui.Button("+ Add Case"))
 			{
 				BeginEdit();
-				NodeFactory.AddCase(mg.Graph, node, "0");
+				String starter = scope .();
+				if (swKind == .Enum)
+				{
+					List<String> ms = scope .();
+					defer { ClearAndDeleteItems!(ms); }
+					PinValue.Members(swType, types, ms);
+					if (!ms.IsEmpty)
+						starter.AppendF(".{}", ms[0]);
+				}
+				if (starter.IsEmpty)
+					NodeFactory.DefaultCaseLabel(PinValueEditor.Handles(swKind) ? swKind : .Number, starter);
+				NodeFactory.AddCase(mg.Graph, node, starter);
 				commit = true;
 			}
 			if (move != null && NodeFactory.MoveCase(mg.Graph, node, move, moveDelta))
@@ -857,6 +832,25 @@ namespace VisualBeef.Editor
 							Gui.igEndCombo();
 						}
 						DrawLocalInitRows(mg, node, ref commit);
+						if (!commit && mg.Graph.CanBeLocal(node, let construct))
+						{
+							PropertyGrid.WideRow();
+							Gui.igPushTextWrapPos(0);
+							Gui.TextColored(Theme.TextDim, "Declared in the middle of the function. Move to Locals declares it at the top instead (Properties > Locals): it then exists from the start, and its value is set there, before the statements above this node run. That can change what the program does, so it is only done when you ask.");
+							Gui.igPopTextWrapPos();
+							PropertyGrid.WideRow();
+							if (Gui.Button(scope $"{Icon.ArrowUp}  Move to Locals", .(-1, 0)))
+							{
+								BeginEdit();
+								if (mg.Graph.MoveToLocals(node))
+								{
+									CurrentTab?.ClearSelection();
+									CommitCurrent();
+									PropertyGrid.End();
+									return;
+								}
+							}
+						}
 					case .ForEach:
 						if (GridText("Element Name", "##en", node.Text)) commit = true;
 						PropertyGrid.Row("Element Type", "let / var or a type", Theme.TypeColor(node.Text2));
@@ -1324,10 +1318,17 @@ namespace VisualBeef.Editor
 					int removeAt = -1;
 					for (let r in mParamRows)
 					{
+						if (r.Modifier == "out" && !m.IsCtor)
+							continue; // an output: Properties > Outputs
 						Gui.PushID((int32)@r.Index);
 						PropertyGrid.BeginRow();
 						Gui.igIndent(14 * Look.Scale);
 						Gui.igSetNextItemWidth(-1);
+						if (@r.Index == mFocusParamRow)
+						{
+							Gui.igSetKeyboardFocusHere(0);
+							mFocusParamRow = -1;
+						}
 						bool nameDone = PropertyGrid.Text("##pn", r.Name, ?, false, null, "name");
 						Gui.igUnindent(14 * Look.Scale);
 						if (nameDone)
@@ -1370,6 +1371,7 @@ namespace VisualBeef.Editor
 						}
 						r.Name.Set(name);
 						mParamRows.Add(r);
+						mFocusParamRow = mParamRows.Count - 1;
 						sigDone = true;
 					}
 					Gui.igEndDisabled();
@@ -1382,14 +1384,29 @@ namespace VisualBeef.Editor
 				}
 				if (!m.IsCtor && !m.IsDtor && !m.IsAccessor && PropertyGrid.Category("Outputs", true))
 				{
-					PropertyGrid.Row("Return Type", "void = no return value", Theme.TypeColor(mRetType));
+					PropertyGrid.Row("Return Value", "The value the function returns (void = none)", Theme.TypeColor(mRetType));
 					if (TypeButton("##ret", mRetType, -1, .Return, m))
 						sigDone = true;
 					TypeErrorText(mRetType, .Return, m);
+					DrawOutputRows(mg, ref sigDone);
 				}
 				PropertyGrid.End();
 			}
-			if (sigDone && mg.Owner != null && mParamRows.Count == m.Params.Count)
+			if (sigDone && ApplyParamRows(mg))
+				return; // m / mg belong to the old parse and are gone now
+			Gui.igSpacing();
+			Gui.igIndent(10 * Look.Scale);
+			Gui.TextWrappedDim("Select a node to edit it. Right-click the graph to add nodes; drag pins to connect them.");
+			Gui.igUnindent(10 * Look.Scale);
+		}
+
+		/// Writes the Inputs / Outputs rows (mParamRows, mRetType) as the function's signature: one
+		/// parameter renamed goes through the rename preview (its uses too). The Sheet stays on the
+		/// function (its tab follows the new key). True when the document changed (or a rename started).
+		public bool ApplyParamRows(MethodGraph mg)
+		{
+			let m = mg.Method;
+			if (mg.Owner != null && mParamRows.Count == m.Params.Count)
 			{
 				// Only one parameter's name changed: rename it with its uses in the body.
 				int renamed = -1;
@@ -1412,10 +1429,9 @@ namespace VisualBeef.Editor
 					String newName = scope .(mParamRows[renamed].Name);
 					mParamRows[renamed].Name.Set(m.Params[renamed].Name);
 					StartProjectRename(.Parameter, m.Params[renamed].Name, newName, mg.Owner.Name, mg.Key, mg.Doc.FilePath);
-					sigDone = false;
+					return true;
 				}
 			}
-			if (sigDone)
 			{
 				String pars = scope .();
 				ParamsText(pars);
@@ -1424,16 +1440,19 @@ namespace VisualBeef.Editor
 					ret.Set((m.TypeText != null) ? m.TypeText : "");
 				String name = scope .(m.Name);
 				String key = scope .(mg.Key);
-				if (!ApplySignature(mg.Doc, m, ret, pars))
-					return; // not a valid signature: nothing written, the rows keep what was typed
+				let doc = mg.Doc;
+				if (!ApplySignature(doc, m, ret, pars))
+				{
+					mFocusParamRow = -1;
+					return false; // not a valid signature: nothing written, the rows keep what was typed
+				}
 				mParamRowsVersion = -1;
-				RetargetTab(key, name);
-				return; // m / mg belong to the old parse and are gone now
+				if (!doc.LastSignatureKey.IsEmpty)
+					RetargetTabToKey(doc, key, doc.LastSignatureKey);
+				else
+					RetargetTab(key, name);
+				return true; // m / mg belong to the old parse and are gone now
 			}
-			Gui.igSpacing();
-			Gui.igIndent(10 * Look.Scale);
-			Gui.TextWrappedDim("Select a node to edit it. Right-click the graph to add nodes; drag pins to connect them.");
-			Gui.igUnindent(10 * Look.Scale);
 		}
 
 		/// Details for a variable picked in Outline. Returns false when the variable no

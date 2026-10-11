@@ -69,11 +69,21 @@ Console.WriteLine("after");
   that node is written once after the switch. If
   Default is not wired the merge is refused with "Two execution wires lead into this node";
   wire Default as well, or connect the arms to *Completed* instead.
-- **Properties.** The case list: edit each case's text, move it up or down, remove it, add one
+- **One node, any switched type.** Properties > Cases > **Switch On** is a type picker (`int` and the other
+  whole numbers, `char8` / `char32`, `String`, and every enum the project or a library has; `float`, `bool` and
+  classes are refused with the reason). The Value pin carries that type, and an existing switch reads it from
+  the switched expression. An **enum** switch has one output per member plus Default, written
+  `switch (v) { case .A: ... case .B: ... default: ... }`; **Update members** (and Reload node) add the members
+  the enum has gained and remove the cases of members it lost. Changing the type keeps the cases that still fit
+  (the wires stay) and starts a new type with one case: `0`, `""` or `'a'`. A switch with fall-through, `when`
+  or ranges stays a Code node.
+- **Properties.** Switch On, then the case list: each case is edited with the typed control of the switched
+  type (a member dropdown, a text field without quotes, a number field that refuses what the type cannot hold,
+  a character field; several values `2, 3` stay plain text), move it up or down, remove it, **+ Add Case**
   (inserted before Default), and the "write `default:` even when empty" option.
-- **Node menu** (Flow Control): *Switch on Int*, *Switch on String*, *Switch on Enum*
-  (no cases; add them in Properties) and *Switch on `<Enum>`* for every simple enum in the current
-  file, with one case per value.
+- **Node menu** (Flow Control): one *Switch* (starts on `int`, change it in Properties). Dragging off an
+  enum-typed output offers *Switch on `<Enum>`* as the first row (category Suggested), with one case per member
+  and the dragged output wired to Value.
 - **Limits.** Pins are named `case0`, `case1`, ... in order; the names change when cases are
   moved or removed (the node is the same node). `break;` in a case is a Break node and leaves
   the switch (Beef's rule): the generator warns when that is inside a loop.
@@ -95,7 +105,7 @@ what makes the blocks a Sequence; the plain `{ }` blocks right after the marked 
 other outputs (a block with its own marker starts another Sequence). Each output is its own
 block, so a local declared (or a call result computed) in one output is not visible in
 another output or after the Sequence: such a graph is refused with the reason on the node.
-Store the value in a Local Variable before the Sequence instead.
+Store the value in a local variable of the function (Outline > LOCAL VARIABLES, declared at the top) and read that instead.
 Properties: add / remove outputs. A Sequence with one output is just a nested block.
 
 ## State macros

@@ -357,8 +357,10 @@ byte, then flipped to another legal choice and back to the same bytes:
   `int`) is shown in red and not written.
 * **Add Variable**: the same choices under the type, with defaults (class: Owned, made here;
   interface: Reference; struct: Value; value types: None) and the declaration it will write.
-* **Local Variable node** with an unwired value: **Initial Value** and **Value** with the same controls,
-  written into the value pin, with the local's declaration under them.
+* **Local variables** (Outline > LOCAL VARIABLES, selected): **Ownership** for class types and
+  **Initial Value** with the same controls (see [Local variables](#local-variables)), with the
+  declaration under them. A Local Variable node read from the middle of a function has the same
+  Initial Value rows.
 
 ## In the editor
 
@@ -406,7 +408,9 @@ byte, then flipped to another legal choice and back to the same bytes:
 * **Rename preview** (*Rename References*): the summary ("7 references in 2 files"), every line that
   changes per file, and the problems; **Rename N** is disabled while there are problems. The Output
   Log (category `Rename`) gets the same lines, so a refusal is explained there too.
-* **Local variables**: a Local Variable node's Properties has **Rename with Uses...**.
+* **Local variables**: renaming one in the Outline or Properties renames its uses in the function
+  (directly when nothing else says its name, else with the rename preview); a Local Variable node
+  read from the middle of a function keeps **Rename with Uses...**.
 * **Project Browser > Add > New Class / Struct / Interface / Enum**: a **Template** (Empty class, or
   **UMP Mod (ModMain : UMPMod, Initialize / Tick / Shutdown)**), **Derived from** (the same picker:
   project and library types), **Interfaces** (add / remove), **Implement missing members**; an enum
@@ -469,6 +473,86 @@ variable gets Get and Set nodes in the Node menu under **Globals > Owner** (from
 `Owner.Field`. The Ownership / Initial value rows apply, with the static choices (no `append`, no Set on
 create); the read-only Beef line shows the written form, for an owned object
 `public static String sName = new .() ~ delete _;`.
+
+## Outputs
+
+The owner's words (2026-10-12): "Allow multiple outputs in a function." Properties > **Outputs**
+lists the **Return Value** (its type, `void` for none) and then one row per further output: a
+name, a type picker, move up / down and remove, and **Add Output**. Each further output is an
+`out` parameter in the Beef, and the header the rows stand for is shown read-only under them:
+
+```beef
+public bool TryGet(int64 key, out int value, out String name)
+{
+	value = 0;
+	name = null;
+	return false;
+}
+```
+
+* The **Return** node has one input per output after the Return Value (`value`, `name`). A Return
+  writes `name = value;` for each output that has a value, in order, then `return <value>;`. A
+  Return placed from the Node menu starts each with its type's default (as the Return Value does),
+  so the function compiles at once; adding an output in Properties gives every Return of the
+  function the new input with its default in the same undo step.
+* Read from code: the assignments to `out` parameters right before a `return`, in parameter order,
+  are that Return's inputs (the node's text is the whole run, written back byte for byte). An
+  assignment elsewhere (earlier, or out of order) stays a Set node. Returns inside a lambda or a
+  local function have no output inputs.
+* A call of the function has one output pin per output (the out pins of the call model,
+  [Calls-and-Receivers.md](Calls-and-Receivers.md)), unchanged.
+* The Inputs rows still offer **Passing > out**: such a row moves to Outputs (it is the same
+  parameter). Constructors list their `out` parameters under Inputs (they have no Outputs).
+* Where it lives: `GraphBuilder.TryBuildReturnWithOuts`, `NodeFactory.AddReturnOutPins` /
+  `SyncReturnOutPins`, the `.Return` case of `CodeGen.StatementText`, `SourceDocument.SetSignature`
+  (syncs the Returns), the editor's `LocalsPanel.bf` (`DrawOutputRows`).
+
+## Local variables
+
+The owner's words (2026-10-12): "Eliminate the Local Variable node; functions get an implicit
+locals panel, like global vs local variables." A function's **local variables** are the
+declarations at the top of its body, in order (`Graph.Locals`). They are not nodes on the Sheet:
+
+* **Outline**: under the function whose Sheet is in front, **LOCAL VARIABLES** with a count and
+  **+**, one row per local variable (type-coloured pill, name, the type dimmed). Click selects it
+  (Properties shows it), double-click edits the name in place, drag onto the Sheet places a Get
+  (Ctrl) or a Set (Alt) or asks, the context menu has Rename, Move Up / Down and Delete. **L** on
+  the Sheet adds `int newLocal = 0;` and selects it with its name box focused.
+* **Properties** (one selected): Variable Name, Variable Type, **Ownership** for class types
+  (**Reference**: holds an object made elsewhere, `= null` or an expression; **Made for this
+  call**: `String name = scope .();`, with Arguments, or Initial Text for a String), **Initial
+  Value** with the member variable controls (None, Number, True / false, Text, Member, `default`,
+  `null`, `.()`, Expression), the declaration line, Delete Local Variable.
+* **Node menu**: *Variables | Locals* has Get and Set for each; there is no Local Variable node in
+  the menu and no hotkey for one.
+* **Beef**: the declarations are written first, in list order, then the flow from the entry:
+
+```beef
+public bool TryGet(int64 key, out int value, out String name)
+{
+	int count = 0;
+	String label = scope .();
+	count = 5;
+	value = 0;
+	name = null;
+	return false;
+}
+```
+
+* **Read from code**: the declarations at the top of a body with a type (not `let` / `var`), no
+  `const` / `ref`, no attribute, and a value that needs no node of its own (a literal, a name,
+  `.()`, `new` / `scope` of a type with typed arguments, an operator or member read; not a call)
+  are the local variables, written back byte for byte. The run stops at the first statement that
+  is not one. A declaration later in the body stays as it was (a Local Variable node in the flow,
+  read only from code); its Properties offers **Move to Locals**, which declares it at the top
+  instead. A move changes when the value is computed (before the statements that were above it),
+  which can change what the program does, so it is only done when asked. The pin context menu's
+  **Make local variable** adds a local variable from a pin (see [Editor-UI.md](Editor-UI.md#canvas)).
+* Where it lives: `Graph.Locals`, `Graph.ExtractLocals` / `CanBeLocal` / `MoveToLocals` /
+  `AdoptLocals` (after a commit), `NodeFactory.AddLocal`, `CodeGen.EmitBody`, `OrphanStore.Restore`
+  (the local variables are declared before the unconnected code), the editor's `LocalsPanel.bf`
+  and `Outline.bf`, tests in `VisualBeefTests/src/LocalsTests.bf` (`classes`, `flow`) and
+  `VB_SELFTEST=fnlocals`.
 
 ## Limits
 

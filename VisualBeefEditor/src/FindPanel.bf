@@ -373,6 +373,7 @@ namespace VisualBeef.Editor
 						name.RemoveToEnd(colon);
 					mSelVarName.Set(name);
 					mSelVarActive = true;
+					mSelLocalActive = false;
 					mSelVarSigPending = true;
 					Panels.Focus(Panels.PropertiesId);
 				}

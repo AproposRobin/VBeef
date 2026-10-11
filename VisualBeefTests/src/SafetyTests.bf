@@ -916,11 +916,35 @@ namespace VisualBeef.Tests
 			Check(report.Contains("RIP 0x000000001234abcd") && report.Contains("RSP 0x000000007ffc0000"), "registers from the ucontext");
 			Check(report.Contains("project  /home/someone/Projects/Demo\n"), "the open project");
 			int stack = report.IndexOf("\nstack (backtrace(3)");
-			// glibc's backtrace_symbols_fd writes "path(sym+0xoff) [0xaddr]", "path(+0xoff) [0xaddr]" or
-			// "path() [0xaddr]" (non-PIE, no exported symbols) depending on the link and the glibc, and the
-			// path depends on how the runner invokes the binary; so require frame lines of that shape, not a name.
-			// A runner whose backtrace(3) returns fewer than two frames writes the explicit no-frames line instead.
-			bool frameLines = stack > 0 && report.IndexOf(") [0x", stack) > 0 && report.IndexOf("(", stack + 30) > 0;
+			// glibc's backtrace_symbols_fd writes "path(sym+0xoff) [0xaddr]", "path(+0xoff) [0xaddr]", "path() [0xaddr]"
+			// or, for a stripped binary with no dynamic symbol near the address, plain "path[0xaddr]". The path depends
+			// on how the runner invokes the binary, so each line after the stack header is checked for its shape: a
+			// non-empty prefix (a balanced "(...)" group if it has one) followed by "[0x<hex digits>]". At least two frames.
+			int frameCount = 0;
+			bool allFramesOk = stack > 0;
+			if (stack > 0)
+			{
+				int hdrEnd = report.IndexOf('\n', stack + 1);
+				for (let line in StringView(report, hdrEnd + 1).Split('\n'))
+				{
+					if (line.IsEmpty || line.StartsWith("stack:") || line.Contains("    ")) continue; // other sections / the caller's lines
+					int br = -1;
+					for (int i = line.Length - 3; i > 0; i--)
+						if (line[i] == '[' && line[i + 1] == '0' && line[i + 2] == 'x') { br = i; break; }
+					bool ok = br > 0 && line.EndsWith("]") && br + 3 < line.Length - 1;
+					if (ok)
+					{
+						for (int i = br + 3; i < line.Length - 1; i++)
+							if (!((line[i] >= '0' && line[i] <= '9') || (line[i] >= 'a' && line[i] <= 'f') || (line[i] >= 'A' && line[i] <= 'F'))) { ok = false; break; }
+						StringView prefix = StringView(line, 0, br);
+						prefix.Trim();
+						if (prefix.IsEmpty) ok = false;
+						else if (prefix.Contains('(') && !prefix.EndsWith(")")) ok = false;
+					}
+					if (ok) frameCount++; else allFramesOk = false;
+				}
+			}
+			bool frameLines = allFramesOk && frameCount >= 2;
 			bool noFrames = report.Contains("stack: no frames available (backtrace returned ");
 			// The failure text is one line (the CI log greps FAIL lines only), so the stack is shown with its newlines as " | ".
 			String shown = scope .();

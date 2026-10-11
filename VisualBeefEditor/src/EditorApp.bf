@@ -1210,6 +1210,7 @@ namespace VisualBeef.Editor
 				n = NodeFactory.Loop(g, .ForEach);
 			case .Return:
 				n = NodeFactory.Return(g, (mg.Method.TypeText != null) ? mg.Method.TypeText : "void");
+				NodeFactory.AddReturnOutPins(g, n, mg.Method, true);
 			case .Break:
 				n = NodeFactory.Jump(g, .Break);
 			case .Continue:
@@ -1577,6 +1578,7 @@ namespace VisualBeef.Editor
 				}
 			});
 			SelfTestTick();
+			UpdateTick();
 			DebugTick();
 			// Keep the project index in step with edits.
 			for (let d in mDocs)
@@ -1616,6 +1618,7 @@ namespace VisualBeef.Editor
 			HandleShortcuts();
 			DrawMainMenu();
 			DrawToolbar();
+			DrawUpdateBar();
 			DrawStatusBar();
 			SetupDockspace();
 			DrawProjectBrowserWindows();
@@ -1652,6 +1655,17 @@ namespace VisualBeef.Editor
 				String title = scope .();
 				node.GetTitle(title);
 				SetStatus(scope $"Reloaded {title}");
+				// An enum Switch follows its enum: new members get a case, removed ones lose theirs.
+				if (node.Kind == .Switch && NodeFactory.SwitchMembersStale(node, VisualBeef.Catalog.TypeService.Current))
+				{
+					BeginEdit();
+					String why = scope .();
+					if (NodeFactory.SetSwitchType(mg.Graph, node, NodeFactory.SwitchType(node), VisualBeef.Catalog.TypeService.Current, why))
+					{
+						CommitCurrent();
+						SetStatus(scope $"Reloaded {title}: its cases follow the enum's members now");
+					}
+				}
 			}
 			else
 				SetStatus("This node has changes not written yet or is not connected: use Graph > Reload Sheet", .Warning);
@@ -1941,6 +1955,12 @@ namespace VisualBeef.Editor
 				Gui.Text("Project Browser: double-click to open, F2 rename, Del delete, drag onto a folder to move.");
 				Gui.Text("Ctrl+Space: Project Drawer.   docs/Editor-UI.md lists every shortcut.");
 				Gui.Separator();
+				bool updatesBusy = mUpdates == null || mUpdates.Busy;
+				if (IconItem(Icon.ArrowDownToLine, "Check for Updates...", "", false, !updatesBusy))
+					CheckForUpdatesNow();
+				if (Gui.igIsItemHovered(0))
+					Gui.Tooltip("Look for a new VisualBeef release now (Editor Preferences > Updates has the settings)");
+				Gui.Separator();
 				Gui.MenuItem("Show ImGui Demo", "", mShowDemo);
 				if (Gui.igIsItemClicked(0))
 					mShowDemo = !mShowDemo;
@@ -2071,7 +2091,7 @@ namespace VisualBeef.Editor
 							mSelectTab = null;
 						}
 						String label = scope .();
-						label.AppendF("{}  {}{}###{}|{}", Icon.Function, tab.Title, tab.Doc.Modified ? " *" : "", tab.Doc.FilePath, tab.MethodKey);
+						label.AppendF("{}  {}{}###graphtab{}", Icon.Function, tab.Title, tab.Doc.Modified ? " *" : "", tab.Uid);
 						bool open = true;
 						if (Gui.igBeginTabItem(label, &open, flags))
 						{
@@ -2169,6 +2189,25 @@ namespace VisualBeef.Editor
 					into.Append(p.Type);
 				}
 				into.Append(")");
+			}
+		}
+
+		/// After a signature change: the tabs on the old key follow the same function (its new key,
+		/// from SourceDocument.LastSignatureKey), never another overload of the same name.
+		void RetargetTabToKey(SourceDocument doc, StringView oldKey, StringView newKey)
+		{
+			let mg = doc.FindMethod(newKey);
+			if (mg == null)
+				return;
+			for (let tab in Tabs)
+			{
+				if (tab.Doc != doc || tab.MethodKey != oldKey)
+					continue;
+				tab.MethodKey.Set(mg.Key);
+				tab.Title.Clear();
+				if (mg.Owner != null)
+					tab.Title.AppendF("{}.", mg.Owner.Name);
+				AppendSheetName(tab.Title, mg);
 			}
 		}
 

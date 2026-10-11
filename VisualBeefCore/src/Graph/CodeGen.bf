@@ -365,6 +365,9 @@ namespace VisualBeef.Graph
 				o.Append('\n');
 			String indent = scope .(braceIndent);
 			indent.Append(mUnit);
+			// The function's Locals first, in list order, then the flow.
+			for (let local in mGraph.Locals)
+				GenStatement(local, indent, o);
 			GenChain(mGraph.Entry.Then, indent, o, null);
 			let closeLead = mGraph.RawCloseLead;
 			if (closeLead != null && (closeLead.Contains('\n') || mNeedNewline || (mGraph.CloseAtLineStart && o.EndsWith('\n'))))
@@ -1804,6 +1807,8 @@ namespace VisualBeef.Graph
 			for (let kv in mTempNames)
 				if (kv.key != node && kv.value == name)
 					return true;
+			if (mGraph.FindLocal(name) != null)
+				return true;
 			for (let n in mGraph.Nodes)
 			{
 				if (n == node)
@@ -2083,6 +2088,17 @@ namespace VisualBeef.Graph
 				Block(node.FindOutput("body"), indent, o, null, (split && sp.BodyOpen >= 0) ? Slice(node, sp.HeadEnd, sp.BodyOpen) : default);
 
 			case .Return:
+				// Outputs: `name = value;` for each out parameter pin with a value, then the return.
+				for (let p in node.Inputs)
+				{
+					if (p.Kind != .Data || !p.Name.StartsWith("out:") || (mGraph.FindLinkTo(p) == null && p.Default.IsEmpty))
+						continue;
+					o.Append(StringView(p.Name, 4));
+					o.Append(" = ");
+					GenInput(p, 0, o);
+					o.Append(";\n");
+					o.Append(indent);
+				}
 				o.Append("return");
 				let value = node.FindInput("value");
 				if (value != null && (mGraph.FindLinkTo(value) != null || !value.Default.IsEmpty))
@@ -2885,6 +2901,8 @@ namespace VisualBeef.Graph
 		/// name never declared in the graph: unknown names count as locals only when declared).
 		bool IsLocalName(StringView name)
 		{
+			if (mGraph.FindLocal(name) != null)
+				return true;
 			for (let n in mGraph.Nodes)
 				if ((n.Kind == .LocalVar || n.Kind == .ForEach || n.Kind == .Using || n.IsCountingLoop) && n.Text == name)
 					return true;

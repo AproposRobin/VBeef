@@ -127,6 +127,8 @@ namespace VisualBeef.Editor
 			case "openall": finished = SelfTestOpenAll();
 			case "session": finished = SelfTestSession();
 			case "debug": finished = SelfTestDebug();
+			case "attach": finished = SelfTestAttach();
+			case "attachlive": finished = SelfTestAttachLive();
 			case "reload-check": finished = SelfTestReloadCheck();
 			case "unreadable": finished = SelfTestUnreadable();
 			case "nodoc": finished = SelfTestNoDoc();
@@ -136,6 +138,7 @@ namespace VisualBeef.Editor
 			case "faultshot": finished = SelfTestFaultShot();
 			case "newcomer": finished = SelfTestNewcomer();
 			case "modauthor": finished = SelfTestModAuthor();
+			case "fnlocals": finished = SelfTestFnLocals();
 			case "adddialog-close": mSelfTestCloseDialog = true;
 			case "locals-open": mSelfTestLocalsOpen = true;
 			case "menu": SelfTestMenu(true);
@@ -234,6 +237,12 @@ namespace VisualBeef.Editor
 				}
 				else if (test == "prefs-close")
 					mShowPrefs = false;
+				else if (test.StartsWith("update:")) // the update notice line in a state (captures; no network)
+					SelfTestUpdateState(test.Substring(7));
+				else if (test.StartsWith("update-stage:")) // end to end: install an extracted package through the helper
+					SelfTestUpdateStage(test.Substring(13));
+				else if (test == "update-check") // a real check, as Help > Check for Updates
+					CheckForUpdatesNow();
 				else
 					SelfTestCheck(false, scope $"unknown check {test}");
 			}

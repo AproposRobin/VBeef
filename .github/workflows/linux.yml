@@ -5,7 +5,9 @@ name: Linux
 on:
   push:
     branches: [master, main]
+    tags: ['v*']
   pull_request:
+    branches: [master, main]
   workflow_dispatch:
 
 permissions:
@@ -13,7 +15,7 @@ permissions:
 
 concurrency:
   group: linux-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 env:
   # The Beef commit VisualBeef is tested with on Linux (docs/Linux.md > What you need).
@@ -105,3 +107,42 @@ jobs:
           name: linux-build-logs
           path: build/*.log
           if-no-files-found: ignore
+
+  release:
+    # A v* tag adds the tarball and the AppImage (+ .sha256) to the tag's draft pre-release (the Windows workflow adds
+    # the zips), each with a build attestation. The owner signs release.json and publishes (docs/Releasing.md).
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    needs: linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write   # build attestation: the signing identity of the provenance statement
+      attestations: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: visualbeef-linux-x86_64
+          path: release
+
+      - name: Attest build provenance (tarball, AppImage and .sha256 files)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            release/*.tar.gz
+            release/*.AppImage
+            release/*.sha256
+
+      - name: Add the packages to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          ls -l release
+          note="Packages built from this tag by the Windows and Linux workflows. Draft until the owner signs release.json and publishes it (docs/Releasing.md). See docs/Code-Signing.md to verify the files."
+          if ! gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1; then
+            gh release create "$TAG" --repo "$REPO" --verify-tag --draft --prerelease --title "VisualBeef $TAG" --notes "$note" || gh release view "$TAG" --repo "$REPO" > /dev/null
+          fi
+          gh release upload "$TAG" --repo "$REPO" --clobber release/*.tar.gz release/*.tar.gz.sha256 release/*.AppImage release/*.AppImage.sha256

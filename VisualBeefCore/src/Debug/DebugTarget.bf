@@ -17,10 +17,25 @@ namespace VisualBeef.Debug
 		public String Args = new .() ~ delete _;
 		public String WorkDir = new .() ~ delete _;
 		public String TargetType = new .() ~ delete _;
+		/// What the startup project builds: the .exe, the .dll of a dynamic library (a mod), or
+		/// the folder + name of a static library.
+		public String TargetPath = new .() ~ delete _;
 
 		/// Fills the target for `workspaceDir` (holding BeefSpace.toml) and a configuration; false
 		/// with a reason the editor can show.
 		public bool Resolve(StringView workspaceDir, StringView config, String outError, StringView platform = "Win64")
+		{
+			return Resolve(workspaceDir, config, outError, platform, false);
+		}
+
+		/// Only what the startup project builds (TargetPath, Project, TargetType), not how it runs:
+		/// for a mod, the DLL a game loads. True when the file exists.
+		public bool ResolveOutput(StringView workspaceDir, StringView config, String outError, StringView platform = "Win64")
+		{
+			return Resolve(workspaceDir, config, outError, platform, true);
+		}
+
+		bool Resolve(StringView workspaceDir, StringView config, String outError, StringView platform, bool outputOnly)
 		{
 			String wsDir = scope .(workspaceDir);
 			wsDir.Replace('/', '\\');
@@ -82,6 +97,22 @@ namespace VisualBeef.Debug
 				targetPath.Append(".dll");
 			else if (!isLib)
 				targetPath.Append(".exe");
+			TargetPath.Set(targetPath);
+			// A mod is a library whose build kind is a DLL (BeefProj.toml `BuildKind = "DynamicLib"`).
+			if (isLib && Opt("BuildKind", "") == "DynamicLib")
+			{
+				TargetPath.Append(".dll");
+				targetPath.Append(".dll");
+			}
+			if (outputOnly)
+			{
+				if (!File.Exists(TargetPath))
+				{
+					outError.AppendF("Not built in {}: {}", config, TargetPath);
+					return false;
+				}
+				return true;
+			}
 
 			let cmd = Opt("DebugCommand", "$(TargetPath)");
 			if (isLib && cmd == "$(TargetPath)")

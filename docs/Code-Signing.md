@@ -11,7 +11,7 @@ VisualBeef releases are **not code-signed**. The project has no code-signing cer
 "unknown publisher" the first time a new version runs. Trust comes from three things anyone can check:
 
 1. **The public workflow.** Every release is built by `.github/workflows/windows.yml` on GitHub-hosted runners from a tagged
-   commit of the public repository (`https://github.com/AproposRobin/VBeef`). Nothing that ships comes from a developer machine.
+   commit of the public repository (`<public-repo-url>`). Nothing that ships comes from a developer machine.
 2. **Build attestations.** The workflow attaches a GitHub build attestation to each package and its `.sha256` file, tying the
    file to the workflow run and commit that produced it.
 3. **Checksums.** The `.sha256` file beside each download holds the expected SHA-256 of the zip.
@@ -42,7 +42,11 @@ company and copyright before packaging.
 1. A maintainer tags a commit of the default branch `v<major>.<minor>.<patch>`.
 2. The workflow downloads pinned tools (sha256 checked), builds `vbhost.dll` and `VisualBeefEditor.exe` from the tagged
    commit, runs the test suites, and packages the result.
-3. It writes the `.sha256` files, creates the build attestations and attaches everything to the GitHub Release of the tag.
+3. It writes the `.sha256` files, creates the build attestations and attaches everything to a **draft** GitHub Release of
+   the tag (the Linux workflow adds the tarball and AppImage to the same draft).
+4. The maintainer signs a `release.json` descriptor for those files with the offline release key and publishes the
+   release ([Releasing.md](Releasing.md)). The editor's updater installs only files named in a descriptor whose signature
+   verifies against the key compiled into it, and checks each file's size and SHA-256 before installing.
 
 ## Team
 
@@ -51,9 +55,14 @@ in as pull requests ([CONTRIBUTING.md](../CONTRIBUTING.md)).
 
 ## Privacy
 
-VisualBeef does not collect or send any data. It makes no network connections of its own, has no telemetry and no update
-check. It reads and writes only the files you open and, in your user profile, its own settings, logs, crash reports and
-recovery files (`%LOCALAPPDATA%\VisualBeef`, or the folder in `VB_HOME`). Compiling and debugging start the Beef toolchain
+VisualBeef does not collect or send any data and has no telemetry. Its only network connection is the update check
+([Updating.md](Updating.md)): a plain HTTPS download of the public `release.json` from this project's GitHub Releases
+(and, on the preview channel, GitHub's public list of releases), done by the system's `curl`, carrying only the VisualBeef
+version (as the user agent): no identifier, account or token. It runs a few seconds after start and once a day while the editor is open, and not at all when **Editor
+Preferences > Updates > Check at Start** is off; offline it stays silent. An update is installed only when you choose
+**Update** and **Restart to finish**. It reads and writes only the files you open and, in your user profile, its own
+settings, logs, crash reports, recovery files and downloaded updates (`%LOCALAPPDATA%\VisualBeef`, or the folder in
+`VB_HOME`). Compiling and debugging start the Beef toolchain
 installed on your machine (`BeefBuild`, the debugger engine); their own behaviour is described by the Beef project. The
 editor never changes system settings, and the package is a plain folder: delete it to remove it (the settings folder above
 can be deleted too). Third-party components bundled in the binaries (Dear ImGui, SDL2) do not transmit data either.

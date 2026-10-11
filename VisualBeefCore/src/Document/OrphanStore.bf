@@ -547,7 +547,24 @@ namespace VisualBeef.Document
 				return 0;
 			String text = scope .();
 			text.Append(StringView(unit.Text, 0, unit.Tokens[body.FirstTok].End));
-			text.Append(rec.Code);
+			// The function's Locals stay in the body when its flow is disconnected: the orphan code
+			// reads them, so they are declared first (and taken out again as Locals below).
+			StringView code = rec.Code;
+			if (!graph.Locals.IsEmpty)
+			{
+				text.Append((graph.RawOpenTrail != null && graph.RawOpenTrail.EndsWith('\n')) ? (StringView)graph.RawOpenTrail : "\n");
+				for (let l in graph.Locals)
+				{
+					text.Append((l.RawLead != null) ? (StringView)l.RawLead : "");
+					text.Append((l.Original != null) ? (StringView)l.Original : "");
+					text.Append((l.RawTrail != null && l.RawTrail.EndsWith('\n')) ? (StringView)l.RawTrail : "\n");
+				}
+				// The record starts with the rest of the brace's line: already written above.
+				int nl = code.IndexOf('\n');
+				if (nl >= 0 && code.Substring(0, nl).IsWhiteSpace)
+					code = code.Substring(nl + 1);
+			}
+			text.Append(code);
 			// Keep the code from running into the closing brace's line.
 			if (!rec.Code.EndsWith('\n') && !rec.Code.EndsWith('\t') && !rec.Code.EndsWith(' '))
 				text.Append('\n');
@@ -575,7 +592,7 @@ namespace VisualBeef.Document
 			if (m2 == null)
 				return 0;
 
-			let s = GraphBuilder.Build(unit2, m2, o2);
+			let s = GraphBuilder.Build(unit2, m2, o2, true, graph.Locals.Count);
 			defer delete s;
 			if (s.Entry == null)
 				return 0;

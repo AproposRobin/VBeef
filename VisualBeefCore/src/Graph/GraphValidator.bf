@@ -354,6 +354,9 @@ namespace VisualBeef.Graph
 		/// The Local Variable `name` is initialised from `src` (a Construct), or null.
 		static Node LocalOf(Graph g, StringView name)
 		{
+			let local = g.FindLocal(name);
+			if (local != null)
+				return local;
 			for (let n in g.Nodes)
 				if (n.Kind == .LocalVar && n.Text == name)
 					return n;

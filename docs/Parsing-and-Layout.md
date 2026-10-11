@@ -183,7 +183,8 @@ kind (`1.0` infers `double`).
 | `Fill(ref x)` | Call node, ref input wired from `x` |
 | `Foo(a)` used as a value | pure Call node (green header) |
 | `x = v;` `x += v;` `x++;` | Set node |
-| `int x = v;` / `let x = v;` | Local Variable node (its output pin reads the variable) |
+| `int x = 0;` at the top of the body (typed, a value that needs no node) | One of the function's local variables (`Graph.Locals`, Outline > LOCAL VARIABLES; not a node, written first, byte for byte) |
+| `int x = v;` / `let x = v;` elsewhere | Local Variable node (its output pin reads the variable); Properties offers Move to Locals |
 | `if / else if / else` | Branch (True / False / Completed) |
 | `while`, `do while` | While Loop / Do While Loop |
 | `for (let x in xs)` | For Each Loop (Element pin) |

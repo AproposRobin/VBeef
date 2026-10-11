@@ -4,6 +4,7 @@ using ImGui;
 using VisualBeef.Graph;
 using VisualBeef.Document;
 using VisualBeef.Syntax;
+using VisualBeef.Catalog;
 
 namespace VisualBeef.Editor
 {
@@ -47,6 +48,10 @@ namespace VisualBeef.Editor
 	/// One open function graph (a tab in the graph area) and its canvas view state.
 	class GraphTab
 	{
+		static int32 sNextUid;
+		/// The tab's identity in the tab bar: its method key changes with the parameter types
+		/// (an input added), and the tab must stay the one in front.
+		public int32 Uid = ++sNextUid;
 		public SourceDocument Doc;
 		public String MethodKey = new .() ~ delete _;
 		public String Title = new .() ~ delete _;
@@ -277,6 +282,8 @@ namespace VisualBeef.Editor
 		/// 0 = no inline value field.
 		public float FieldW;
 		public bool Check;
+		/// The typed control of an unwired input (PinValue.KindOf); Expr when untyped.
+		public PinValueKind VKind;
 		public bool Visible;
 		/// An unconnected Target of a member call: drawn as a greyed "self", like UE.
 		public bool SelfHint;
@@ -337,6 +344,8 @@ namespace VisualBeef.Editor
 	{
 		EditorApp mApp;
 		TextBuffer mScratch = new .(1024) ~ delete _;
+		/// The typed value controls of unwired inputs (also driven by the self test).
+		public PinValueEditor mPinEditor = new .() ~ delete _;
 		List<Pin> mLeft = new .() ~ delete _;
 		List<Pin> mRight = new .() ~ delete _;
 		/// The inline value being typed into already pushed an undo step (commit on deactivate).
@@ -748,8 +757,18 @@ namespace VisualBeef.Editor
 					}
 					else if (p.Kind == .Data && !graph.IsLinked(p))
 					{
-						pl.Check = IsBoolLiteral(p);
-						pl.FieldW = pl.Check ? (fh + 6) : InlineFieldWidth(p);
+						pl.VKind = PinValue.KindOf(p.TypeName, p.Default, p.Name, TypeService.Current);
+						pl.Check = (pl.VKind == .Bool) || (pl.VKind == .Expr && IsBoolLiteral(p));
+						if (pl.Check)
+							pl.FieldW = fh + 6;
+						else if (PinValueEditor.Handles(pl.VKind))
+							pl.FieldW = PinValueEditor.Width(pl.VKind, p, TypeService.Current);
+						else if (pl.VKind == .None)
+							pl.FieldW = p.Default.IsEmpty ? 0 : (Gui.CalcTextSize(p.Default).x + 4);
+						else if (pl.VKind == .Custom)
+							pl.FieldW = Gui.CalcTextSize(p.Default).x + Gui.CalcTextSize("Custom").x + 22;
+						else
+							pl.FieldW = InlineFieldWidth(p);
 						pl.FieldX = 24 + ((pl.LabelW > 0) ? pl.LabelW + 6 : 0);
 						w = pl.FieldX + pl.FieldW;
 					}
@@ -1735,7 +1754,28 @@ namespace VisualBeef.Editor
 			if (pl.FieldW > 0)
 			{
 				let fpos = ImVec2(nodePos.x + pl.FieldX * z, rowTop + 2 * z);
-				if (widgets)
+				if (pl.VKind == .None)
+					Text(dl, fpos + ImVec2(2 * z, 3 * z), fh * z, Theme.TextDim, p.Default);
+				else if (pl.VKind == .Custom)
+				{
+					// Not a plain literal of the pin's type (an expression): read-only, edited in Properties.
+					let f1 = fpos + ImVec2(pl.FieldW * z, (fh + 6) * z);
+					Gui.ImDrawList_AddRectFilled(dl, fpos, f1, Theme.InlineFieldBg, 3 * z, 0);
+					Text(dl, fpos + ImVec2(4 * z, 3 * z), fh * z, Gui.Color(200, 200, 200), p.Default);
+					let bw = Gui.CalcTextSize("Custom").x * z;
+					Text(dl, ImVec2(f1.x - bw - 4 * z, fpos.y + 3 * z), fh * z, Theme.Warning, "Custom");
+				}
+				else if (widgets && PinValueEditor.Handles(pl.VKind) && !pl.Check)
+				{
+					mPinEditor.ButtonColor = Theme.InlineFieldBg;
+					Gui.igSetCursorScreenPos(fpos);
+					if (mPinEditor.Draw(mApp, node, p, pl.VKind, pl.FieldW * z))
+					{
+						mApp.CommitCurrent();
+						mCommitted = true;
+					}
+				}
+				else if (widgets)
 					DrawInlineValue(node, p, fpos, pl.FieldW * z, pl.Check);
 				else
 				{
@@ -3014,6 +3054,8 @@ namespace VisualBeef.Editor
 			{
 				for (let p in mg.Method.Params)
 					used.Add(new String(p.Name));
+				for (let n in mg.Graph.Locals)
+					used.Add(new String(n.Text));
 				for (let n in mg.Graph.Nodes)
 					if (n.Kind == .LocalVar || n.Kind == .ForEach)
 						used.Add(new String(n.Text));
@@ -3035,9 +3077,93 @@ namespace VisualBeef.Editor
 			mVarDropPos = gridPos;
 		}
 
-		/// UE's "Promote to Variable" for a data output: a new local fed by the pin, inserted in
-		/// the exec flow after the pin's node (or before the first statement that uses the value).
-		void PromoteToLocal(GraphTab tab, MethodGraph mg, Pin pin)
+		/// Pin context menu: Make variable / Make local variable (an output: the variable and a Set
+		/// fed by the pin) and Make variable (Get) (an input: the variable and a Get wired into it).
+		/// One undo step; the Beef is the declaration plus the statement.
+		public void MakeVariableFromPin(GraphTab tab, MethodGraph mgIn, Pin pinIn, bool member)
+		{
+			var mg = mgIn;
+			String type = scope .();
+			String why = scope .();
+			if (!mApp.PinVariableType(mg, pinIn, member, type, why))
+			{
+				Notify.Warn(why);
+				return;
+			}
+			String baseName = scope .();
+			PinVariableBase(pinIn, baseName);
+			String name = scope .();
+			let pinId = pinIn.Id;
+			let graph = mg.Graph;
+			if (member)
+			{
+				// The member first (its own text edit), then the nodes, merged into one undo step.
+				// The edit reads the file again: the MethodGraph wrapper is replaced, the graph kept.
+				let key = scope String(mg.Key);
+				let doc = mg.Doc;
+				if (!mApp.MakeMemberForPin(mg, baseName, type, name))
+					return;
+				mg = doc.FindMethod(key);
+				if (mg == null || mg.Graph != graph)
+				{
+					Notify.Warn("The variable was added; the Sheet was read again, so place its Get / Set from the Node menu.");
+					return;
+				}
+				mApp.BeginEdit();
+				mg.Doc.DropLastUndo(); // one undo step with the member
+			}
+			else
+			{
+				mApp.BeginEdit();
+				EditorApp.UniqueLocalName(mg, baseName, name);
+				String value = scope .();
+				NodeFactory.ReturnDefault(type, value);
+				NodeFactory.AddLocal(graph, name, type, value);
+			}
+			let pin = graph.FindPin(pinId);
+			if (pin == null)
+				return;
+			if (!pin.IsInput)
+			{
+				PlaceSetFromPin(tab, mg, pin, name, type);
+				return;
+			}
+			let get = NodeFactory.Get(graph, name, type);
+			graph.Connect(get.Result, pin);
+			get.X = Canvas.Snap(pin.Owner.X - 220);
+			get.Y = Canvas.Snap(pin.Owner.Y + 20);
+			get.HasPos = true;
+			tab.SelectOnly(get.Id);
+			mApp.CommitCurrent();
+			mCommitted = true;
+		}
+
+		/// A variable name made from a pin's label (`Return Value` -> `returnValue`), or `value`.
+		public static void PinVariableBase(Pin pin, String outName)
+		{
+			bool up = false;
+			for (let c in pin.Label.RawChars)
+			{
+				if (c.IsLetterOrDigit || c == '_')
+				{
+					outName.Append((up && !outName.IsEmpty) ? c.ToUpper : c);
+					up = false;
+				}
+				else
+					up = true;
+			}
+			if (outName.IsEmpty || outName[0].IsDigit)
+				outName.Set("value");
+			else
+				outName[0] = outName[0].ToLower;
+			if (VisualBeef.Syntax.Parser.IsReservedWord(outName))
+				outName.Append("Value");
+		}
+
+		/// The pin context menu's Make variable / Make local variable for a data output: a Set of
+		/// `name` fed by the pin, inserted in the flow after the pin's node (or before the first
+		/// statement that uses the value). The caller has taken the undo step and made the variable.
+		void PlaceSetFromPin(GraphTab tab, MethodGraph mg, Pin pin, StringView name, StringView type)
 		{
 			let graph = mg.Graph;
 			let owner = pin.Owner;
@@ -3068,22 +3194,7 @@ namespace VisualBeef.Editor
 				}
 			}
 
-			mApp.BeginEdit();
-			String baseName = scope .();
-			for (let c in pin.Label.RawChars)
-				if (c.IsLetterOrDigit || c == '_')
-					baseName.Append(c);
-			if (baseName.IsEmpty || baseName == "ReturnValue" || baseName[0].IsDigit)
-				baseName.Set("newVar");
-			else
-				baseName[0] = baseName[0].ToLower;
-			String name = scope .();
-			UniqueLocalName(mg, baseName, name);
-			String type = scope .();
-			NodeMenu.NormalizeType(pin.TypeName, type);
-			if (NodeMenu.IsWild(type))
-				type.Set("var");
-			let n = NodeFactory.LocalVar(graph, name, type);
+			let n = NodeFactory.Set(graph, name, type);
 			let value = n.FindInput("value");
 			if (value != null)
 				graph.Connect(pin, value);
@@ -3652,8 +3763,33 @@ namespace VisualBeef.Editor
 						mApp.CommitCurrent();
 						mCommitted = true;
 					}
-					if (pin.Kind == .Data && !pin.IsInput && pin.Owner != graph.Entry && Gui.MenuItem("Promote to Local Variable"))
-						PromoteToLocal(tab, mg, pin);
+					if (pin.Kind == .Data && pin.Owner != graph.Entry)
+					{
+						String type = scope .();
+						String why = scope .();
+						bool memberOk = mApp.PinVariableType(mg, pin, true, type, why);
+						if (!pin.IsInput)
+						{
+							if (Gui.MenuItem("Make variable", "", false, memberOk))
+								MakeVariableFromPin(tab, mg, pin, true);
+							if (Gui.igIsItemHovered(1 << 10 /* AllowWhenDisabled */))
+								Gui.Tooltip(memberOk ? scope $"A new {type} variable of {mg.Owner?.Name} (Outline > Variables), set from this pin" : why);
+							why.Clear();
+							type.Clear();
+							bool localOk = mApp.PinVariableType(mg, pin, false, type, why);
+							if (Gui.MenuItem("Make local variable", "", false, localOk))
+								MakeVariableFromPin(tab, mg, pin, false);
+							if (Gui.igIsItemHovered(1 << 10 /* AllowWhenDisabled */))
+								Gui.Tooltip(localOk ? scope $"A new {type} Local of {mg.Method.Name} (Properties > Locals), set from this pin" : why);
+						}
+						else
+						{
+							if (Gui.MenuItem("Make variable (Get)", "", false, memberOk && !graph.IsLinked(pin)))
+								MakeVariableFromPin(tab, mg, pin, true);
+							if (Gui.igIsItemHovered(1 << 10 /* AllowWhenDisabled */))
+								Gui.Tooltip(!memberOk ? why : (graph.IsLinked(pin) ? "This pin is already wired" : scope $"A new {type} variable of {mg.Owner?.Name}, read into this pin (it starts at its default)"));
+						}
+					}
 					if (pin.Kind == .Data && pin.IsInput)
 					{
 						String def = scope .();
@@ -3847,6 +3983,9 @@ namespace VisualBeef.Editor
 				if (sh && alt && Gui.IsKeyPressed(KeyX.H, false)) mApp.AlignSelection(tab, .DistributeH);
 				if (sh && alt && Gui.IsKeyPressed(Key.V, false)) mApp.AlignSelection(tab, .DistributeV);
 				if (!sh && !alt && Gui.IsKeyPressed(KeyX.Q, false)) mApp.AlignSelection(tab, .Straighten);
+				// L: a new Local of this function, its name focused in Properties > Locals.
+				if (!sh && !alt && Gui.IsKeyPressed(KeyX.L, false))
+					mApp.AddLocalFromKey(tab, mg);
 				if (!sh && !alt && Gui.IsKeyPressed(KeyX.M, false))
 				{
 					Prefs.ShowMinimap = !Prefs.ShowMinimap;

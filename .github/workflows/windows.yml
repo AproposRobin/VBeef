@@ -7,6 +7,7 @@ on:
     branches: [master, main]
     tags: ['v*']
   pull_request:
+    branches: [master, main]
   workflow_dispatch:
 
 permissions:
@@ -85,8 +86,10 @@ jobs:
           if-no-files-found: ignore
 
   release:
-    # A v* tag publishes the packages on the GitHub Releases page (the download page), with a build attestation for
-    # each zip and .sha256 file. Releases are not code-signed. The build job holds no write permission.
+    # A v* tag puts the packages on ONE draft pre-release for the tag (the Linux workflow adds its files to the same
+    # draft), with a build attestation for each zip and .sha256 file. Nothing is public yet: the owner signs release.json
+    # and publishes with scripts/release.mjs (docs/Releasing.md). Releases are not code-signed. The build job holds no
+    # write permission.
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     needs: windows
     runs-on: ubuntu-24.04
@@ -109,13 +112,16 @@ jobs:
             release/*.zip
             release/*.sha256
 
-      - name: Create or update the release
+      - name: Add the packages to the draft release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
         run: |
           ls -l release
-          gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1 \
-            || gh release create "$TAG" --repo "$REPO" --verify-tag --title "VisualBeef $TAG" --notes "Windows packages built by GitHub Actions from this tag. See docs/Code-Signing.md to verify them."
+          note="Packages built from this tag by the Windows and Linux workflows. Draft until the owner signs release.json and publishes it (docs/Releasing.md). See docs/Code-Signing.md to verify the files."
+          # The Linux workflow may create the draft at the same moment: create, else take the one that exists.
+          if ! gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1; then
+            gh release create "$TAG" --repo "$REPO" --verify-tag --draft --prerelease --title "VisualBeef $TAG" --notes "$note" || gh release view "$TAG" --repo "$REPO" > /dev/null
+          fi
           gh release upload "$TAG" --repo "$REPO" --clobber release/*.zip release/*.zip.sha256

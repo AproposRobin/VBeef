@@ -49,22 +49,23 @@ namespace VisualBeef.Tests
 				if (!NodeHotkeys.IsAssignable(d.Key))
 					allAssignable = false;
 			}
-			Check(NodeHotkeys.Defaults.Count == 11, scope $"11 default hotkeys ({NodeHotkeys.Defaults.Count})");
+			Check(NodeHotkeys.Defaults.Count == 10, scope $"10 default hotkeys ({NodeHotkeys.Defaults.Count})");
 			Check(keys.Count == NodeHotkeys.Defaults.Count && nodes.Count == NodeHotkeys.Defaults.Count, "default letters and nodes are distinct");
-			Check(allAssignable, "no default letter is reserved by the Sheet (C, F, M, Q)");
+			Check(allAssignable, "no default letter is reserved by the Sheet (C, F, L, M, Q)");
 			let map = scope NodeHotkeys();
 			map.ResetToDefaults();
-			Check(map.KeyCount == 11 && map.Favorites.Count == 11, scope $"seeded: 11 keys, 11 favorites ({map.KeyCount}, {map.Favorites.Count})");
+			Check(map.KeyCount == 10 && map.Favorites.Count == 10, scope $"seeded: 10 keys, 10 favorites ({map.KeyCount}, {map.Favorites.Count})");
 			Check(map.NodeOf('B') == "Flow Control\tBranch" && map.NodeOf('b') == "Flow Control\tBranch", "B (and b) is Branch");
 			Check(map.NodeOf('P') == "Utilities | Print\tPrint  (Console.WriteLine)", "P is Print (Console.WriteLine)");
 			Check(map.KeyOf("Flow Control\tReturn") == 'R', "Return has R");
-			Check(map.KeyOf("Flow Control\tSequence") == 'S' && map.KeyOf("Variables\tLocal Variable") == 'L', "Sequence S, Local Variable L");
+			Check(map.KeyOf("Flow Control\tSequence") == 'S' && map.NodeOf('L').IsEmpty && !NodeHotkeys.ReservedUse('L').IsEmpty && !NodeHotkeys.IsAssignable('L'),
+				"Sequence S; L is the Sheet's own key (Add a Local), no node");
 			Check(map.NodeOf('Z').IsEmpty && map.KeyOf("Flow Control\tGate") == '\0', "unbound letter and node: empty");
 			Check(map.IsFavorite("Flow Control\tBranch"), "a default node is a favorite");
 			Check(NodeHotkeys.LabelOf("Flow Control\tFor Each Loop") == "For Each Loop", "LabelOf gives the label");
 			List<(char8 key, StringView nodeKey)> b = scope .();
 			map.GetBindings(b);
-			Check(b.Count == 11 && b[0].key == 'B' && b[b.Count - 1].key == 'W', "bindings in letter order (B first, W last)");
+			Check(b.Count == 10 && b[0].key == 'B' && b[b.Count - 1].key == 'W', "bindings in letter order (B first, W last)");
 		}
 
 		static void Conflicts()
@@ -99,7 +100,7 @@ namespace VisualBeef.Tests
 			Console.WriteLine("clear");
 			let map = scope NodeHotkeys();
 			map.ResetToDefaults();
-			Check(map.ClearKey('b') && map.NodeOf('B').IsEmpty && map.KeyCount == 10, "ClearKey(b) frees B");
+			Check(map.ClearKey('b') && map.NodeOf('B').IsEmpty && map.KeyCount == 9, "ClearKey(b) frees B");
 			Check(!map.ClearKey('B'), "clearing a free letter: false");
 			Check(map.IsFavorite("Flow Control\tBranch"), "clearing a key keeps the favorite");
 			Check(map.Assign('B', "Flow Control\tGate", null) == .Ok, "a cleared letter can be reused (B for Gate)");
@@ -108,7 +109,7 @@ namespace VisualBeef.Tests
 			map.Clear();
 			Check(map.KeyCount == 0 && map.Favorites.IsEmpty, "Clear empties keys and favorites");
 			map.ResetToDefaults();
-			Check(map.KeyCount == 11 && map.NodeOf('B') == "Flow Control\tBranch", "ResetToDefaults restores the table");
+			Check(map.KeyCount == 10 && map.NodeOf('B') == "Flow Control\tBranch", "ResetToDefaults restores the table");
 		}
 
 		static void Favorites()

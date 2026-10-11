@@ -641,8 +641,8 @@ namespace VisualBeef.Tests
 			Check(wa != null && a != null && ng.FindLinkTo(wa.FindInput("arg0"))?.From == a, "`a` gets a value pin for downstream wires");
 			let assigned = newer.FindMethod("Newer.Assigned()").Graph;
 			let av = FindCall(assigned, "Find")?.FindOutput("arg0");
-			Check(av != null && av.Form == .Existing && FindNode(assigned, .LocalVar, "v") != null,
-				"`int v; Find(out v); v = 5;`: assigned elsewhere, so the line stays a Local Variable and `out v` writes it");
+			Check(av != null && av.Form == .Existing && assigned.FindLocal("v") != null,
+				"`int v; Find(out v); v = 5;`: assigned elsewhere, so the line stays a declaration (one of the function's Locals) and `out v` writes it");
 			CheckByteExact(cInlineOut, "out let / assigned out variable");
 		}
 

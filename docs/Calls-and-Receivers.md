@@ -255,7 +255,8 @@ entries (`MenuEntryKind.CallMethod` with `OnType` / `Static`), Outline drops and
 
 * Pasting a node with an inline (`var a`) or `out b` out pin keeps the name; two pins declaring the
   same `var a` in one block do not compile. Generator-named pins (`OutAuto`) are renamed.
-* A hoisted out declaration, like a hoisted call result, reads back as a Local Variable and
+* A hoisted out declaration, like a hoisted call result, reads back as a local variable (one of
+  the function's Locals when it is at the top of the body, else a Local Variable node) and
   `out name` (the code is right, the node shape differs).
 * A pure call read only through its out pins is written as a statement and reads back as an impure
   call statement.

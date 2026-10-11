@@ -134,7 +134,17 @@ namespace VisualBeef.Debug
 		public List<DebugFrame> Frames = new .() ~ DeleteContainerAndItems!(_);
 		/// Process id of the program being debugged (0 when none).
 		public int32 ProcessId { get; private set; }
+		/// The session attached to a running process (Attach) instead of launching one.
 		public bool Attached { get; private set; }
+		/// The attached session ended by detaching (the process kept running).
+		public bool Detached { get; private set; }
+		/// First-chance exceptions the attached process raised and handled itself (games do this
+		/// often); counted instead of logged one line each.
+		public int SkippedExceptions;
+		/// The executable of the attached process the engine does not read (no symbol file here), or "".
+		public String SkippedImage = new .() ~ delete _;
+		/// More module images (full paths) the engine must not read when attaching.
+		public List<String> AlsoSkip = new .() ~ DeleteContainerAndItems!(_);
 
 		List<DebugEvent> mEvents = new .() ~ DeleteContainerAndItems!(_);
 		Command mLastCommand;
@@ -256,21 +266,52 @@ namespace VisualBeef.Debug
 			return true;
 		}
 
-		/// Attaches to a running process (phase 2: a game started by the UMP launcher). Stop then
-		/// detaches and leaves the process running.
+		/// Attaches to a running process (a game started by the UMP launcher, with the mod DLL
+		/// loaded). The engine's attach flags are 0 (not ShutdownOnExit): Stop / Detach and the end
+		/// of the session detach and leave the process running, never kill it. The break Windows
+		/// makes for the attach is continued at once (the process keeps running until a breakpoint).
 		public bool Attach(int32 processId, String outError)
 		{
+			String why = scope .();
+			if (GameProcesses.AttachBlocker(processId, why))
+			{
+				outError.Set(why);
+				return false;
+			}
 			if (!Begin(outError))
 				return false;
-			if (!DebugEngine.Debugger_Attach(processId, 0))
+			// The process's own executable is not read by the engine when it has no symbol file
+			// here (a game): the engine's reader crashes on some protected executables, and it has
+			// nothing to offer for one without symbols (see DebugEngine.SkipImage).
+			DebugEngine.ClearSkippedImages();
+			SkippedImage.Clear();
+			for (let img in AlsoSkip)
+				DebugEngine.SkipImage(img);
+			{
+				List<String> modules = scope .();
+				defer { ClearAndDeleteItems!(modules); }
+				if (GameProcesses.Modules(processId, modules) && !modules.IsEmpty)
+				{
+					SymbolInfo sym = scope .();
+					if (!sym.Read(modules[0]) || !File.Exists(sym.PdbPath))
+					{
+						DebugEngine.SkipImage(modules[0]);
+						SkippedImage.Set(modules[0]);
+					}
+				}
+			}
+			if (!DebugEngine.Debugger_Attach(processId, 0 /* AttachFlags.None: detach on stop */))
 			{
 				DrainMessages();
-				outError.Set(LastError.IsEmpty ? scope $"Could not attach to process {processId}" : LastError);
+				outError.Set(LastError.IsEmpty ? scope $"Could not attach to process {processId} (a 64-bit process that is still running is needed)" : LastError);
 				sActive = null;
 				return false;
 			}
 			Attached = true;
+			Detached = false;
+			SkippedExceptions = 0;
 			Started();
+			ProcessId = processId;
 			return true;
 		}
 
@@ -282,6 +323,16 @@ namespace VisualBeef.Debug
 			State = .Running;
 			ProcessId = 0;
 			Post(.Started, "");
+		}
+
+		/// Ends an attached session and leaves the process running (Stop does the same for an
+		/// attached session). A stopped process is continued first, so no thread stays parked at a
+		/// breakpoint the debugger no longer handles.
+		public void Detach()
+		{
+			if (!Attached)
+				return;
+			Stop();
 		}
 
 		void CreateNative(DebugBreakpoint bp)
@@ -302,9 +353,21 @@ namespace VisualBeef.Debug
 		{
 			if (State == .NotDebugging || State == .Stopping)
 				return;
+			let wasStopped = State == .Stopped;
 			State = .Stopping;
 			delete mStopWatch;
 			mStopWatch = new Stopwatch(true);
+			if (Attached)
+			{
+				Detached = true;
+				if (wasStopped)
+				{
+					// Let the thread that hit the breakpoint go on before the engine detaches.
+					ClearAndDeleteItems!(Frames);
+					DebugEngine.Debugger_Continue();
+					DebugEngine.Debugger_Update();
+				}
+			}
 			DebugEngine.Debugger_StopDebugging();
 		}
 
@@ -464,7 +527,9 @@ namespace VisualBeef.Debug
 			if (State == .NotDebugging)
 				return;
 			DebugEngine.Debugger_Update();
-			if (!mHaveStdHandles)
+			// An attached process has no pipes of ours (the engine may still hold a handle left from
+			// an earlier launch, which would block a reader forever).
+			if (!mHaveStdHandles && !Attached)
 				GrabStdHandles();
 			DrainMessages();
 			DrainOutput();
@@ -480,7 +545,8 @@ namespace VisualBeef.Debug
 			if (State == .Stopping)
 			{
 				// A launched program is killed; give it a moment, then force it.
-				if (mStopWatch != null && mStopWatch.ElapsedMilliseconds > 3000 && rs != .Terminating)
+				// An attached process is never killed: StopDebugging detached it already.
+				if (!Attached && mStopWatch != null && mStopWatch.ElapsedMilliseconds > 3000 && rs != .Terminating)
 				{
 					mStopWatch.Restart();
 					DebugEngine.Debugger_Terminate();
@@ -567,6 +633,12 @@ namespace VisualBeef.Debug
 					int ec = line.IndexOf("ExitCode: ");
 					if (line.StartsWith("Process terminated") && ec >= 0)
 						ParseExitCode(line.Substring(ec + "ExitCode: ".Length));
+					// A game raises and handles exceptions of its own all the time.
+					if (Attached && line.StartsWith("Skipping first chance exception"))
+					{
+						SkippedExceptions++;
+						continue;
+					}
 					if (!line.IsEmpty)
 						Post(.Message, line);
 				}
@@ -632,6 +704,8 @@ namespace VisualBeef.Debug
 				let shared = mOut;
 				let t = new Thread(new () => ReadPipe(handle, shared));
 				t.SetName("VisualBeef debug output");
+				// Never keeps the program from exiting if a pipe stays open.
+				t.IsBackground = true;
 				t.Start(false);
 				mReaders.Add(t);
 			}

@@ -6,3 +6,6 @@ VisualBeef_layout.ini
 VisualBeef_settings.txt
 dist/
 tools/
+
+# Signed release descriptor written by scripts/release.mjs sign (uploaded by publish, never committed)
+/release.json

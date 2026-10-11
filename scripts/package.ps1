@@ -164,7 +164,7 @@ if (-not $Minimal) {
 }
 # Check the produced folder: every page in it is a user page, and the developer pages named in the rule are absent.
 if (-not $Minimal) {
-    $denied = @('Architecture.md', 'Testing.md', 'CI.md', 'Code-Signing.md', 'Codegen.md', 'Parsing-and-Layout.md', 'Catalog-and-Types.md', 'Linux.md', 'Roadmap.md', 'UMP-Integration.md', 'Vocabulary.md', 'CHANGELOG.md', 'README.md')
+    $denied = @('Architecture.md', 'Testing.md', 'CI.md', 'Code-Signing.md', 'Releasing.md', 'Codegen.md', 'Parsing-and-Layout.md', 'Catalog-and-Types.md', 'Linux.md', 'Roadmap.md', 'UMP-Integration.md', 'Vocabulary.md', 'CHANGELOG.md', 'README.md')
     foreach ($shipped in Get-ChildItem (Join-Path $Out "docs") -Filter *.md) {
         if ($denied -contains $shipped.Name -or $shipped.Name -like '*Audit*') { throw "developer page in the package: docs\$($shipped.Name)" }
         $head = @(Get-Content -LiteralPath $shipped.FullName -TotalCount 6 -Encoding UTF8) -join "`n"

@@ -620,11 +620,15 @@ namespace VisualBeef.Tests
 		static void RunOrphanPersistScenarios()
 		{
 			Console.WriteLine("Scenario 18: a disconnected method body survives save / reload");
+			// `var before` stays a node in the flow (a typed declaration at the top would be one of
+			// Heal's Locals, which stay when the flow is disconnected).
+			String cOrphanHeal = scope .(cOrphan);
+			cOrphanHeal.Replace("int before = mHp;", "var before = mHp;");
 			String layoutA = scope .();
 			int healOrphans = 0;
 			{
 				SourceDocument doc = scope .();
-				doc.LoadFromText(cOrphan, "Hero.bf");
+				doc.LoadFromText(cOrphanHeal, "Hero.bf");
 				let g = Method(doc, "Hero.Heal(int)").Graph;
 				PlaceAll(g);
 				doc.PushUndo();
@@ -656,9 +660,9 @@ namespace VisualBeef.Tests
 				doc2.PushUndo();
 				g2.Connect(g2.Entry.Then, head.ExecIn);
 				doc2.Commit(Method(doc2, "Hero.Heal(int)"));
-				Check(doc2.Text == cOrphan, "reconnecting restores the code exactly");
-				if (doc2.Text != cOrphan)
-					Program.ShowDiff(cOrphan, doc2.Text);
+				Check(doc2.Text == cOrphanHeal, "reconnecting restores the code exactly");
+				if (doc2.Text != cOrphanHeal)
+					Program.ShowDiff(cOrphanHeal, doc2.Text);
 				String layoutC = scope .();
 				doc2.GetLayoutText(layoutC);
 				Check(!layoutC.Contains("#orphan"), "record removed once the method has no orphans");
@@ -667,7 +671,7 @@ namespace VisualBeef.Tests
 				doc.Undo();
 				String layoutU = scope .();
 				doc.GetLayoutText(layoutU);
-				Check(doc.Text == cOrphan && !layoutU.Contains("#orphan"), "after undo: no orphans saved");
+				Check(doc.Text == cOrphanHeal && !layoutU.Contains("#orphan"), "after undo: no orphans saved");
 				doc.Redo();
 				String layoutR = scope .();
 				doc.GetLayoutText(layoutR);
@@ -764,15 +768,20 @@ namespace VisualBeef.Tests
 				g2.Connect(g2.Entry.Then, tmp2.ExecIn);
 				g2.Connect(set2.Then, first.ExecIn);
 				doc2.Commit(Method(doc2, "Hero.Tick()"));
-				Check(doc2.Text.Contains("{\n\t\t\tint tmp = 5;\n\t\t\tmHp = tmp + mHp;\n\t\t\tint step = 1;"), "reconnected chain generates its code");
+				// `int step = 1;` is one of Tick's Locals: written first, then the flow from Entry.
+				Check(doc2.Text.Contains("{\n\t\t\tint step = 1;\n\t\t\tint tmp = 5;\n\t\t\tmHp = tmp + mHp;\n"), "reconnected chain generates its code (after the Locals)");
 			}
 
 			Console.WriteLine("Scenario 20: orphans linked to connected nodes");
 			String layoutExt = scope .();
 			String textExt = scope .();
+			// `var step` is a Local Variable node in the flow (a `var` declaration is not one of
+			// the function's Locals), so its output pin can be wired.
+			String cOrphanVar = scope .(cOrphan);
+			cOrphanVar.Replace("int step = 1;", "var step = 1;");
 			{
 				SourceDocument doc = scope .();
-				doc.LoadFromText(cOrphan, "Hero.bf");
+				doc.LoadFromText(cOrphanVar, "Hero.bf");
 				let g = Method(doc, "Hero.Tick()").Graph;
 				doc.PushUndo();
 				let local = FindNode(g, .LocalVar, "step");
@@ -787,7 +796,7 @@ namespace VisualBeef.Tests
 				g.Connect(local.FindOutput("variable"), neg.FindInput("a"));
 				PlaceAll(g);
 				doc.Commit(Method(doc, "Hero.Tick()"));
-				Check(doc.Text == cOrphan, "orphans generate no code");
+				Check(doc.Text == cOrphanVar, "orphans generate no code");
 				String sigBefore = scope .();
 				OrphanSig(g, sigBefore);
 				doc.GetLayoutText(layoutExt);
@@ -808,7 +817,7 @@ namespace VisualBeef.Tests
 				Check(call2 != null && g2.ExecTarget(call2.Then) == FindNode(g2, .Set), "exec link into the connected statement restored");
 				doc2.PushUndo();
 				doc2.Commit(Method(doc2, "Hero.Tick()"));
-				Check(doc2.Text == cOrphan, "identity commit with restored orphans");
+				Check(doc2.Text == cOrphanVar, "identity commit with restored orphans");
 			}
 
 			Console.WriteLine("Scenario 21: broken records never fail the load");

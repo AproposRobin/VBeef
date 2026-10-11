@@ -110,7 +110,8 @@ More on the catalog: [Catalog-and-Types.md](Catalog-and-Types.md), attributes: [
 | `DebugEngine.bf` | `DebugEngine`, `EngineRunState` | Loads `IDEHelper64.dll` (the Beef IDE's debugger) at run time and binds its C API. One engine per process. |
 | `DebugSession.bf` | `DebugSession`, `DebugEvent`, `DebugFrame`, `DebugBreakpoint`, `EvalValue` | Launch / attach, run state, events polled from the UI thread, breakpoints by (file, line), steps, frames, locals, evaluation without calls, the program's output (a reader thread per pipe). |
 | `DebugMap.bf` | `DebugMap` | Node <-> line (`LineOf`, `NodeAt`) and the expression of a pin (`PinExpr`). |
-| `DebugTarget.bf` | `DebugTarget`, `LowPriority` | The startup project's Debug command, arguments and folder (like the IDE); BelowNormal priority for child processes. |
+| `DebugTarget.bf` | `DebugTarget`, `LowPriority` | The startup project's Debug command, arguments and folder (like the IDE), `ResolveOutput` (the DLL a mod project builds); BelowNormal priority for child processes. |
+| `GameProcesses.bf` | `GameProcesses`, `GameProcess`, `SymbolInfo` | The processes with a module loaded (`UMPRuntime.dll`: games a mod can be debugged in) and their mod DLLs, by the Win32 tool help snapshot; why an attach cannot work (rights, another debugger); the CodeView record (PDB path, GUID, age) of a PE file, read from its headers only. |
 
 ### Editor: `VisualBeefEditor/src/` (namespace `VisualBeef.Editor`)
 
@@ -134,7 +135,7 @@ extensions as the "controllers" and of the static/instance classes as the "views
 | `FindPanel.bf` | `FindHit` | Find in Sheets (project-wide). |
 | `OutputLog.bf`, `Notify.bf` | `Notify`, `LogEntry`, `LogLevel` | Output Log and Problems; the thread-safe log and toast API (mirrored into the session log). |
 | `BuildRunner.bf` | `BuildRunner`, `BuildMessage` | Runs BeefBuild as a child process, parses its output into messages. |
-| `Debugger.bf`, `DebugCanvas.bf`, `DebugPanels.bf` | `EditorBreakpoint`, `EditorApp` / `GraphPanel` ext. | Breakpoints on nodes, Start Debugging, the stopped node and pin values on the canvas, Locals / Call Stack / Debug Output. |
+| `Debugger.bf`, `DebugCanvas.bf`, `DebugPanels.bf`, `DebugAttach.bf` | `EditorBreakpoint`, `EditorApp` / `GraphPanel` ext. | Breakpoints on nodes, Start Debugging, the stopped node and pin values on the canvas, Locals / Call Stack (game code rows) / Debug Output; Attach to Game (the dialog, the symbol check, the red attached status, Detach). |
 | `Style.bf`, `Icons.bf`, `Prefs.bf`, `TitleBar.bf`, `Desktop.bf` | `Look`, `Icon`, `Prefs`, `Desktop` | Theme and metrics; Lucide glyph constants; preferences; project badge; window handle, DPI and idle wait. |
 
 ### Native: `Native/`
@@ -435,7 +436,7 @@ in `DrawToolbar` (Shell.bf).
 | `Recovery.bf` | Recovery journal and the orphaned-session scan |
 | `ShellServices.bf` | Background indexing (status bar, retyping), the recovery prompt, compile configuration, diagnostics on nodes, the Build menu |
 | `BuildRunner.bf` | BeefBuild process, output streaming, configuration and command line |
-| `Debugger.bf`, `DebugCanvas.bf`, `DebugPanels.bf`, `SelfTestDebug.bf` | The debugger: breakpoints, Start Debugging, stops, values, Debug menu / toolbar / keys; the node overlay; Locals, Call Stack, Debug Output; `VB_SELFTEST=debug` ([Debugging.md](Debugging.md)) |
+| `Debugger.bf`, `DebugCanvas.bf`, `DebugPanels.bf`, `DebugAttach.bf`, `SelfTestDebug.bf`, `SelfTestAttach.bf` | The debugger: breakpoints, Start Debugging, Attach to Game, stops, values, Debug menu / toolbar / keys; the node overlay; Locals, Call Stack, Debug Output; `VB_SELFTEST=debug`, `attach`, `attachlive` ([Debugging.md](Debugging.md)) |
 | `Desktop.bf` | Window handle, DPI, idle wait (`PaceFrame`) |
 | `TitleBar.bf` | Project badge on the menu row |
 | `Native/src/ImGuiShell.bf` | Extra cimgui bindings (style, IO, font config, tables, drags, side bars, window class) |
@@ -500,3 +501,27 @@ VisualBeef does not have its own debugger: it drives the one in the Beef IDE.
   holds the line. A breakpoint on a line without code of its own is moved by the engine to the next
   line with code (a function's `{` binds to its first statement); the node you set it on is still
   the one shown as stopped.
+* **Attach** (`DebugSession.Attach`, `GameProcesses.bf`, `DebugAttach.bf`): the engine's
+  `Debugger_Attach(pid, flags)` with flags 0 (not `ShutdownOnExit`), then `Debugger_Run`, the same
+  calls the Beef IDE's Attach makes. The engine's attach break is continued. With flags 0,
+  `Debugger_StopDebugging` detaches (`DebugActiveProcessStop`) instead of killing, and the engine's
+  thread sets `DebugSetProcessKillOnExit(FALSE)`, so the game survives the editor ending in any way
+  (seen live: the editor was killed while attached and the game ran on). Detach while stopped
+  continues first. Attached sessions read no pipes (`Debugger_GetStdHandles` is not called: a stale
+  handle blocked a reader thread and with it the program's exit; reader threads are background
+  threads now). The processes offered are the ones with `UMPRuntime.dll` among their modules (a tool
+  help snapshot per process, 100-150 ms for the whole list); the mod is matched by the file name of
+  the project's Release (else Debug) output DLL, and the CodeView record (PDB path, GUID, age) of the
+  loaded file is compared with the build output's, so a stale install or a build from another
+  folder is reported before attaching. Breakpoints are (file, line) as for a launch: the engine
+  finds the PDB through the absolute path inside the DLL, wherever the launcher copied the DLL.
+* **Images the engine must not read** (`DebugEngine.SkipImage`): the engine reads every module of
+  the process from its file. Beef 0.43.6's reader crashes with an access violation on its own thread
+  (taking the editor down) on Hogwarts Legacy's 457 MB protected main program file; `VisualBeefTests
+  attachprobe <pid> [seconds] [images...]` reproduced it on a stand-in process that only maps the
+  file. On attach, the process's main program file is listed when it has no symbol file on this PC.
+  The engine DLL's import of kernel32 `ReadFile` (its IAT entry, in the editor's process only)
+  points at `DebugEngine.HookReadFile`: a read of a listed image from offset 0 (the CRT open and read
+  of the main program file, or the 64-byte header read of a DLL) is served from a stripped copy of its
+  headers (same image base and size, no sections, no data directories), then end of file. The module
+  is known to the engine but nothing in it is parsed; the stack walk ends where its code starts.

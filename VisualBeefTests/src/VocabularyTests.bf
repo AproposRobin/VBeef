@@ -37,10 +37,10 @@ namespace VisualBeef.Tests
 		static StringView[?] sAllowedLiterals = .("target", "target=", "exec", "Self", "SelfBase", "Action<");
 
 		/// Substrings that make a literal belong to the SDK / game data.
-		static StringView[?] sAllowedParts = .("UnrealUMP");
+		static StringView[?] sAllowedParts = .("UnrealUMP", "Universal Unreal Mod Platform");
 
 		/// Docs that record history or the mapping itself.
-		static StringView[?] sExcludedDocs = .("CHANGELOG.md", "Vocabulary.md");
+		static StringView[?] sExcludedDocs = .("CHANGELOG.md", "Roadmap.md", "Vocabulary.md", "udit-2026-10-10.md");
 
 		static void Fail(StringView where_, int line, StringView term, StringView excerpt)
 		{
@@ -326,6 +326,7 @@ namespace VisualBeef.Tests
 					String scrubbed = scope .(l);
 					scrubbed.Replace("UnrealUMP.Unreal", ""); // the game SDK's namespace
 					scrubbed.Replace("UnrealUMP|Unreal", ""); // and its node category
+					scrubbed.Replace("Universal Unreal Mod Platform", ""); // the modding platform's product name
 					FindBanned(scrubbed, term);
 					if (!term.IsEmpty)
 					{

@@ -36,6 +36,7 @@ namespace VisualBeef.Tests
 	///                                   with no text nodes, node kinds, text by construct).
 	///   VisualBeefTests vocabulary [root]   No Unreal term in the string literals of the sources or in the docs.
 	///   VisualBeefTests hotkeys         Node hotkeys and favorites (defaults, conflicts, clear).
+	///   VisualBeefTests update          The updater: signed descriptors, sequences, downloads, swap / restore.
 	///   VisualBeefTests diagnostics     Compiler output parsing and error-line -> node mapping.
 	///   VisualBeefTests debugmap [-v] <dir>...   The debugger's node <-> line map on a corpus (DebugTests).
 	///   VisualBeefTests debug [-out <dir>] [-v]  Builds the Debuggee fixture and debugs it with Beef's engine.
@@ -129,8 +130,14 @@ namespace VisualBeef.Tests
 				return DebugTests.RunMap(args);
 			if (args[0] == "debug")
 				return DebugTests.RunSession(args);
+			if (args[0] == "attachprobe")
+				return DebugTests.RunProbe(args);
 			if (args[0] == "hotkeys")
 				return (HotkeyTests.Run() == 0) ? 0 : 1;
+			if (args[0] == "update" && args.Count > 1 && args[1] == "-net")
+				return (UpdateTests.RunNet() == 0) ? 0 : 1;
+			if (args[0] == "update")
+				return (UpdateTests.Run() == 0) ? 0 : 1;
 			if (args[0] == "diagnostics")
 				return (DiagnosticsTests.Run() == 0) ? 0 : 1;
 			if (args[0] == "vocabulary")

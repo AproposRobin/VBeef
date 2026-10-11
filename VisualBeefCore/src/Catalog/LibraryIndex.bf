@@ -125,7 +125,7 @@ namespace VisualBeef.Catalog
 			return default;
 		}
 
-		/// Names directly under a table: Children("Projects") -> ["UMPSDK", "BJSON", ...].
+		/// Names directly under a table: Children("Projects") -> ["UMPSDK", "UMPJson", ...].
 		public void Children(StringView table, List<StringView> outNames)
 		{
 			for (let e in Entries)

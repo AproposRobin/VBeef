@@ -369,6 +369,7 @@ namespace VisualBeef.Editor
 				if (Gui.Selectable(label, selected) && mg.Graphable)
 				{
 					mSelVarActive = false;
+					mSelLocalActive = false;
 					OpenTab(mg);
 				}
 				if (hasDeclError || !mg.Graphable || inactiveArm || isOverride)
@@ -432,6 +433,12 @@ namespace VisualBeef.Editor
 					Gui.EndPopup();
 				}
 				Gui.PopID();
+				// The open function's local variables under it (its Sheet is in front).
+				if (mg.Key == currentKey && mg.Graphable && !mg.IsBroken && mg.Graph != null && !mg.Graph.ReadOnly)
+				{
+					if (DrawOutlineLocals(mg, type.Name))
+						return true;
+				}
 			}
 
 			Gui.igSpacing();
@@ -489,6 +496,7 @@ namespace VisualBeef.Editor
 					mSelVarType.Set(type.Name);
 					mSelVarName.Set(m.Name);
 					mSelVarActive = true;
+					mSelLocalActive = false;
 					mSelVarSigPending = true;
 				}
 				// UE's variable pill in the type colour, and the type dimmed on the right.
@@ -533,6 +541,7 @@ namespace VisualBeef.Editor
 						mSelVarType.Set(type.Name);
 						mSelVarName.Set(m.Name);
 						mSelVarActive = true;
+						mSelLocalActive = false;
 						mSelVarSigPending = true;
 						Panels.Focus(Panels.PropertiesId);
 					}

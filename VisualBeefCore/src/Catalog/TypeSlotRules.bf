@@ -22,7 +22,9 @@ namespace VisualBeef.Catalog
 		/// The type a Construct (new / scope) node makes.
 		Construct,
 		/// A base class, struct or interface in a type's base list.
-		Base
+		Base,
+		/// What a Switch node switches on: whole numbers, characters, text or an enum.
+		SwitchValue
 	}
 
 	/// What is in scope where the type is written.
@@ -44,6 +46,8 @@ namespace VisualBeef.Catalog
 		public bool IsStruct;
 		/// Does the project or a library declare a type with this name? (Null: unknown.)
 		public delegate bool(StringView) Known;
+		/// SwitchValue slot: is this type name an enum? (Null: only the built-in types are accepted.)
+		public delegate bool(StringView) IsEnumType;
 	}
 
 	/// What Beef 0.43.6 accepts as a type in each place a type is chosen or typed, and the
@@ -152,7 +156,27 @@ namespace VisualBeef.Catalog
 				c.Why.AppendF("'{}' is not part of a type name.", t.Substring(i));
 				return false;
 			}
+			if (slot == .SwitchValue)
+				return CheckSwitchValue(t, sc, why);
 			return true;
+		}
+
+		/// A switch is on a whole number, a character, text or an enum.
+		static bool CheckSwitchValue(StringView t, TypeScope sc, String why)
+		{
+			if (t == "String" || t == "StringView" || t == "bool" || t == "float" || t == "double")
+			{
+				if (t == "String" || t == "StringView")
+					return true;
+				why.AppendF("'{}' is not allowed here: a switch works on whole numbers, characters, text and enums.", t);
+				return false;
+			}
+			if (IsInArr(sIntegers, t))
+				return true;
+			if (sc.IsEnumType != null && sc.IsEnumType(t))
+				return true;
+			why.AppendF("'{}' is not allowed here: a switch works on whole numbers, characters, text and enums.", t);
+			return false;
 		}
 
 		static bool ParseType(ref Ctx c, ref int i, int level)

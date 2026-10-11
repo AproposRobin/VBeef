@@ -201,7 +201,7 @@ lookup, pruning); the signal path was checked under WSLg with `VB_DEBUG_CRASH_TE
 * **Window integration.** The idle wait is a Windows call: on Linux the idle loop wakes every
   16 ms instead of sleeping until input. Raising and the display scale go through the SDL host
   (below). There is no "second instance hands its arguments to the running editor" path on any
-  platform yet (a later UMP integration item), so nothing asks the window to rise
+  platform yet (a later UMP item), so nothing asks the window to rise
   except the editor itself.
 * **Open dialogs** use `zenity` (started without a shell, the folder is one argument). Without
   zenity the editor's own ImGui file browser is used. The zenity path was built but not driven in

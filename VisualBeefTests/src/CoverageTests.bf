@@ -18,8 +18,8 @@ namespace VisualBeef.Tests
 	///  - the Code / Expression nodes grouped by the construct they start with;
 	///  - pin defaults (text typed into a pin) holding `scope ...`, `new ...`, a lambda, a `case`
 	///    pattern test.
-	/// This is the coverage probe of the 2026-10-10 production audit (its
-	/// section 1), kept as a command so the numbers can be measured again.
+	/// This is the coverage probe of the 2026-10-10 production audit,
+	/// kept as a command so the numbers can be measured again.
 	static class CoverageTests
 	{
 		class Totals

@@ -16,6 +16,7 @@ home: a familiar layout, colours and shortcuts, with VisualBeef's own words.
 ```
  Menu row:  logo | File Edit Graph Build Debug Window Help ................ project badge
  Toolbar:   Compile [Release v] | Debug (Pause Stop Steps) | Save  SaveAll  Browse | Find | Arrange  Align  Minimap  Snap | Prefs ... asset
+ Notice:    VisualBeef 0.2.0 is available. ................... Update  Release notes  Later   (only while there is one)
  +-------------+-----------------------------------------------+---------------+
  | Outline|  graph tabs (one per open function / enum)     |   Properties     |
  |  search     |                                               |  property grid|
@@ -27,6 +28,13 @@ home: a familiar layout, colours and shortcuts, with VisualBeef's own words.
  Status bar: Project Drawer  Output Log  [indexing progress x]  last message .... compile state   save state
 ```
 
+**Lists on the left, properties on the right.** The left column (the Outline) holds the lists of things: the
+type's functions and variables and, under the function whose Sheet is in front, its **LOCAL
+VARIABLES**, each section with its **+** and rows that can be selected and dragged onto the
+Sheet. The right column (Properties) holds only the properties of the current selection: a node,
+a function (its Inputs and Outputs belong to the function), a variable or a local
+variable. A new panel follows the same rule.
+
 All panels dock (drag a tab to move it; **Window > Reset Layout** restores the default).
 ImGui's dock-node menu triangle and node close buttons are hidden; the graph area's own dock
 tab hides itself while nothing else is docked with it, so the function tabs act as the
@@ -35,8 +43,8 @@ document tabs.
 | Panel | What it does |
 |---|---|
 | **Toolbar** | **Type Settings** (the class being edited, in Properties); **Compile** (F7) with a state badge (see [Compile status](#compile-status)): grey `?` not compiled, yellow `?` needs compile, spinning blue while compiling, green tick up to date, yellow triangle up to date with warnings, red cross errors. Next to it the **configuration dropdown** (`Debug` / `Release`, see [Compile configuration](#compile-configuration-and-problems)). **Save** (dot when the file is unsaved), **Save All**, **Browse** (Ctrl+B: show the asset in the Project Browser), **Find** (Ctrl+Shift+F), **Arrange** (layered auto-arrange), **Align** (menu), minimap and snap toggles, **Editor Preferences**. The open asset's name sits on the right. |
-| **Outline** | Search box, the class header (kind icon, kind on the right), a **Type Settings** row (and a red *N problems* row when the class misses members), **FUNCTIONS** and **VARIABLES** category bars with a count and a **+** button. FUNCTIONS has an **Override (N)** dropdown; its **+** offers Function, Override, Constructor, Static Constructor, Destructor, Property, Indexer. Functions show their parameters dimmed, overrides a red event icon, constructors / destructors their kind; variables show a type-coloured pill and their type, properties and indexers their `get` / `set` graphs. Click to open / select, drag into the graph (Ctrl = Get, Alt = Set), right-click to rename (every reference, with a preview), change type or delete. See [Classes-and-Members.md](Classes-and-Members.md). |
-| **Properties** | A two-column property grid (name / value) with collapsible category bars. Node: kind-specific fields, then **Inputs** with a widget per pin type (checkbox for bool, numeric drag for int / float literals, enum combo for project enums, text otherwise), **Connected Inputs**, **Comment**, **Source**. Call nodes: a **Call** category (static / member / unresolved, "Receiver is", each out variable's spelling, the node's error or warning). Function: **Graph** (name, access, static, inheritance virtual / override / abstract / new, mut, *Overrides*, **Add Override**), **Attributes**, **Inputs** (one row per parameter: name + **Passing** chooser (value / out / ref / in, only what Beef takes for that row: a parameter with a default value is passed by value) + type picker + remove, **Add Input**), **Outputs** (return type picker). The **Add Function** dialog uses the same controls: Name, a Return Type picker and Inputs rows (name, Passing, type picker, remove, Add Input); no parameter text is typed. Variable: name, type picker, access, storage (static / const / readonly), default value, get / set graphs, owner, attributes, delete. **Type Settings** (the type itself selected): problems, name, kind, parent class, namespace, interfaces, Implement Missing Members, Override, modifiers, attributes, generics, enum values, add constructors / destructor. Renames (class, function, variable, parameter, local) rename every reference in the project after a **Rename References** preview. Several nodes: the selection list and alignment buttons. |
+| **Outline** | Search box, the class header (kind icon, kind on the right), a **Type Settings** row (and a red *N problems* row when the class misses members), **FUNCTIONS** and **VARIABLES** category bars with a count and a **+** button. FUNCTIONS has an **Override (N)** dropdown; its **+** offers Function, Override, Constructor, Static Constructor, Destructor, Property, Indexer. Functions show their parameters dimmed, overrides a red event icon, constructors / destructors their kind; variables show a type-coloured pill and their type, properties and indexers their `get` / `set` graphs. Click to open / select, drag into the graph (Ctrl = Get, Alt = Set), right-click to rename (every reference, with a preview), change type or delete. Under the function whose Sheet is in front, a **LOCAL VARIABLES** section (count, **+**) lists its local variables in declaration order with the same pill and dim type: click selects (Properties shows it), double-click or F2 in the context menu edits the name in place, drag places a Get / Set, the context menu has Rename, Move Up / Down and Delete. See [Classes-and-Members.md](Classes-and-Members.md). |
+| **Properties** | A two-column property grid (name / value) with collapsible category bars. Node: kind-specific fields, then **Inputs** with a widget per pin type (checkbox for bool, numeric drag for int / float literals, enum combo for project enums, text otherwise), **Connected Inputs**, **Comment**, **Source**. Call nodes: a **Call** category (static / member / unresolved, "Receiver is", each out variable's spelling, the node's error or warning). Function: **Graph** (name, access, static, inheritance virtual / override / abstract / new, mut, *Overrides*, **Add Override**), **Attributes**, **Inputs** (one row per parameter: name + **Passing** chooser (value / out / ref / in, only what Beef takes for that row: a parameter with a default value is passed by value) + type picker + remove, **Add Input**), **Outputs** (the **Return Value** type picker, then one row per further output: name, type picker, move up / down, remove, **Add Output**; each further output is an `out` parameter, and the read-only Beef header is shown under the rows). Local variable (selected in the Outline): **Variable Name**, **Variable Type**, **Ownership** for class types (Reference, or **Made for this call** with its Arguments / Initial Text), **Initial Value** (the member variable controls), the declaration line, **Delete Local Variable**. A Local Variable node read from the middle of a function shows **Move to Locals** with a note (see [Classes-and-Members.md](Classes-and-Members.md#local-variables)). The **Add Function** dialog uses the same controls: Name, a Return Type picker and Inputs rows (name, Passing, type picker, remove, Add Input); no parameter text is typed. Variable: name, type picker, access, storage (static / const / readonly), default value, get / set graphs, owner, attributes, delete. **Type Settings** (the type itself selected): problems, name, kind, parent class, namespace, interfaces, Implement Missing Members, Override, modifiers, attributes, generics, enum values, add constructors / destructor. Renames (class, function, variable, parameter, local) rename every reference in the project after a **Rename References** preview. Several nodes: the selection list and alignment buttons. |
 | **Project Browser** | Folder tree + tiles. **Filters** (asset kinds, Unsaved, Changed in the last 24 hours) with removable chips. **Drag a tile onto a folder** (tile or tree) to move it. Double-click opens, F2 renames, Del deletes. |
 | **Output Log** | Every editor message and BeefBuild's output as it streams (including the exact BeefBuild command line); GraphValidator's errors and warnings (category `Graph`) after each edit and when a graph is first shown. Search, severity toggles (Messages / Warnings / Errors / Verbose), category filter, **Copy** (visible lines) and **Clear**. Compiler messages with a location: double-click to open the node. Every line is also written to the session log file (see [Logs, crashes, recovery](#logs-crash-reports-recovery-settings)). |
 | **Problems** | (Was "Compiler Results"; same dock slot.) The last compile: summary with the state icon and configuration, a table of errors and warnings (icon, message, **where**: `Class.Method` when the line belongs to a graph node, `(document) Class` for fields, signatures outside graphs and other declarations, and file:line:col), error / warning filters. Click a row to open the graph with the node selected. |
@@ -46,7 +54,8 @@ document tabs.
 | **Debug toolbar** | After the configuration dropdown: **Debug** / **Continue** (F5), then while debugging Pause, Stop (Shift+F5), Step Over (F10), Step Into (F11), Step Out (Shift+F11). |
 | **Status bar** | **Project Drawer** and **Output Log** buttons (bottom-left), the background indexing progress (phase, bar, **x** to cancel) while it runs, the debugger state ("Running", "Stopped at Greeter.Hello", "Not debugging"), the latest message, compile state and "All Saved" / "N Unsaved" (bottom-right). |
 | **Toasts** | Bottom-right notifications, coloured by severity, auto-dismiss (4 s info, 6 s warning, 8 s error), hover to keep, click to dismiss, repeats collapse into "(x2)". |
-| **Editor Preferences** | Edit > Editor Preferences or the toolbar gear. Appearance (theme, font size, display scale, notifications), Graph Editor (snap to grid, minimap, idle frame pacing), Saving (autosave interval, off by default; recovery journal interval, 30 s by default; the recovery and logs folders), Build (BeefBuild path and whether it was found; default compile configuration). Stored in `%LOCALAPPDATA%\VisualBeef\settings.json`. |
+| **Update notice** | A line under the toolbar, only while a new version is available, downloading (progress, **Cancel**), downloaded (**Restart to finish**) or refused (the reason, **Dismiss**); **Update**, **Release notes**, **Later**. **Help > Check for Updates...** checks at once. See [Updating.md](Updating.md). |
+| **Editor Preferences** | Edit > Editor Preferences or the toolbar gear. Appearance (theme, font size, display scale, notifications), Graph Editor (snap to grid, minimap, idle frame pacing), Saving (autosave interval, off by default; recovery journal interval, 30 s by default; the recovery and logs folders), Build (BeefBuild path and whether it was found; default compile configuration), Node Hotkeys, Updates (the version, **Check at Start**, **Channel** Stable / Preview, the last result, **Check Now**, **Open Release Page**). Stored in `%LOCALAPPDATA%\VisualBeef\settings.json`. |
 
 The window title follows the active tab: `VisualBeef - <Project> - <Class> *`.
 
@@ -321,7 +330,8 @@ scope, so hovering never reports a conflicting ID. Search results show the same 
 
 They only work while the Sheet has the keyboard: its window is focused and no text field is
 being edited, and with no Ctrl, Alt or Shift held (those combinations keep their own meaning).
-The letters the Sheet already uses on their own, **C** (comment box), **F** (frame), **M**
+The letters the Sheet already uses on their own, **C** (comment box), **F** (frame), **L** (add a
+local variable to the function: it is selected in the Outline with its name box focused), **M**
 (minimap) and **Q** (straighten wires), can never be node hotkeys.
 
 Default keys (seeded on first run, each node also a favorite):
@@ -334,7 +344,7 @@ Default keys (seeded on first run, each node also a favorite):
 | **O** | For Loop | Flow Control > For Loop |
 | **W** | While Loop | Flow Control > While Loop |
 | **R** | Return | Flow Control > Return |
-| **L** | Local Variable | Variables > Local Variable |
+
 | **T** | Get a reference to this | Variables > Get a reference to this (not in static functions) |
 | **P** | Print | Utilities > Print > Print (Console.WriteLine) |
 | **N** | Construct (new .()) | Lifetime > Construct (new .()) |
@@ -379,6 +389,26 @@ their keys) is tested by `VisualBeefTests hotkeys`; the editor path (B + click, 
 wire from a flow pin, a favorite given a key through the key-capture control, then used) by the
 `VB_SELFTEST=session` steps 27-32.
 
+## Pin values
+
+An input pin that nothing is wired to shows the control for its type, inline on the node and as a row in
+Properties > Inputs (`PinValue`, `PinValueEditor`; tests: `PinTests.bf` in `flow`, session steps 99-111):
+
+| Pin type | Control | Beef written |
+|---|---|---|
+| enum | dropdown of the enum's members | `.Member` (read back from `.Member` or `Enum.Member`) |
+| `String`, `StringView` | text field, no quotes | `"text"` (escapes for `\`, quotes, line breaks) |
+| `bool` | checkbox | `true` / `false` |
+| `int`, `uint8`, ..., `float`, `double` | number field; refuses a value the type cannot hold | `5`, `-3`, `1.5f` (float), `2.0` (double) |
+| `char8`, `char32` | one-character field | `'x'` |
+| class, struct, pointer, function | none (wire it, or use a Construct); `null` / `default` shown dim | |
+| not a plain literal | read-only text with a **Custom** badge; edit it as text in Properties | kept as written |
+
+Typing is committed when the field loses focus or Enter is pressed; a refused value (`300` for `uint8`)
+turns the frame red while typed, and on commit the value stays as it was and the reason shows in a
+toast (`300 does not fit uint8 (0 to 255).`). Receivers and pins of a type the index does
+not know stay plain expression text.
+
 ## Canvas
 
 - Node headers carry a kind icon (function, branch, loop, return, variable, code, cast).
@@ -415,6 +445,13 @@ wire from a flow pin, a favorite given a key through the key-capture control, th
   shows it as soon as the edit is written: the local's pins and header colour, the type after
   `let` / `var` on a Local node (`let (GameBase)`), a call's Return Value, a read of the local.
   Undo restores them.
+- **Pin context menu** (right-click a pin): **Break Link(s)**; on a data output **Make variable**
+  (a member variable of the type, named after the pin and typed like it, and a Set fed by the pin,
+  spliced into the flow after the pin's node) and **Make local variable** (the same into the
+  function's local variables, declared at the top of the body); on a data input **Make variable
+  (Get)** (a member variable and a Get wired into the pin; it starts at its default) and **Reset
+  to Default**. Each is one undo step. An entry is disabled with the reason when the pin's type is
+  not one Beef takes there (not known yet, `void`, a generic parameter).
 - **Reload Node** (node right-click menu) and **Graph > Reload Sheet** are safety valves for a node
   or Sheet that shows something the function no longer says. Reload Node takes the node's pin types
   and its own messages from the function as it is now (only for a node with nothing unwritten);

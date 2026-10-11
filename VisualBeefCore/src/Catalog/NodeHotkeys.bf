@@ -32,7 +32,7 @@ namespace VisualBeef.Catalog
 			.('O', "Flow Control\tFor Loop"),
 			.('W', "Flow Control\tWhile Loop"),
 			.('R', "Flow Control\tReturn"),
-			.('L', "Variables\tLocal Variable"),
+
 			.('T', "Variables\tGet a reference to this"),
 			.('P', "Utilities | Print\tPrint  (Console.WriteLine)"),
 			.('N', "Lifetime\tConstruct  (new .())"),
@@ -45,6 +45,7 @@ namespace VisualBeef.Catalog
 			{
 			case 'C': return "Comment box";
 			case 'F': return "Frame the selection";
+			case 'L': return "Add a Local to the function";
 			case 'M': return "Minimap";
 			case 'Q': return "Straighten wires";
 			default: return "";

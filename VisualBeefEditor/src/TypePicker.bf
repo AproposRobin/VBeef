@@ -227,9 +227,10 @@ namespace VisualBeef.Editor
 				String gen = scope .();
 				delegate bool(StringView) known = scope (n) => ProjectHasType(n);
 				TypeScope sc = TypeScopeOf(scopeOf, gen, known);
+				sc.IsEnumType = scope (n) => MemberInit.TypeOf(n, TypeService.Current).Kind == .Enum;
 				// Container selector, like UE's single / array / set / map dropdown.
 				StringView[4] containers = .("Single", "Array", "List", "Nullable");
-				for (int i < 4)
+				for (int i < ((slot == .SwitchValue) ? 0 : 4))
 				{
 					if (i > 0)
 						Gui.SameLine(0, 2);
@@ -286,8 +287,12 @@ namespace VisualBeef.Editor
 						if (slot == .Return)
 							list.Add(new String("void"));
 						for (let t in sBasicTypes)
+						{
+							if (slot == .SwitchValue && !(t.StartsWith("int") || t.StartsWith("uint") || t.StartsWith("char") || t == "String" || t == "StringView"))
+								continue;
 							list.Add(new String(t));
-						if (sc.InType && slot != .Base)
+						}
+						if (sc.InType && slot != .Base && slot != .SwitchValue)
 							list.Add(new String("Self"));
 						if (slot == .Local || slot == .ForEach)
 						{
@@ -314,6 +319,8 @@ namespace VisualBeef.Editor
 					StringView[4] icons = .(Icon.Class, Icon.Struct, Icon.Enum, Icon.Interface);
 					for (int k < 4)
 					{
+						if (slot == .SwitchValue && kinds[k] != "enum")
+							continue;
 						DrawTypeGroup(titles[k], icons[k], search, picked, first, !search.IsEmpty || k < 2, scope [&] (list) =>
 						{
 							for (let f in Index.Files)

@@ -292,12 +292,31 @@ namespace VisualBeef.Editor
 				Notify.Error(err);
 				return;
 			}
+			let set = NewSession(ws);
+			DebugOutput.Clear();
+			ClearStop();
+			if (!mDebug.Launch(target.Exe, target.Args, target.WorkDir, err))
+			{
+				Notify.Error(err);
+				return;
+			}
+			mDebugEverStarted = true;
+			ShowDebugOutput = true;
+			Notify.Log(.Info, "Debug", scope $"Debugging {target.Exe} (in {target.WorkDir}) with {set} breakpoint(s); engine {DebugEngine.DllPath}");
+			SetStatus(scope $"Debugging {target.Project}", .Info, false);
+		}
+
+		/// A new session for workspace `ws` with its breakpoints set by line (the nodes' lines in
+		/// the saved text). Returns how many were set.
+		int NewSession(StringView ws)
+		{
 			delete mDebug;
 			mDebug = new DebugSession();
 			// A new session counts stops from 0 again: values cached at stop 1 of the last run
 			// must not show at stop 1 of this one.
 			mPinValuesStop = -1;
 			mLocalsStop = -1;
+			mExpandGameFrames = false;
 			mDebug.SourceRoot.Set(ws);
 			LoadBreakpoints(ws);
 			// Breakpoints go to the engine by line: the nodes' lines in the saved text just built.
@@ -326,24 +345,19 @@ namespace VisualBeef.Editor
 				else
 					Notify.Log(.Warning, "Debug", scope $"A breakpoint's node is gone ({bp.File}, {bp.Method}): skipped");
 			}
-			DebugOutput.Clear();
-			ClearStop();
-			if (!mDebug.Launch(target.Exe, target.Args, target.WorkDir, err))
-			{
-				Notify.Error(err);
-				return;
-			}
-			mDebugEverStarted = true;
-			ShowDebugOutput = true;
-			Notify.Log(.Info, "Debug", scope $"Debugging {target.Exe} (in {target.WorkDir}) with {set} breakpoint(s); engine {DebugEngine.DllPath}");
-			SetStatus(scope $"Debugging {target.Project}", .Info, false);
+			return set;
 		}
 
+		/// Shift+F5: ends a launched program, detaches from an attached game (it keeps running).
 		public void StopDebugging()
 		{
 			mDebugAfterBuild = false;
 			if (IsDebugging)
+			{
+				if (mDebug.Attached)
+					Notify.Log(.Info, "Debug", scope $"Detaching from {mAttachedName} (pid {mDebug.ProcessId})");
 				mDebug.Stop();
+			}
 		}
 
 		void ClearStop()
@@ -376,6 +390,9 @@ namespace VisualBeef.Editor
 						DebugOutput.Remove(0, DebugOutput.Length - (2 << 20));
 				case .Message:
 					Notify.Log(.Info, "Debug", e.Text);
+					// An attached game has no console of ours: the debugger's lines go to Debug Output.
+					if (mDebug.Attached)
+						DebugOutput.AppendF("{}\n", e.Text);
 				case .Error:
 					Notify.Error(e.Text);
 				case .Started:
@@ -386,7 +403,15 @@ namespace VisualBeef.Editor
 					OnDebugStopped();
 				case .Exited:
 					ClearStop();
-					if (e.Text.IsEmpty)
+					if (mDebug.Attached)
+					{
+						let msg = scope $"Detached from {mAttachedName}: the game keeps running";
+						Notify.Info(msg);
+						DebugOutput.AppendF("{}\n", msg);
+						if (mDebug.SkippedExceptions > 0)
+							Notify.Log(.Info, "Debug", scope $"The game raised and handled {mDebug.SkippedExceptions} exception(s) of its own while attached");
+					}
+					else if (e.Text.IsEmpty)
 						Notify.Info("The program ended");
 					else
 						Notify.Info(scope $"The program exited with code {e.Text}");
@@ -604,13 +629,19 @@ namespace VisualBeef.Editor
 			bool stopped = IsDebugStopped;
 			if (IconItem(Icon.Bug, stopped ? "Continue" : "Start Debugging", "F5", false, !active || stopped))
 				StartDebugging();
-			IconItem(Icon.Plug, "Attach to Process...", "", false, false);
+			if (IconItem(Icon.Plug, "Attach to Game...", "", false, !active && !mDebugAfterBuild))
+				OpenAttachDialog();
 			if (Gui.igIsItemHovered(1 << 10 /* AllowWhenDisabled */))
-				Gui.Tooltip("Phase 2: attach to a running program (a game started by the UMP launcher)");
+				Gui.Tooltip(active ? "A debugging session is running: stop or detach it first" : "Debug your mod inside a running game started by the UMP launcher");
 			Gui.Separator();
 			if (IconItem(Icon.Pause, "Pause", "", false, active && !stopped))
 				mDebug.Pause();
-			if (IconItem(Icon.Square, "Stop Debugging", "Shift+F5", false, active))
+			if (IsAttached)
+			{
+				if (IconItem(Icon.Plug, "Detach", "Shift+F5", false, true))
+					StopDebugging();
+			}
+			else if (IconItem(Icon.Square, "Stop Debugging", "Shift+F5", false, active))
 				StopDebugging();
 			Gui.Separator();
 			if (IconItem(Icon.RedoDot, "Step Over", "F10", false, stopped))
@@ -653,14 +684,19 @@ namespace VisualBeef.Editor
 			bool active = IsDebugging;
 			bool stopped = IsDebugStopped;
 			ToolbarSeparator();
-			StringView label = stopped ? "Continue" : (active ? "Running" : (mDebugAfterBuild ? "Compiling" : "Debug"));
+			StringView label = stopped ? "Continue" : (active ? (mDebug.Attached ? "Attached" : "Running") : (mDebugAfterBuild ? "Compiling" : "Debug"));
 			if (ToolbarButton("debugstart", stopped ? Icon.Play : Icon.Bug, label, stopped ? "Continue (F5)" : "Start Debugging (F5): compile in Debug, then run with your breakpoints", !active || stopped, Look.Success))
 				StartDebugging();
 			if (active)
 			{
 				if (ToolbarButton("debugpause", Icon.Pause, "", "Pause", !stopped))
 					mDebug.Pause();
-				if (ToolbarButton("debugstop", Icon.Square, "", "Stop Debugging (Shift+F5)", true, Look.Error))
+				if (mDebug.Attached)
+				{
+					if (ToolbarButton("debugdetach", Icon.Plug, "Detach", "Detach (Shift+F5): the debugger lets go, the game keeps running", true, Look.Error))
+						StopDebugging();
+				}
+				else if (ToolbarButton("debugstop", Icon.Square, "", "Stop Debugging (Shift+F5)", true, Look.Error))
 					StopDebugging();
 				if (ToolbarButton("stepover", Icon.RedoDot, "", "Step Over (F10): run this node, stop at the next", stopped))
 					mDebug.StepOver();
@@ -713,6 +749,19 @@ namespace VisualBeef.Editor
 			StringView icon = Icon.Bug;
 			if (mDebugAfterBuild)
 				text.Append("Compiling for debugging...");
+			else if (IsAttached)
+			{
+				// Red while attached: a game paused at a breakpoint stays paused until Continue or Detach.
+				col = Look.Error;
+				icon = Icon.Plug;
+				text.AppendF("Attached to {} ({})", mAttachedName, mDebug.ProcessId);
+				if (mDebug.State == .Stopping)
+					text.Append(" - detaching...");
+				else if (IsDebugStopped)
+					text.AppendF(" - game paused at {}: F5 Continue, Shift+F5 Detach", mDebugStopWhere.IsEmpty ? "game code" : mDebugStopWhere);
+				else
+					text.Append(" - running");
+			}
 			else if (!IsDebugging)
 				text.Append("Not debugging");
 			else if (mDebug.State == .Stopping)

@@ -1745,6 +1745,11 @@ namespace VisualBeef.Tests
 			sChecks += InitTests.sChecks;
 			sFailures += InitTests.sFailures;
 			TestSetOnCreate();
+			LocalsTests.Checks = 0;
+			LocalsTests.Failures = 0;
+			LocalsTests.RunClasses();
+			sChecks += LocalsTests.Checks;
+			sFailures += LocalsTests.Failures;
 			Console.WriteLine("class checks: {}  failures: {}", sChecks, sFailures);
 			return sFailures;
 		}

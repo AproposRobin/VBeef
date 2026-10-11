@@ -512,6 +512,11 @@ namespace VisualBeef.Graph
 
 		public List<Node> Nodes = new .() ~ DeleteContainerAndItems!(_);
 		public List<Link> Links = new .() ~ DeleteContainerAndItems!(_);
+		/// The function's Locals (docs/Classes-and-Members.md#locals): the declarations at the top
+		/// of the body, in order. Each is a LocalVar node that is not on the Sheet: no wires, its
+		/// value is typed text (a literal, a name, `.()`, `scope .()`, ...). CodeGen writes them
+		/// first, then the flow from Entry.
+		public List<Node> Locals = new .() ~ DeleteContainerAndItems!(_);
 		public Node Entry;
 		/// "Type.Method(int,float)" - identifies the method across regenerations.
 		public String MethodKey = new .() ~ delete _;
@@ -586,6 +591,8 @@ namespace VisualBeef.Graph
 				if (src == Entry)
 					g.Entry = n;
 			}
+			for (let src in Locals)
+				g.Locals.Add(CloneNodeExact(src));
 			for (let l in Links)
 			{
 				Link c = new .();
@@ -723,6 +730,292 @@ namespace VisualBeef.Graph
 		public Pin AddExecOut(Node node, StringView name, StringView label = "") => AddPin(node, false, .Exec, name, label);
 		public Pin AddDataIn(Node node, StringView name, StringView label) => AddPin(node, true, .Data, name, label);
 		public Pin AddDataOut(Node node, StringView name, StringView label) => AddPin(node, false, .Data, name, label);
+
+		/// The Local named `name`, or null.
+		public Node FindLocal(StringView name)
+		{
+			for (let n in Locals)
+				if (n.Text == name)
+					return n;
+			return null;
+		}
+
+		/// Whether a Local Variable node can be one of the function's Locals: a declared type (not
+		/// `let` / `var`), no `const` / `ref`, no attributes, nothing wired except its flow, and a
+		/// value that is typed text or a `new` / `scope` of a type whose arguments are typed text.
+		/// `construct` is that Construct node when there is one.
+		public bool CanBeLocal(Node n, out Node construct)
+		{
+			construct = null;
+			if (n == null || n.Kind != .LocalVar || (n.Alloc != null && !n.Alloc.IsEmpty) || n.Attributes != null)
+				return false;
+			if (n.Text.IsEmpty || n.Text2.IsEmpty || n.Text2 == "var" || n.Text2 == "let")
+				return false;
+			let value = n.FindInput("value");
+			let varOut = n.FindOutput("variable");
+			if (value == null || (varOut != null && IsLinked(varOut)))
+				return false;
+			int execIn = 0;
+			for (let l in Links)
+			{
+				if (l.To == n.ExecIn)
+					execIn++;
+				else if (l.To.Owner == n && l.To != value)
+					return false;
+			}
+			if (execIn > 1)
+				return false;
+			let src = DataSource(value);
+			if (src == null)
+				return true;
+			if (!IsTextValue(src, true))
+				return false;
+			construct = src;
+			return true;
+		}
+
+		/// A value read from code that a Local can hold as its text: pure nodes that are not calls
+		/// (a `new` / `scope` of a type, an operator, a member, a cast, ...), unchanged since they
+		/// were read, feeding only the node above them.
+		bool IsTextValue(Node src, bool top)
+		{
+			if (!src.IsPure || src.Original == null || src.Edited || src.Kind == .Call || src.Kind == .Lambda || src.Kind == .Format)
+				return false;
+			if (src.Kind == .Construct && (src.IsArray || (src.Alloc != "scope" && src.Alloc != "new")))
+				return false;
+			int outs = 0;
+			for (let l in Links)
+			{
+				if (l.From.Owner == src)
+					outs++;
+				else if (l.To.Owner == src && (l.From.Kind != .Data || !IsTextValue(l.From.Owner, false)))
+					return false;
+			}
+			return outs == 1;
+		}
+
+		/// The value text of a Local made from `src` (the expression as written).
+		static void TextValueOf(Pin value, Node src, String outText)
+		{
+			if (value.Parens)
+				outText.AppendF("({})", src.Original);
+			else
+				outText.Append(src.Original);
+		}
+
+		/// Moves the Local Variable nodes at the top of the flow (right after Entry, each one a
+		/// CanBeLocal) into Locals. The next statement keeps its place (not Moved), so the text is
+		/// written byte for byte. A `scope .()` value becomes the value's text.
+		public void ExtractLocals(int max = -1)
+		{
+			if (Entry == null || Entry.Then == null)
+				return;
+			let entryThen = Entry.Then;
+			while (max < 0 || Locals.Count < max)
+			{
+				let link = FindLinkFrom(entryThen);
+				if (link == null)
+					break;
+				let n = link.To.Owner;
+				if (!CanBeLocal(n, let construct))
+					break;
+				if (construct != null)
+				{
+					let value = n.FindInput("value");
+					value.Default.Clear();
+					TextValueOf(value, construct, value.Default);
+					value.Parens = false;
+					DeleteLink(FindLinkTo(value));
+					RemoveTreeQuiet(construct);
+				}
+				let next = (n.Then != null) ? FindLinkFrom(n.Then) : null;
+				Links.Remove(link);
+				delete link;
+				if (next != null)
+					next.From = entryThen;
+				Nodes.Remove(n);
+				Locals.Add(n);
+			}
+		}
+
+		/// After a commit: the Locals become what a fresh read of the written text has. Local
+		/// Variable nodes at the top of the flow that the text now declares as Locals leave the
+		/// Sheet, with the pure nodes only they read; a wire from one becomes the name as text.
+		public void AdoptLocals(Graph fresh)
+		{
+			ExtractLocals();
+			// The fresh Locals this graph has: its own, and declarations at the top of its flow that
+			// the text now declares as Locals. A fresh Local the graph writes some other way (a
+			// declaration the generator hoists for a call result) stays the generator's.
+			HashSet<String> have = scope .();
+			defer { for (let s in have) delete s; }
+			for (let l in Locals)
+				have.Add(new String(l.Text));
+			while (Entry?.Then != null)
+			{
+				let link = FindLinkFrom(Entry.Then);
+				if (link == null)
+					break;
+				let n = link.To.Owner;
+				Node match = null;
+				for (let f in fresh.Locals)
+				{
+					if (have.ContainsAlt(StringView(f.Text)))
+						continue;
+					if (n.Kind == .LocalVar && n.Text == f.Text)
+						match = f;
+					else if (n.Kind == .Code && f.Original != null)
+					{
+						// A Code node whose text is the declaration (`int x = 1;` typed as code).
+						String a = scope .();
+						String b = scope .();
+						LayoutKeys.Normalize(n.Text, a);
+						LayoutKeys.Normalize(f.Original, b);
+						if (a == b)
+							match = f;
+					}
+					if (match != null)
+						break;
+				}
+				if (match == null)
+					break;
+				have.Add(new String(match.Text));
+				let next = (n.Then != null) ? FindLinkFrom(n.Then) : null;
+				Links.Remove(link);
+				delete link;
+				if (next != null)
+					next.From = Entry.Then;
+				let varOut = n.FindOutput("variable");
+				for (int i = Links.Count - 1; i >= 0; i--)
+				{
+					let l = Links[i];
+					if (varOut == null || l.From != varOut)
+						continue;
+					l.To.Default.Set(n.Text);
+					Links.RemoveAt(i);
+					delete l;
+				}
+				RemoveWithValueTree(n);
+			}
+			ClearAndDeleteItems!(Locals);
+			for (let l in fresh.Locals)
+			{
+				if (!have.ContainsAlt(StringView(l.Text)))
+					continue;
+				let c = CloneNodeExact(l);
+				c.Id = NewId();
+				for (let p in c.Inputs)
+					p.Id = NewId();
+				for (let p in c.Outputs)
+					p.Id = NewId();
+				Locals.Add(c);
+			}
+			Version++;
+		}
+
+		/// Removes a node, then each pure node that fed it and now feeds nothing.
+		void RemoveWithValueTree(Node n)
+		{
+			List<Node> sources = scope .();
+			for (let p in n.Inputs)
+			{
+				let s = (p.Kind == .Data) ? DataSource(p) : null;
+				if (s != null && s.IsPure && !sources.Contains(s))
+					sources.Add(s);
+			}
+			RemoveNodeQuiet(n);
+			for (let s in sources)
+			{
+				bool used = false;
+				for (let l in Links)
+					if (l.From.Owner == s)
+						used = true;
+				if (!used && Nodes.Contains(s))
+					RemoveWithValueTree(s);
+			}
+		}
+
+		void DeleteLink(Link l)
+		{
+			if (l == null)
+				return;
+			Links.Remove(l);
+			delete l;
+		}
+
+		/// Removes a pure value node and the nodes that feed it (quietly).
+		void RemoveTreeQuiet(Node n)
+		{
+			List<Node> sources = scope .();
+			for (let p in n.Inputs)
+			{
+				let s = (p.Kind == .Data) ? DataSource(p) : null;
+				if (s != null && !sources.Contains(s))
+					sources.Add(s);
+			}
+			RemoveNodeQuiet(n);
+			for (let s in sources)
+				if (Nodes.Contains(s))
+					RemoveTreeQuiet(s);
+		}
+
+		/// Removes a node and its links without marking anything edited or moved.
+		void RemoveNodeQuiet(Node node)
+		{
+			for (int i = Links.Count - 1; i >= 0; i--)
+			{
+				let l = Links[i];
+				if (l.From.Owner == node || l.To.Owner == node)
+				{
+					Links.RemoveAt(i);
+					delete l;
+				}
+			}
+			Nodes.Remove(node);
+			delete node;
+		}
+
+		/// A Local Variable node in the flow becomes the last of the Locals ("Move to Locals"): the
+		/// statements around it are joined, the declaration is written at the top of the body.
+		public bool MoveToLocals(Node n)
+		{
+			if (!Nodes.Contains(n))
+				return false;
+			if (!CanBeLocal(n, let construct))
+				return false;
+			if (construct != null)
+			{
+				let value = n.FindInput("value");
+				value.Default.Clear();
+				TextValueOf(value, construct, value.Default);
+				value.Parens = false;
+				DeleteLink(FindLinkTo(value));
+				RemoveTreeQuiet(construct);
+			}
+			let execIn = n.ExecIn;
+			let inLink = (execIn != null) ? FindLinkTo(execIn) : null;
+			let outLink = (n.Then != null) ? FindLinkFrom(n.Then) : null;
+			Pin from = inLink?.From;
+			Pin to = outLink?.To;
+			if (inLink != null)
+				Disconnect(inLink);
+			if (outLink != null)
+				Disconnect(outLink);
+			if (from != null && to != null)
+				Connect(from, to);
+			for (int i = Links.Count - 1; i >= 0; i--)
+				if (Links[i].From.Owner == n || Links[i].To.Owner == n)
+				{
+					delete Links[i];
+					Links.RemoveAt(i);
+				}
+			Nodes.Remove(n);
+			n.Edited = true;
+			n.Moved = true;
+			Locals.Add(n);
+			Version++;
+			return true;
+		}
 
 		public Node FindNode(int id)
 		{
@@ -1121,6 +1414,8 @@ namespace VisualBeef.Graph
 			for (let n in Nodes)
 				if (n != lambda && !inside.Contains(n))
 					Declared(n, outer);
+			for (let n in Locals)
+				AddName(outer, n.Text);
 			void Capture(StringView name)
 			{
 				if (name.IsEmpty || own.ContainsAlt(name) || !outer.ContainsAlt(name))

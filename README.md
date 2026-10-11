@@ -25,12 +25,13 @@ nodes and wires, and lets you edit the program either way:
   running it in the test suites.
 * **A debugger on the graph.** Run a program, stop on a node, read the values on its pins and step node by node,
   using Beef's own debugger engine from the installation.
-* **UnrealUMP integration.** The [UnrealUMP](https://github.com/AproposRobin/UniversalUnrealModPlatform) launcher uses VisualBeef to
-  edit "visual mods", which are ordinary Beef projects (see [docs/UMP-Integration.md](docs/UMP-Integration.md)).
-  VisualBeef works on its own without it.
+* **Works with Universal Unreal Mod Platform (UMP) mod projects.** They open as ordinary Beef projects; see
+  [docs/UMP-Integration.md](docs/UMP-Integration.md) and the
+  [UMP repository](https://github.com/AproposRobin/UniversalUnrealModPlatform).
 
 VisualBeef is not an installer-based product: unzip the package and run `VisualBeefEditor.exe`. It does not
-connect to the network, collect data, or change system settings.
+collect data or change system settings; its only network use is the update check, which can be turned off
+([docs/Updating.md](docs/Updating.md)).
 
 ## What it does
 
@@ -50,13 +51,13 @@ connect to the network, collect data, or change system settings.
 
 ## Install
 
-VisualBeef ships with [UnrealUMP](https://github.com/AproposRobin/UniversalUnrealModPlatform): the UnrealUMP package carries it
-under `tools\VisualBeef\` and the launcher opens it on a visual mod ("Open in VisualBeef"). It is also
-available standalone: unzip `VisualBeef-<version>-win64.zip` anywhere and run `VisualBeefEditor.exe`
+Unzip `VisualBeef-<version>-win64.zip` anywhere and run `VisualBeefEditor.exe`
 (`vbhost.dll`, the fonts, the licences and these docs are in the same folder; nothing is installed and
-nothing is written next to the exe). VisualBeef keeps its own name, version (`VERSION.txt`, `--version`),
-licence and notices in both cases. [docs/Getting-Started.md](docs/Getting-Started.md#install) explains
-both, and `scripts\package.ps1` builds the package.
+nothing is written next to the exe). VisualBeef has its own name, version (`VERSION.txt`, `--version`),
+licence and notices. [docs/Getting-Started.md](docs/Getting-Started.md#install) explains
+the package, and `scripts\package.ps1` builds the package. VisualBeef offers new versions from this repository's
+GitHub Releases and installs one when you choose, after checking its signature and SHA-256
+([docs/Updating.md](docs/Updating.md)).
 
 ## Build and run
 
@@ -90,6 +91,8 @@ Start at **[docs/README.md](docs/README.md)** for the reading order. Direct link
 [Testing](docs/Testing.md) |
 [Continuous integration](docs/CI.md) |
 [Release integrity](docs/Code-Signing.md) |
+[Updating](docs/Updating.md) |
+[Releasing](docs/Releasing.md) |
 [Changelog](docs/CHANGELOG.md)
 
 ## Repository
@@ -161,7 +164,7 @@ Known limitations (true today):
 
 Where it is going: a node-graph editor with nodes declared from Beef attributes, a viewer mode for
 projects that are not VisualBeef projects, a compiler-backed language service, a debugger on the graph, and
-integration with UMP so a generated game SDK becomes a node library.
+a generated game SDK as a node library. See the roadmap.
 
 ## About the download warning
 
@@ -185,4 +188,4 @@ steps the workflow runs.
 
 ## License
 
-VisualBeef is licensed under the Apache License, Version 2.0 (Copyright 2026 AproposRobin); see [LICENSE](LICENSE) and [NOTICE](NOTICE). This is the same licence as UnrealUMP, which VisualBeef is meant to ship with. Bundled third-party components keep their own licences ([THIRD_PARTY.md](THIRD_PARTY.md)); the prebuilt `vbhost.dll` statically links Dear ImGui, cimgui, imnodes, cimnodes (MIT), SDL2 (zlib), the LLVM C++ runtime (Apache-2.0 with LLVM Exceptions) and the mingw-w64 runtime, and their notices must travel with it.
+VisualBeef is licensed under the Apache License, Version 2.0 (Copyright 2026 AproposRobin); see [LICENSE](LICENSE) and [NOTICE](NOTICE). Bundled third-party components keep their own licences ([THIRD_PARTY.md](THIRD_PARTY.md)); the prebuilt `vbhost.dll` statically links Dear ImGui, cimgui, imnodes, cimnodes (MIT), SDL2 (zlib), the LLVM C++ runtime (Apache-2.0 with LLVM Exceptions) and the mingw-w64 runtime, and their notices must travel with it.

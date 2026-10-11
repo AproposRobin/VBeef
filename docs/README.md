@@ -35,11 +35,11 @@ straight to a page if you know what you need.
 | 10 | [Files-and-Safety.md](Files-and-Safety.md) | What is written when; atomic saves, conflicts, read-only mode, delete, undo | 10 min |
 | 11 | [Testing.md](Testing.md) | Every `VisualBeefTests` command, expected counts, how to add a case | 10 min |
 | - | [CI.md](CI.md), [Code-Signing.md](Code-Signing.md) | Build and release automation, release integrity (unsigned releases, build attestations, checksums) | 10 min |
+| - | [Updating.md](Updating.md), [Releasing.md](Releasing.md) | How the editor updates itself from GitHub Releases; the signing key, signing and publishing `release.json` | 10 min |
 | 11b | [UMP-Integration.md](UMP-Integration.md) | How UnrealUMP launches VisualBeef: command line, exit codes, `.vbproject`, `--new-ump-mod`, game SDKs as node libraries, files needed at run time | 10 min |
 
 Reference: [CHANGELOG.md](CHANGELOG.md) (what changed and when) and [../THIRD_PARTY.md](../THIRD_PARTY.md) (licences of
-bundled components). The two audits of 2026-10-09 and 2026-10-10 that produced the plans are not part of the public
-repository.
+bundled components).
 
 If you are going to change code, read 1, 4, then the page for the area, then 11.
 

@@ -204,7 +204,7 @@ function Step-Test {
     if (Test-Path $scratch) { Remove-Item -Recurse -Force $scratch }
     New-Item -ItemType Directory -Force $scratch | Out-Null
     $suites = @('edits', 'flow', 'calls', 'lifetime', 'textforms', 'classes', 'safety', 'parser', 'catalog', 'diagnostics',
-        'hotkeys', 'ump', 'vocabulary', 'stress', 'compile', 'debug')
+        'hotkeys', 'update', 'ump', 'vocabulary', 'stress', 'compile', 'debug')
     $rows = @(); $failed = 0; $firstFail = ''
     Remove-Item -Force (Join-Path $Work 'first-failure.txt') -ErrorAction SilentlyContinue
     foreach ($s in $suites) {
@@ -222,7 +222,7 @@ function Step-Test {
     # The Release build of the same suites: the scope-delete class of bug only shows up there.
     $rel = Join-Path $Repo 'build\Release_Win64\VisualBeefTests\VisualBeefTests.exe'
     if (Test-Path $rel) {
-        foreach ($s in @('edits', 'classes', 'parser', 'safety', 'stress')) {
+        foreach ($s in @('edits', 'classes', 'parser', 'safety', 'stress', 'update')) {
             $log = Join-Path $scratch "release-$s.log"
             cmd /c "`"$rel`" $s > `"$log`" 2>&1"
             $code = $LASTEXITCODE

@@ -232,8 +232,8 @@ namespace VisualBeef.Editor
 				if (Gui.igBeginChild_Str("##prefcats", .(180 * Look.Scale, 0), ChildFlags.Borders, 0))
 				{
 					Gui.TextDisabled("General");
-					StringView[5] cats = .("Appearance", "Graph Editor", "Saving", "Build", "Node Hotkeys");
-					StringView[5] icons = .(Icon.Palette, Icon.Workflow, Icon.Save, Icon.Compile, Icon.Keyboard);
+					StringView[6] cats = .("Appearance", "Graph Editor", "Saving", "Build", "Node Hotkeys", "Updates");
+					StringView[6] icons = .(Icon.Palette, Icon.Workflow, Icon.Save, Icon.Compile, Icon.Keyboard, Icon.ArrowDownToLine);
 					for (int i < cats.Count)
 					{
 						if (Gui.Selectable(scope $"  {icons[i]}  {cats[i]}", mPrefsCategory == i))
@@ -326,6 +326,8 @@ namespace VisualBeef.Editor
 							}
 						case 4:
 							DrawNodeHotkeyPrefs();
+						case 5:
+							DrawUpdatePrefs();
 						default:
 						}
 						PropertyGrid.End();

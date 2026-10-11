@@ -47,8 +47,8 @@ The steps are implemented in `scripts/ci-windows.ps1`, so the workflow and the l
 5. **build**: `BeefBuild` for `VisualBeefTests` (Debug, the configuration `docs/Testing.md` uses), and
    `VisualBeefCore` and `VisualBeefTests` in Release. The editor itself is built by the package step.
 6. **test**: every suite that needs no outside source corpus, one at a time: `edits flow calls lifetime textforms
-   classes safety parser catalog diagnostics hotkeys ump vocabulary stress compile debug`, then `edits classes
-   parser safety stress` again on the Release build (a bug that only shows in Release, such as a delete of a
+   classes safety parser catalog diagnostics hotkeys update ump vocabulary stress compile debug`, then `edits classes
+   parser safety stress update` again on the Release build (a bug that only shows in Release, such as a delete of a
    scope-allocated object, is caught there). The table is written to the job summary. The corpus suites
    (`roundtrip`, `orphans`, `loadall`, `savecheck`, `debugmap`, `inits`) read other projects' sources and are run by
    hand before a release (`docs/Testing.md`).
@@ -56,7 +56,10 @@ The steps are implemented in `scripts/ci-windows.ps1`, so the workflow and the l
    version information, icon and `--version` output, refuse build leftovers, and write the zip and its `.sha256`.
 8. **Upload packages** as the artifact `visualbeef-win64`.
 9. **release** job (tags only): downloads that artifact, creates a build attestation for every zip and `.sha256` file
-   (`actions/attest-build-provenance`) and attaches them to the GitHub Release of the tag with `gh release`.
+   (the GitHub build-provenance attestation step) and attaches them to **one draft pre-release** of the tag with
+   `gh release` (the Linux workflow's own release job adds the tarball, the AppImage and their `.sha256` files to the same
+   draft). The release stays a draft until the owner signs `release.json` and publishes it with `scripts/release.mjs`
+   ([Releasing.md](Releasing.md)); the signing key is never in CI.
 
 Pull requests run steps 1 to 8 without any secret.
 

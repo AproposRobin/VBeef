@@ -785,14 +785,21 @@ namespace VisualBeef.Tests
 			RunMacroFields();
 			RunMacroRefusals();
 			RunCountingLoops();
+			PinTests.Run();
 			// The call model (Target / self / static, out and ref pins, GraphValidator).
 			let callFailures = CallTests.Run();
 			// Edits inside Defer / Using bodies (docs/Lifetime-Nodes.md).
 			let checksBefore = LifetimeTests.Checks;
 			let bodyFailures = LifetimeTests.RunBodies();
 			let bodyChecks = LifetimeTests.Checks - checksBefore;
-			Console.WriteLine("flow checks: {}  failures: {}", sChecks + CallTests.Checks + bodyChecks, sFailures + callFailures + bodyFailures);
-			return sFailures + callFailures + bodyFailures;
+			// Locals and a Set spliced after a statement (docs/Classes-and-Members.md#locals).
+			LocalsTests.Checks = 0;
+			LocalsTests.Failures = 0;
+			LocalsTests.RunFlow();
+			let localChecks = LocalsTests.Checks;
+			let localFailures = LocalsTests.Failures;
+			Console.WriteLine("flow checks: {}  failures: {}", sChecks + CallTests.Checks + bodyChecks + localChecks + PinTests.Checks, sFailures + callFailures + bodyFailures + localFailures + PinTests.Failures);
+			return sFailures + callFailures + bodyFailures + localFailures + PinTests.Failures;
 		}
 	}
 }

@@ -19,6 +19,8 @@ namespace VisualBeef.Graph
 		CompilationUnit mUnit;
 		Graph mGraph;
 		Member mMethod;
+		/// Inside a lambda or local function body: its `return` is not the function's.
+		int mNested;
 		Member mOwner;
 		/// Known variable types (fields, params, locals) for pin coloring.
 		Dictionary<String, String> mVarTypes = new .() ~ DeleteDictionaryAndKeysAndValues!(_);
@@ -63,7 +65,7 @@ namespace VisualBeef.Graph
 		}
 		List<PendingDecl> mPending;
 
-		public static Graph Build(CompilationUnit unit, Member method, Member ownerType)
+		public static Graph Build(CompilationUnit unit, Member method, Member ownerType, bool locals = true, int maxLocals = -1)
 		{
 			HashSet<String> noFold = scope .();
 			defer { for (let s in noFold) delete s; }
@@ -77,7 +79,13 @@ namespace VisualBeef.Graph
 				b.mGraph = new Graph();
 				b.Run();
 				if (b.VerifyTemps(noFold))
+				{
+					// The declarations at the top of the body are the function's Locals (not for
+					// text made up to rebuild Sheet-only nodes: OrphanStore).
+					if (locals)
+						b.mGraph.ExtractLocals(maxLocals);
 					return b.mGraph;
+				}
 				// Some temp is read in a way that has no wire (inside raw code, a string, a
 				// for-header...). Build again keeping those temps as ordinary locals.
 				delete b.mGraph;
@@ -636,7 +644,9 @@ namespace VisualBeef.Graph
 					run.Temps.Add(t);
 					continue;
 				}
-				Node n = IsSequenceStart(s) ? BuildSequence(stmts, ref i) : BuildStatement(s);
+				Node n = (pending.IsEmpty && run == null) ? TryBuildReturnWithOuts(stmts, ref i) : null;
+				if (n == null)
+					n = IsSequenceStart(s) ? BuildSequence(stmts, ref i) : BuildStatement(s);
 				if (!pending.IsEmpty)
 				{
 					CheckPending(n, pending);
@@ -652,6 +662,73 @@ namespace VisualBeef.Graph
 					mGraph.Connect(execOut, n.ExecIn);
 				execOut = n.Then;
 			}
+		}
+
+		// ------------------------------------------------------------------ outputs (out parameters)
+
+		/// The index of the `out` parameter `s` assigns (`name = value;`), or -1.
+		int OutAssignParam(Stmt s)
+		{
+			if (s.Kind != .Expr || s.Attributes != null || mMethod?.Params == null)
+				return -1;
+			let e = Unparen(s.Expr);
+			if (e == null || e.Kind != .Assign || e.Op != "=")
+				return -1;
+			let target = Unparen(e.A);
+			if (target == null || target.Kind != .Name)
+				return -1;
+			for (let p in mMethod.Params)
+				if (p.Modifier == "out" && p.Name == target.Op)
+					return @p.Index;
+			return -1;
+		}
+
+		/// `a = x; b = y; return v;` in a function with `out a, out b`: the assignments to out
+		/// parameters right before a return, in parameter order, are the Return node's output
+		/// pins (docs/Classes-and-Members.md#outputs). The node's text is the whole run, so it is
+		/// written back byte for byte.
+		Node TryBuildReturnWithOuts(List<Stmt> stmts, ref int i)
+		{
+			if (mNested > 0 || mMethod?.Params == null)
+				return null;
+			int last = -1;
+			int j = i;
+			while (j < stmts.Count && stmts[j].Kind != .Return)
+			{
+				let pi = OutAssignParam(stmts[j]);
+				if (pi <= last)
+					return null;
+				last = pi;
+				j++;
+			}
+			if (j == i || j >= stmts.Count || stmts[j].Attributes != null || !stmts[i].HasSpan || !stmts[j].HasSpan)
+				return null;
+			let first = stmts[i];
+			let ret = stmts[j];
+			Node n = mGraph.AddNode(.Return);
+			let start = mUnit.Tokens[first.FirstTok].Start;
+			n.Original = new String(StringView(mUnit.Text, start, mUnit.Tokens[ret.LastTok].End - start));
+			n.Line = mUnit.LineOf(start);
+			n.LineEnd = mUnit.LineOf(mUnit.Tokens[ret.LastTok].End);
+			SetTriviaRange(n, first.FirstTok, ret.LastTok);
+			mGraph.AddExecIn(n);
+			let value = mGraph.AddDataIn(n, "value", "Return Value");
+			value.Optional = true;
+			if (mMethod.TypeText != null)
+				value.TypeName.Set(mMethod.TypeText);
+			if (ret.Expr != null)
+				BuildInput(value, ret.Expr);
+			NodeFactory.AddReturnOutPins(mGraph, n, mMethod, false);
+			for (int k = i; k < j; k++)
+			{
+				let e = Unparen(stmts[k].Expr);
+				let pin = n.FindInput(scope $"out:{Unparen(e.A).Op}");
+				if (pin != null)
+					BuildInput(pin, e.B);
+			}
+			mGraph.AddExecOut(n, "then");
+			i = j;
+			return n;
 		}
 
 		// ------------------------------------------------------------------ out variables
@@ -1061,10 +1138,12 @@ namespace VisualBeef.Graph
 				Node n = NewStatementNode(.Return, s);
 				let value = mGraph.AddDataIn(n, "value", "Return Value");
 				value.Optional = true;
-				if (mMethod.TypeText != null)
+				if (mMethod.TypeText != null && mNested == 0)
 					value.TypeName.Set(mMethod.TypeText);
 				if (s.Expr != null)
 					BuildInput(value, s.Expr);
+				if (mNested == 0)
+					NodeFactory.AddReturnOutPins(mGraph, n, mMethod, false);
 				mGraph.AddExecOut(n, "then"); // only used for code after the return
 				return n;
 
@@ -1288,7 +1367,9 @@ namespace VisualBeef.Graph
 			if (s.Then != null)
 			{
 				let body = mGraph.AddExecOut(n, "body", "Body");
+				mNested++;
 				BuildBody(s.Then, body);
+				mNested--;
 			}
 			else
 			{
@@ -1330,7 +1411,9 @@ namespace VisualBeef.Graph
 			if (e.Body != null)
 			{
 				let body = mGraph.AddExecOut(n, "body", "Body");
+				mNested++;
 				BuildBody(e.Body, body);
+				mNested--;
 			}
 			else
 			{
