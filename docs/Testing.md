@@ -64,9 +64,9 @@ Expected output on the tree this page was written against (2026-10-10, after the
 | Command | Expected last line | Time |
 |---|---|---|
 | `edits` | `total: edits ok, factory failures 0, flow failures 0` (edit scenarios 1-24 with 0 failures, factory 63 cases, flow 157 checks including the 75 call checks, the 7 Defer / Using body checks and the 3 local variable splice checks; the 7 Defer / Using body checks) | seconds |
-| `flow` | `flow checks: 157  failures: 0` (59 switch / macro checks + 13 counting For Loop checks + 75 call checks + 7 Defer / Using body checks + 3 `LocalsTests.RunFlow`: a Set spliced after a call, after the local variables) | < 1 s |
-| `calls` | `call checks: 75  failures: 0` | < 1 s |
-| `lifetime` | `lifetime checks: 112  failures: 0` | < 1 s |
+| `flow` | `flow checks: 203  failures: 0` (203 includes 6 loop-header checks: a bound that mixes `&&` or `||` stays header text) (59 switch / macro checks + 13 counting For Loop checks + 75 call checks + 7 Defer / Using body checks + 3 `LocalsTests.RunFlow`: a Set spliced after a call, after the local variables) | < 1 s |
+| `calls` | `call checks: 78  failures: 0` (3 unread Result notes: Set keeps it, String.AppendF has none) | < 1 s |
+| `lifetime` | `lifetime checks: 126  failures: 0` (14 in "deleting Locals": a Local that later nodes use is not deleted, with the `scope` wording) | < 1 s |
 | `textforms` | `text form checks: 91  failures: 0` | < 1 s |
 | `classes` | `class checks: 529  failures: 0` (53 `LocalsTests.RunClasses` (2026-10-12): local variables read, written, added / renamed / retyped / reordered / removed / moved, outputs on Return nodes and calls, a signature change keeps its function's key, variables made from a pin in one undo step, + 31 Node Library: kind change, static writing, validator, catalog categories, + 179 + 136 in the ownership and initial values group + 38 in set on create, + 19 from the 2026-10-11 passover, + 26 from the suspected-issues pass: typed primitives, a rename with a refused commit, constructor chains, code-point characters, + 12 from the newcomer pass: interface functions, usings, overload ties, + 10 Passing: the chooser's choices, out / ref / in written and read back, + 14 Return defaults per type and a fresh bool function written with `return false;`, + 3 Set labels: Variable on Set nodes, Receiver on calls, + 5 Construct needs a constructor: the error, the classes that need no choice, cleared by an input, a warning when read from code, + 3 a print read back takes Object: the pin, byte for byte, a wired int) | < 1 s |
 | `safety` | `safety: failures=0` (18 groups, 136 `ok` lines) | seconds |
@@ -78,15 +78,15 @@ Expected output on the tree this page was written against (2026-10-10, after the
 | `update` | `update checks: 98  failures: 0` | < 1 s |
 | `ump` | `ump checks: 49  failures: 0` (16 for New Project > UMP Mod: names, the SDK folder resolved, the files written) | < 1 s |
 | `stress` | `stress checks: 68  failures: 0` (4 context checks + 16 runs of 50 random edits x 4 checks) | about 2 s |
-| `debug -out <dir>` | `debug checks: 74  failures: 0` | about 8 s (one small BeefBuild, three runs under the debugger, two attaches) |
+| `debug -out <dir>` | `debug checks: 83  failures: 0` (9 for a breakpoint on a Local declaration) | about 8 s (one small BeefBuild, three runs under the debugger, two attaches) |
 | `debugmap` (UMP `src`, `UMPRuntime/src`, `UnrealSDKCore/src`, ClockWork) | `debugmap: files=204 methods=1702 statements=25724 values=49778 without-line=57 failures=0` | about 15 s |
 | `ump -sdk <launcher data>\sdk\hogwarts-legacy\HogwartsLegacySDK` (emitter v5) | `ump checks: 46  failures: 0` | 18 s on the first run (parse + cache), about 1 s after |
 | `compile -out <dir>` | `compile: cases=42 compiled=30 refusals=12 failures=0` | about 1.5 s warm, longer on the first BeefBuild |
 | `roundtrip` (UMP `src`, `UMPRuntime/src`, `UnrealSDKCore/src`) | `files=174 methods=1552 failures=0 broken=0` | about 15 s |
 | `roundtrip -types` (same three) | same | about 15 s |
 | `roundtrip <UnrealUMP>/src <ClockWork> -out <dir>` | `files=106 methods=1235 failures=0 broken=0` | about 8 s |
-| `orphans` (same three UMP folders) | `orphans: files=174 methods=1552 failures=0` | about 25 s |
-| `loadall <UnrealUMP>` | `loadall: files=331 methods=2883 nodes=136007 ... failures=0` | about 6-30 s (most of it indexing the SDKs the first time) |
+| `orphans` (same three UMP folders) | `orphans: files=197 methods=2034 failures=0` | about 25 s |
+| `loadall <UnrealUMP>` | `loadall: files=323 methods=3213 nodes=156944 ... warnings=22 failures=0` (warnings were 499: 477 were String.AppendF) | about 6-30 s (most of it indexing the SDKs the first time) |
 | `inits` corlib, then the three UMP folders + ClockWork | one line per folder ending `failures=0`, then `inits: failures=0` (counts in [`inits`](#inits--v--noflip-files-or-folders)) | about 25 s for corlib, 10 s for the rest |
 | `savecheck` (the three UMP folders + ClockWork) | `savecheck: files=204 edits=353 failures=0` (all BeefLibs corlib + UMP + ClockWork + the report project: `files=401 edits=659 failures=0`) | about 11 s |
 

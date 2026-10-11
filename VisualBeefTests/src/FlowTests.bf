@@ -775,8 +775,76 @@ namespace VisualBeef.Tests
 			Check(doc.Text == cLoops, "undo restores the file");
 		}
 
+		const String cLoopConds =
+			"""
+			namespace Demo
+			{
+				class Host
+				{
+					public static void Wait(int n, bool done, bool other)
+					{
+						for (int c = 0; c < 10000 && !done; c++)
+						{
+							done = c > n;
+						}
+						for (int d = 0; d < n + 1; d++)
+						{
+						}
+						for (int e = 0; e < n || other; e++)
+						{
+						}
+						for (int f = 0; f < n * 2; f++)
+						{
+						}
+					}
+				}
+			}
+			""";
+
+		/// `i < a && b` is the loop's own condition, not a count: only a bound that binds tighter than
+		/// `<` makes a counting loop (a header that mixes a comparison and a flag stays text, so
+		/// reconnecting it writes the same header).
+		static void RunCountingConditions()
+		{
+			Console.WriteLine("Flow 9: loop headers that mix a comparison and a flag");
+			SourceDocument doc = scope .();
+			doc.LoadFromText(cLoopConds, "Wait.bf");
+			var mg = doc.FindMethod("Host.Wait(int,bool,bool)");
+			var g = mg.Graph;
+			Node c = null, d = null, e = null, f = null;
+			int texts = 0;
+			for (let n in g.Nodes)
+			{
+				if (n.Kind != .For)
+					continue;
+				if (n.IsCountingLoop && n.Text == "d") d = n;
+				else if (n.IsCountingLoop && n.Text == "f") f = n;
+				else if (!n.IsCountingLoop)
+				{
+					texts++;
+					if (n.Text.Contains("&& !done")) c = n;
+					if (n.Text.Contains("|| other")) e = n;
+				}
+			}
+			Check(texts == 2 && c != null && e != null, "`c < 10000 && !done` and `e < n || other` stay header text");
+			Check(d != null && d.FindInput("count") != null && g.DataSource(d.FindInput("count")) != null, "`d < n + 1` is a count (the bound binds tighter than <)");
+			Check(f != null && g.DataSource(f.FindInput("count")) != null, "`f < n * 2` is a count");
+			doc.PushUndo();
+			for (let n in g.Nodes)
+				if (n.Kind == .For)
+					n.Edited = true;
+			Check(doc.Commit(mg) && doc.Text == cLoopConds, "identity commit is byte for byte");
+			mg = doc.FindMethod("Host.Wait(int,bool,bool)");
+			ForceRegenerate(mg.Graph);
+			doc.PushUndo();
+			Check(doc.Commit(mg) && doc.Text == cLoopConds, "forced regeneration is byte for byte");
+			if (doc.Text != cLoopConds)
+				Program.ShowDiff(cLoopConds, doc.Text);
+		}
+
 		public static int Run()
 		{
+			RunCountingConditions();
 			RunParse();
 			RunSwitchGraph();
 			RunSwitchEdits();

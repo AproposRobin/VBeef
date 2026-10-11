@@ -1305,6 +1305,98 @@ namespace VisualBeef.Tests
 			}
 		}
 
+		// ------------------------------------------------------------------ 7. deleting Locals
+
+		const String cLocalLife =
+			"""
+			using System;
+
+			namespace Demo
+			{
+				class Item
+				{
+					public int mValue;
+
+					public void Use()
+					{
+					}
+				}
+
+				class Host
+				{
+					public void Run()
+					{
+						Item item = scope .();
+						Item spare = scope .();
+						int count = 0;
+						int plain = 5;
+						item.Use();
+						count = count + 1;
+						Console.WriteLine(count);
+					}
+				}
+			}
+
+			""";
+
+		static void RunLocalLifetime()
+		{
+			Console.WriteLine("lifetime: deleting Locals");
+			SourceDocument doc = scope .();
+			doc.LoadFromText(cLocalLife, "Host.bf");
+			var mg = doc.FindMethod("Host.Run()");
+			let g = mg.Graph;
+			Check(g.Locals.Count == 4, "four Locals: item, spare, count, plain");
+			let item = g.FindLocal("item");
+			let spare = g.FindLocal("spare");
+			let count = g.FindLocal("count");
+			let plain = g.FindLocal("plain");
+			Check(g.IsLocalUsed(item) && g.IsLocalUsed(count) && !g.IsLocalUsed(spare) && !g.IsLocalUsed(plain), "used: item (a call on it), count (read and written); unused: spare, plain");
+			String why = scope .();
+			Check(!g.RemoveLocal(item, why) && g.Locals.Count == 4 && g.FindLocal("item") == item, "a `scope` Local that a later call uses is not deleted");
+			Check(why.Contains("'item'") && why.Contains("`scope`") && why.Contains("until the function ends"), "...and the reason names the Local and its lifetime");
+			why.Clear();
+			Check(!g.RemoveLocal(count, why) && why.Contains("'count' is still used") && !why.Contains("`scope`"), "a plain Local that is read is refused too, without the `scope` wording");
+			why.Clear();
+			Check(!g.RemoveLocal(null, why) && why.IsEmpty, "no Local: nothing happens");
+			doc.PushUndo();
+			Check(g.RemoveLocal(spare, why) && g.Locals.Count == 3 && why.IsEmpty, "an unused `scope` Local is deleted");
+			Check(doc.Commit(mg) && !doc.Text.Contains("spare") && doc.Text.Contains("Item item = scope .();"), "...and its declaration is gone from the text");
+			doc.PushUndo();
+			Check(g.RemoveLocal(g.FindLocal("plain"), why) && doc.Commit(doc.FindMethod("Host.Run()")) && !doc.Text.Contains("plain"), "an unused plain Local is deleted");
+			// The uses go first, then the Local can follow.
+			mg = doc.FindMethod("Host.Run()");
+			let g2 = mg.Graph;
+			Node use = null;
+			for (let n in g2.Nodes)
+				if (n.Kind == .Call && n.Text == "Use")
+					use = n;
+			Check(use != null, "the call `item.Use()` is a node");
+			doc.PushUndo();
+			if (use != null)
+			{
+				List<Node> feeders = scope .();
+				for (let n in g2.Nodes)
+					if (n.Kind == .Get && n.Text == "item")
+						feeders.Add(n);
+				for (let n in feeders)
+					g2.RemoveNode(n);
+				g2.RemoveNode(use);
+			}
+			why.Clear();
+			Check(doc.Commit(doc.FindMethod("Host.Run()")), "the use removed and committed");
+			let g3 = doc.FindMethod("Host.Run()").Graph;
+			Check(!g3.IsLocalUsed(g3.FindLocal("item")) && g3.RemoveLocal(g3.FindLocal("item"), why), "with the use gone, the `scope` Local can be deleted");
+			Check(doc.Commit(doc.FindMethod("Host.Run()")) && !doc.Text.Contains("Item item") && doc.Text.Contains("int count = 0;"), "...and the other Locals stay");
+			// A name in a string or after a dot is not a use.
+			SourceDocument d2 = scope .();
+			String t2 = scope .(cLocalLife);
+			t2.Replace("Console.WriteLine(count);", "Console.WriteLine(\"plain spare\");");
+			d2.LoadFromText(t2, "Host.bf");
+			let g4 = d2.FindMethod("Host.Run()").Graph;
+			Check(!g4.IsLocalUsed(g4.FindLocal("spare")), "a name inside a string literal is not a use");
+		}
+
 		public static int Run()
 		{
 			sFailures = 0;
@@ -1316,6 +1408,7 @@ namespace VisualBeef.Tests
 			RunRules();
 			RunBodies();
 			RunSilence();
+			RunLocalLifetime();
 			Console.WriteLine("lifetime checks: {}  failures: {}", sChecks, sFailures);
 			return sFailures;
 		}

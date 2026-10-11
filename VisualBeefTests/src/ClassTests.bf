@@ -1716,7 +1716,7 @@ namespace VisualBeef.Tests
 						else if (spec.OwnerType == "Holder" && spec.MemberName == "mLocal" && spec.Kind == .Get) local.Set(spec.Category);
 					}
 				}
-				Check(twice == "Libraries|Tools", scope $"a library function is under Libraries > Tools (got '{twice}')");
+				Check(twice == "Libraries|Mod.Tools", scope $"a library function is under Libraries > Mod.Tools (got '{twice}')");
 				Check(libGet == "Globals|Tools", scope $"a library variable is under Globals > Tools (got '{libGet}')");
 				Check(sGet == "Globals|Holder" && sSet == "Globals|Holder", scope $"a static variable of a class: Get and Set under Globals > Holder (got '{sGet}', '{sSet}')");
 				Check(make == "Mod|Holder" && local == "Mod|Holder", "a class's static function and instance variable keep their class category");

@@ -552,6 +552,42 @@ namespace VisualBeef.Tests
 				Check(print2 != null, "the second print exists");
 			}
 
+			// A breakpoint on a Local Variable declaration (`int sum = a + b;` in Add is one of the
+			// function's Locals, not a node on the Sheet): it has a line, a stored key that finds it
+			// again, and the program stops there.
+			{
+				output.Clear();
+				Node sum = null;
+				for (let l in add.Graph.Locals)
+					if (l.Text == "sum")
+						sum = l;
+				Check(sum != null && !add.Graph.Nodes.Contains(sum), "`sum` is a Local of Add, not a node on the Sheet");
+				String sumWhy = scope .();
+				let sumLine = (sum != null) ? DebugMap.LineOf(add.Graph, sum, sumWhy) : 0;
+				Check(sumLine > 0 && doc.Unit.Text.Contains("int sum = a + b;"), scope $"the Local declaration maps to a source line ({sumLine}) {sumWhy}");
+				String sumKey = scope .();
+				if (sum != null)
+					DiagnosticMap.KeyOf(add.Graph, sum, sumKey);
+				Check(sumKey == "local:sum" && DiagnosticMap.FindByKey(add.Graph, sumKey) == sum, scope $"its breakpoint key '{sumKey}' finds the Local again");
+				MethodGraph lineMg = null;
+				Check(sumLine > 0 && DebugMap.NodeAt(doc, sumLine, out lineMg) == sum && lineMg == add, "the line maps back to the Local");
+				DebugSession s = scope .();
+				s.SourceRoot.Set(outDir);
+				err.Clear();
+				let sbp = s.AddBreakpoint(file, sumLine, sum);
+				Check(s.Launch(target.Exe, "", target.WorkDir, err), scope $"Launch: {err}");
+				Check(WaitStop(s, output) && s.State == .Stopped && s.Reason == .Breakpoint, scope $"the breakpoint on Local sum stops the program (state {s.State}, reason {s.Reason})");
+				String at = scope .();
+				Where(s, at);
+				MethodGraph stopMg = null;
+				let stopNode = s.Frames.IsEmpty ? null : DebugMap.NodeAt(doc, s.Frames[0].Line, out stopMg);
+				Check(stopNode == sum && stopMg == add && s.HitBreakpoint() == sbp && sbp.Bound && sbp.BoundLine == sumLine, scope $"stopped on the Local declaration in Add ({at})");
+				EvalValue v = scope .();
+				Check(s.Evaluate("a", 0, v) && v.Value == "2", scope $"a = {v.Value} when `sum` is about to be declared");
+				s.Stop();
+				Check(WaitStop(s, output, 10000) && s.State == .NotDebugging, "Stop ends the session");
+			}
+
 			// A fault: stop at the node, the fault's text, then Stop.
 			{
 				output.Clear();

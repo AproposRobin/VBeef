@@ -975,7 +975,125 @@ namespace VisualBeef.Graph
 			delete node;
 		}
 
-		/// A Local Variable node in the flow becomes the last of the Locals ("Move to Locals"): the
+		/// Whether `text` names `name` as an identifier outside a string or character literal (not as a
+		/// member after a `.`).
+		static bool TextMentions(StringView text, StringView name)
+		{
+			if (name.IsEmpty || text.Length < name.Length)
+				return false;
+			char8 quote = 0;
+			int i = 0;
+			while (i < text.Length)
+			{
+				let c = text[i];
+				if (quote != 0)
+				{
+					if (c == '\\')
+						i++;
+					else if (c == quote)
+						quote = 0;
+					i++;
+					continue;
+				}
+				if (c == '"' || c == '\'')
+				{
+					quote = c;
+					i++;
+					continue;
+				}
+				if (c.IsLetter || c == '_')
+				{
+					int start = i;
+					while (i < text.Length && (text[i].IsLetterOrDigit || text[i] == '_'))
+						i++;
+					if (StringView(text, start, i - start) == name)
+					{
+						int k = start - 1;
+						while (k >= 0 && text[k].IsWhiteSpace)
+							k--;
+						if (k < 0 || text[k] != '.')
+							return true;
+					}
+					continue;
+				}
+				if (c.IsDigit)
+				{
+					while (i < text.Length && (text[i].IsLetterOrDigit || text[i] == '_' || text[i] == '.'))
+						i++;
+					continue;
+				}
+				i++;
+			}
+			return false;
+		}
+
+		static bool NodeMentions(Node n, StringView name, bool skipOwnName)
+		{
+			if (!skipOwnName && (TextMentions(n.Text, name) || TextMentions(n.Text2, name)))
+				return true;
+			if (n.Original != null && TextMentions(n.Original, name))
+				return true;
+			for (let p in n.Inputs)
+				if (TextMentions(p.Default, name) || (p.RawLead != null && TextMentions(p.RawLead, name)) || (p.RawTail != null && TextMentions(p.RawTail, name)))
+					return true;
+			for (let p in n.Outputs)
+				if (p.OutName != null && TextMentions(p.OutName, name))
+					return true;
+			return false;
+		}
+
+		/// Whether anything in the function still names the Local: a Get / Set node, a pin or
+		/// node text, the value of another Local. A Local is declared at the top of the body, so
+		/// its scope (for a `scope` value, the whole body) reaches every node after it.
+		public bool IsLocalUsed(Node local)
+		{
+			if (local == null)
+				return false;
+			StringView name = local.Text;
+			for (let n in Nodes)
+				if (NodeMentions(n, name, n.Kind == .LocalVar))
+					return true;
+			for (let l in Locals)
+				if (l != local && NodeMentions(l, name, true))
+					return true;
+			return false;
+		}
+
+		/// Removes a Local from the function. Refused (false, `why` says what still uses it) while
+		/// a later node still names it: its declaration would be gone, and for a `scope` value the
+		/// object lives to the end of the body that the use sits in.
+		public bool RemoveLocal(Node local, String why)
+		{
+			if (local == null || !Locals.Contains(local))
+				return false;
+			if (IsLocalUsed(local))
+			{
+				if (IsScopeLocal(local))
+					why.AppendF("'{}' is allocated with `scope` and later nodes still use it: it lives until the function ends. Remove those uses first.", local.Text);
+				else
+					why.AppendF("'{}' is still used by later nodes. Remove those uses first.", local.Text);
+				return false;
+			}
+			Locals.Remove(local);
+			delete local;
+			Version++;
+			return true;
+		}
+
+		bool IsScopeLocal(Node local)
+		{
+			let value = local.FindInput("value");
+			if (value == null)
+				return false;
+			let src = DataSource(value);
+			if (src != null && src.Kind == .Construct && src.Alloc != null && src.Alloc.StartsWith("scope"))
+				return true;
+			StringView d = value.Default;
+			d.Trim();
+			return d.StartsWith("scope ") || d.StartsWith("scope(") || d.StartsWith("scope.");
+		}
+
+		/// A Local Variable node in the flow becomes the last of the Locals ("Move to Local Variables"): the
 		/// statements around it are joined, the declaration is written at the top of the body.
 		public bool MoveToLocals(Node n)
 		{

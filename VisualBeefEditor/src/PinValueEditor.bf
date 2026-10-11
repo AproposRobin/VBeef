@@ -148,8 +148,15 @@ namespace VisualBeef.Editor
 			}
 			if (open)
 				Gui.OpenPopup("##em");
-			Gui.igSetNextWindowPos(.(start.x, start.y + h), Cond.Always, .(0, 0));
-			Gui.igSetNextWindowSize(.(width, 0), Cond.Always);
+			// The list stays inside the window: pulled left when the node sits at the right edge, and opened
+			// upwards when it would run off the bottom.
+			let display = Gui.igGetIO_Nil().DisplaySize;
+			float listW = Math.Max(width, 90 * Look.Scale);
+			float listH = members.Count * (Gui.igGetFontSize() + 8 * Look.Scale) + 16 * Look.Scale;
+			float listX = Math.Max(0, Math.Min(start.x, display.x - listW - 4 * Look.Scale));
+			bool above = start.y + h + listH > display.y && start.y - listH > 0;
+			Gui.igSetNextWindowPos(.(listX, above ? start.y : start.y + h), Cond.Always, .(0, above ? 1 : 0));
+			Gui.igSetNextWindowSize(.(listW, 0), Cond.Always);
 			if (Look.BeginPopupSpaced("##em"))
 			{
 				if (SelfTestClose)

@@ -316,6 +316,7 @@ namespace ImGui
 		[CLink] public static extern void igPushID_Int(int32 int_id);
 		[CLink] public static extern void igPopID();
 		[CLink] public static extern void igOpenPopup_Str(char8* str_id, int32 popup_flags);
+		[CLink] public static extern void igOpenPopup_ID(uint32 id, int32 popup_flags);
 		[CLink] public static extern bool igBeginPopup(char8* str_id, int32 flags);
 		[CLink] public static extern bool igBeginPopupModal(char8* name, bool* p_open, int32 flags);
 		[CLink] public static extern void igEndPopup();

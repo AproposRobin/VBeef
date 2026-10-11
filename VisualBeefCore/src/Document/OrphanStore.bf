@@ -738,7 +738,15 @@ namespace VisualBeef.Document
 					let from = l.NodeIsFrom ? node.FindOutput(l.Pin) : other.FindOutput(l.OtherPin);
 					let to = l.NodeIsFrom ? other.FindInput(l.OtherPin) : node.FindInput(l.Pin);
 					if (from != null && to != null && from.Kind == to.Kind && (to.Kind == .Exec || graph.FindLinkTo(to) == null))
+					{
 						graph.Connect(from, to);
+						// An operator or Select input fed by a link the code did not carry was
+						// read from the placeholder `(0)`, so its type came from that literal
+						// (`int`). The wire brings the real type (`!` and `&&` take a bool): the
+						// pin takes it, as it did before the disconnect.
+						if (to.Kind == .Data && to.TypeName == "int" && !from.TypeName.IsEmpty && (to.Owner.Kind == .Operator || to.Owner.Kind == .Select))
+							to.TypeName.Set(from.TypeName);
+					}
 				}
 				if (!l.NodeIsFrom)
 				{

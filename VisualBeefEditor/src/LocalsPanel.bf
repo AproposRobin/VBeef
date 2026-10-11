@@ -336,11 +336,19 @@ namespace VisualBeef.Editor
 					Gui.igPushStyleColor_U32(Col.ButtonHovered, Gui.Color(160, 40, 40));
 					if (Gui.Button(scope $"{Icon.Trash2}  Delete Local Variable"))
 					{
-						BeginEdit();
-						mg.Graph.Locals.Remove(local);
-						delete local;
-						mSelLocalActive = false;
-						commit = true;
+						String why = scope .();
+						if (!mg.Graph.IsLocalUsed(local))
+						{
+							BeginEdit();
+							mg.Graph.RemoveLocal(local, why);
+							mSelLocalActive = false;
+							commit = true;
+						}
+						else
+						{
+							mg.Graph.RemoveLocal(local, why);
+							SetStatus(why, .Warning);
+						}
 					}
 					Gui.igPopStyleColor(2);
 				}
@@ -439,6 +447,22 @@ namespace VisualBeef.Editor
 					}
 				}
 				let dl = Gui.igGetWindowDrawList();
+				{
+					// A breakpoint on the declaration: a red dot at the row's left edge; the arrow
+					// where the program is stopped.
+					HashSet<int32> bpIds = scope .();
+					BreakpointNodes(mg, bpIds);
+					// Where the program is stopped: a yellow arrow (as in the graph) takes the marker column
+					// instead of the dot, so the two never overlap in the 17 px before the Local's swatch.
+					float cy = cur.y + h * 0.5f;
+					if (IsDebugStopped && DebugStopGraph == g && DebugStopNode == local.Id)
+					{
+						float s = 4.5f * Look.Scale;
+						Gui.ImDrawList_AddTriangleFilled(dl, .(cur.x + 2 * Look.Scale, cy - s), .(cur.x + 2 * Look.Scale, cy + s), .(cur.x + 2 * Look.Scale + s * 1.4f, cy), 0xFF28C8FF);
+					}
+					else if (bpIds.Contains(local.Id))
+						Gui.ImDrawList_AddCircleFilled(dl, .(cur.x + 9.5f * Look.Scale, cy), h * 0.16f, 0xFF3838E0, 0);
+				}
 				let col = Theme.TypeColor(local.Text2);
 				Gui.ImDrawList_AddRectFilled(dl, .(cur.x + 14 * Look.Scale, cur.y + h * 0.22f), .(cur.x + 34 * Look.Scale, cur.y + h * 0.78f), col, h * 0.3f, 0);
 				Gui.DrawText(dl, .(cur.x + 42 * Look.Scale, cur.y), selected ? Look.ForegroundHover : Look.Foreground, local.Text);
@@ -460,9 +484,11 @@ namespace VisualBeef.Editor
 					Gui.Text(scope $"{Icon.Variable}  {local.Text}  (Ctrl: Get, Alt: Set, or choose on drop)");
 					Gui.igEndDragDropSource();
 				}
+				LuMenuOpenHook(local.Text);
 				bool changed = false;
 				if (Gui.igBeginPopupContextItem())
 				{
+					LuMenuCloseHook();
 					if (IconItem(Icon.Pencil, "Rename...", "F2"))
 						SelectLocal(mg, local.Text, true);
 					let i = g.Locals.IndexOf(local);
@@ -471,6 +497,8 @@ namespace VisualBeef.Editor
 						MoveLocal(mg, local, -1);
 						changed = true;
 					}
+					if (!changed && !mg.Doc.FilePath.IsEmpty && IconItem(Icon.CircleDot, "Toggle Breakpoint", "F9"))
+						ToggleBreakpoint(mg, local);
 					if (!changed && i < g.Locals.Count - 1 && IconItem(Icon.ChevronDown, "Move Down"))
 					{
 						MoveLocal(mg, local, 1);
@@ -478,14 +506,21 @@ namespace VisualBeef.Editor
 					}
 					if (!changed && IconItem(Icon.Trash2, "Delete Local Variable"))
 					{
-						BeginEdit();
-						g.Locals.Remove(local);
-						delete local;
-						g.Version++;
-						if (selected)
-							mSelLocalActive = false;
-						CommitCurrent();
-						changed = true;
+						String why = scope .();
+						if (g.IsLocalUsed(local))
+						{
+							g.RemoveLocal(local, why);
+							SetStatus(why, .Warning);
+						}
+						else
+						{
+							BeginEdit();
+							g.RemoveLocal(local, why);
+							if (selected)
+								mSelLocalActive = false;
+							CommitCurrent();
+							changed = true;
+						}
 					}
 					Gui.EndPopup();
 				}

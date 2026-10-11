@@ -105,6 +105,16 @@ namespace VisualBeef.Debug
 					return entry;
 			}
 			Node best = null;
+			// The function's Locals are statements too (a declaration with a value runs code).
+			for (let n in g.Locals)
+			{
+				if (n.Line <= 0 || line < n.Line || line > n.LineEnd || LineOf(g, n) <= 0)
+					continue;
+				best = n;
+				break;
+			}
+			if (best != null)
+				return best;
 			for (let n in g.Nodes)
 			{
 				if (n == entry || n.IsPure || n.Line <= 0 || line < n.Line || line > n.LineEnd)

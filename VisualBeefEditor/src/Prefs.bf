@@ -340,7 +340,12 @@ namespace VisualBeef.Editor
 					Gui.igSpacing();
 					String path = scope .();
 					Prefs.GetPath(path);
-					Gui.TextDisabled(scope $"Saved to {path}");
+					String savedLine = scope $"Saved to {path}";
+					String savedShown = scope .();
+					bool savedCut = Look.EllipsizeMiddle(savedLine, Gui.igGetContentRegionAvail().x, savedShown);
+					Gui.TextDisabled(savedShown);
+					if (savedCut && Gui.igIsItemHovered(0))
+						Gui.Tooltip(path);
 				}
 				Gui.igEndChild();
 			}

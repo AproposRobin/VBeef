@@ -446,7 +446,10 @@ namespace VisualBeef.Catalog
 					if (projectLibrary)
 					{
 						typeCategory.Clear();
-						typeCategory.AppendF("Libraries|{}", typeName);
+						if (ns.IsEmpty)
+							typeCategory.AppendF("Libraries|{}", typeName);
+						else
+							typeCategory.AppendF("Libraries|{}.{}", ns, typeName); // the namespace names the group, as a class's does
 					}
 					else if (kind == "static")
 						typeCategory.Append("Global Functions");

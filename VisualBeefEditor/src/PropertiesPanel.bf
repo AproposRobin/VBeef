@@ -836,10 +836,10 @@ namespace VisualBeef.Editor
 						{
 							PropertyGrid.WideRow();
 							Gui.igPushTextWrapPos(0);
-							Gui.TextColored(Theme.TextDim, "Declared in the middle of the function. Move to Locals declares it at the top instead (Properties > Locals): it then exists from the start, and its value is set there, before the statements above this node run. That can change what the program does, so it is only done when you ask.");
+							Gui.TextColored(Theme.TextDim, "Declared in the middle of the function. Move to Local Variables declares it at the top instead (Outline > Local Variables): it then exists from the start, and its value is set there, before the statements above this node run. That can change what the program does, so it is only done when you ask.");
 							Gui.igPopTextWrapPos();
 							PropertyGrid.WideRow();
-							if (Gui.Button(scope $"{Icon.ArrowUp}  Move to Locals", .(-1, 0)))
+							if (Gui.Button(scope $"{Icon.ArrowUp}  Move to Local Variables", .(-1, 0)))
 							{
 								BeginEdit();
 								if (mg.Graph.MoveToLocals(node))
@@ -1335,17 +1335,32 @@ namespace VisualBeef.Editor
 							sigDone = true;
 						Gui.igTableSetColumnIndex(1);
 						float x = Gui.igGetFrameHeight();
+						// One line when the type picker keeps room for a type name next to Passing and the remove
+						// button; otherwise Passing and remove stay on the first line and the picker takes a whole
+						// line of its own below (a long type name is never squeezed to its pill).
+						bool stacked = Gui.igGetContentRegionAvail().x - 62 * Look.Scale - 2 * (x + 14 * Look.Scale) < 110 * Look.Scale;
 						if (PassingCombo("##pm", r, 62 * Look.Scale))
 							sigDone = true;
 						Gui.SameLine(0, 4 * Look.Scale);
-						if (TypeButton("##pt", r.Type, Gui.igGetContentRegionAvail().x - x - 10 * Look.Scale, .Param, m))
-							sigDone = true;
-						TypeErrorText(r.Type, .Param, m);
-						Gui.SameLine(0, 4 * Look.Scale);
+						if (!stacked)
+						{
+							if (TypeButton("##pt", r.Type, Gui.igGetContentRegionAvail().x - x - 10 * Look.Scale, .Param, m))
+								sigDone = true;
+							TypeErrorText(r.Type, .Param, m);
+							Gui.SameLine(0, 4 * Look.Scale);
+						}
+						else
+							Gui.igSetCursorPosX(Gui.igGetCursorPosX() + Math.Max(0, Gui.igGetContentRegionAvail().x - x - 10 * Look.Scale));
 						if (Gui.Button(Icon.X, .(x, x)))
 							removeAt = @r.Index;
 						if (Gui.igIsItemHovered(0))
 							Gui.Tooltip("Remove this parameter");
+						if (stacked)
+						{
+							if (TypeButton("##pt", r.Type, -1, .Param, m))
+								sigDone = true;
+							TypeErrorText(r.Type, .Param, m);
+						}
 						Gui.PopID();
 					}
 					PropertyGrid.WideRow();

@@ -229,8 +229,10 @@ namespace VisualBeef.Editor
 		{
 			Gui.igAlignTextToFramePadding();
 			// A value wider than its column is cut by the column: the whole text is the tooltip.
-			bool cut = Gui.CalcTextSize(text).x > Gui.igGetContentRegionAvail().x;
-			Gui.TextColored(color != 0 ? color : Look.ForegroundDim, text);
+			// A path is cut in the middle with "..." (its start and its last part stay readable).
+			String shown = scope .();
+			bool cut = Look.EllipsizeMiddle(text, Gui.igGetContentRegionAvail().x, shown);
+			Gui.TextColored(color != 0 ? color : Look.ForegroundDim, shown);
 			if (cut && Gui.igIsItemHovered(0))
 				Gui.Tooltip(text);
 		}

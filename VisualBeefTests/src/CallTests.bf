@@ -872,10 +872,58 @@ namespace VisualBeef.Tests
 			}
 		}
 
+		const String cResultNotes =
+			"""
+			namespace Demo
+			{
+				class String
+				{
+					public Result<void> AppendF(StringView format, int value)
+					{
+						return .Ok;
+					}
+
+					public Result<void> Set(StringView value)
+					{
+						return .Ok;
+					}
+				}
+
+				class Host
+				{
+					public void Run(String text)
+					{
+						text.AppendF("{}", 1);
+						text.Set("x");
+					}
+				}
+			}
+
+			""";
+
+		/// The note on a call whose Result nothing reads: kept for a real failure (Set), not given
+		/// to String.AppendF, whose Err only means a format string that does not match.
+		static void RunResultNotes()
+		{
+			Console.WriteLine("calls: unread Result notes");
+			Resolver r = scope .(cResultNotes);
+			SourceDocument doc = scope .();
+			doc.LoadFromText(cResultNotes, "Calls.bf");
+			let mg = doc.FindMethod("Host.Run(String)");
+			let g = mg.Graph;
+			GraphValidator.Validate(g);
+			let format = FindCall(g, "AppendF");
+			let set = FindCall(g, "Set");
+			Check(format != null && set != null && format.Result != null && format.Result.TypeName.StartsWith("Result<") && set.Result != null && set.Result.TypeName.StartsWith("Result<"), "AppendF and Set both return a Result<void>");
+			Check(HasWarning(g, "'Set' returns a Result<void> that nothing reads"), "an unread Result<void> of Set keeps its note");
+			Check(!HasWarning(g, "'AppendF'"), "String.AppendF has no note");
+		}
+
 		public static int Run()
 		{
 			sFailures = 0;
 			sChecks = 0;
+			RunResultNotes();
 			RunShapes();
 			RunTargets();
 			RunInputs();

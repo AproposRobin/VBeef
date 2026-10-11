@@ -2336,6 +2336,28 @@ namespace VisualBeef.Syntax
 			return s;
 		}
 
+		/// Whether `e` can be the right-hand side of `i < e` without a parenthesis: it binds tighter
+		/// than `<`. `i < 10000 && !done` is not a count (the `&&` is the loop's own condition), and
+		/// neither is `i < a == b`, `i < a ? b : c` or `i < x = y`; those headers stay text.
+		static bool BindsTighterThanLess(Expr e)
+		{
+			switch (e.Kind)
+			{
+			case .Assign, .Conditional:
+				return false;
+			case .Binary:
+				switch (e.Op)
+				{
+				case "+", "-", "*", "/", "%", "<<", ">>":
+					return true;
+				default:
+					return false;
+				}
+			default:
+				return true;
+			}
+		}
+
 		/// A counting loop header: `T i = start; i < count; i++` or Beef's `T i < count`. Fills
 		/// VarType, VarName, Expr (the start, null for the short form) and Expr2 (the count);
 		/// any other header leaves them null (the header stays text).
@@ -2370,7 +2392,7 @@ namespace VisualBeef.Syntax
 			else
 				return;
 			Expr count = ParseExpr();
-			bool ok = count != null && count.Kind != .Raw;
+			bool ok = count != null && count.Kind != .Raw && BindsTighterThanLess(count);
 			if (ok && start != null)
 				ok = Is(";") && IsAt(mPos + 1, name) && IsAt(mPos + 2, "++") && mPos + 3 == close;
 			else if (ok)

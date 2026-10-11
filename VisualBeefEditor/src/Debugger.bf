@@ -177,7 +177,7 @@ namespace VisualBeef.Editor
 			bp.Workspace.Set(ws);
 			bp.File.Set(mg.Doc.FilePath);
 			bp.Method.Set(mg.Key);
-			LayoutKeys.Compose(node, bp.NodeKey);
+			DiagnosticMap.KeyOf(mg.Graph, node, bp.NodeKey);
 			mBreakpoints.Add(bp);
 			SaveBreakpoints(ws);
 			if (IsDebugging && mDebug.State != .Stopping)
@@ -511,7 +511,9 @@ namespace VisualBeef.Editor
 			{
 				// A fault puts its message in a bubble under the node: centre lower so both show.
 				bool fault = useHit && mDebug.Reason == .Exception;
-				tab.CenterOn(node.X + 100, node.Y + (fault ? 110 : 40));
+				// A Local is not on the Sheet: show the function's start instead.
+				let at = mg.Graph.Locals.Contains(node) ? mg.Graph.Entry : node;
+				tab.CenterOn(at.X + 100, at.Y + (fault ? 110 : 40));
 			}
 		}
 
@@ -677,6 +679,8 @@ namespace VisualBeef.Editor
 			List<int32> ids = scope .(tab.SelectedNodes.GetEnumerator());
 			for (let id in ids)
 				ToggleBreakpoint(mg, mg.Graph.FindNode(id));
+			if (ids.IsEmpty && mSelLocalActive && mSelLocalKey == mg.Key)
+				ToggleBreakpoint(mg, mg.Graph.FindLocal(mSelLocalName));
 		}
 
 		void DrawDebugToolbar()

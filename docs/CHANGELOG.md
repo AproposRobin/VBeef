@@ -9,6 +9,16 @@ order: 25
 
 Newest first. Dates are commit dates; commit ids refer to the development history before the public repository was created.
 
+## Unreleased: polish
+
+- A locked Static box (a function in a Node Library) is grey with the tooltip "A Node Library is always static".
+- Node menu > Libraries groups a library under `<Namespace>.<Library>`.
+- Editor Preferences: the "Saved to" line and the folder paths are cut in the middle with "..." to fit; the tooltip has the whole path.
+- Properties > Inputs: a type name longer than the row has room for gets a line of its own under Passing and remove; the picker ends a long name in "..." (tooltip: the whole name).
+- The enum dropdown of an inline pin editor stays inside the window (pulled left at the right edge, opened upwards at the bottom).
+- Docs: the per-function local variables are "Local Variables" everywhere (the debugger's panel stays "Locals"); the button is Move to Local Variables.
+- `VB_SELFTEST=session` captures `pins-values-lower`, `pins-values-edge`, `pins-enum-open-edge`, `pins-bool-off`, `pins-type-number`, `pins-type-char`, `pins-type-string`.
+
 ## 0.2.0-alpha
 
 - In-editor updates from GitHub Releases (Help > Check for Updates, Preferences > Updates).

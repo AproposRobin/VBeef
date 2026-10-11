@@ -188,7 +188,13 @@ namespace VisualBeef.Editor
 			Gui.igPushStyleColor_U32(Col.ButtonHovered, Gui.Color(30, 30, 30));
 			Gui.igPushStyleVar_Vec2(StyleVarX.ButtonTextAlign, .(0, 0.5f));
 			String label = scope .();
-			label.AppendF("      {}", type.IsEmpty ? "(none)" : type);
+			// The type name takes what the pill on the left and the chevron on the right leave; a longer one
+			// ends in "..." (the tooltip below has the whole name).
+			String lead = scope .("      ");
+			float textW = w - Gui.CalcTextSize(lead).x - Gui.igGetFontSize() * 1.6f - 10 * Look.Scale;
+			String typeShown = scope .();
+			Look.EllipsizeEnd(type.IsEmpty ? "(none)" : type, Math.Max(textW, 8 * Look.Scale), typeShown);
+			label.AppendF("{}{}", lead, typeShown);
 			bool open = Gui.Button(label, .(w, h));
 			if (!mSelfTestPickerId.IsEmpty && mSelfTestPickerId == id)
 			{

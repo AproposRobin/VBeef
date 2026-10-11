@@ -9,6 +9,69 @@ namespace VisualBeef.Editor
 	/// Node-graph colours stay in Theme.bf.
 	static class Look
 	{
+		static bool IsLead(char8 c) => ((uint8)c & 0xC0) != 0x80;
+
+		/// `text` cut in the middle with "..." so it fits `maxW` pixels (a path keeps its start and its file
+		/// name). Returns true when it had to be cut; `outText` always receives the text to draw.
+		public static bool EllipsizeMiddle(StringView text, float maxW, String outText)
+		{
+			outText.Clear();
+			if (Gui.CalcTextSize(text).x <= maxW)
+			{
+				outText.Append(text);
+				return false;
+			}
+			int head = text.Length / 2;
+			int tail = text.Length - head;
+			while (head > 0 || tail > 0)
+			{
+				// Shrink the longer side first, one whole character at a time.
+				if (head >= tail && head > 0)
+				{
+					head--;
+					while (head > 0 && !IsLead(text[head]))
+						head--;
+				}
+				else if (tail > 0)
+				{
+					tail--;
+					while (tail > 0 && !IsLead(text[text.Length - tail]))
+						tail--;
+				}
+				outText.Clear();
+				outText.Append(text.Substring(0, head));
+				outText.Append("...");
+				outText.Append(text.Substring(text.Length - tail));
+				if (Gui.CalcTextSize(outText).x <= maxW)
+					break;
+			}
+			return true;
+		}
+
+		/// `text` cut at the end with "..." so it fits `maxW` pixels. Returns true when it had to be cut.
+		public static bool EllipsizeEnd(StringView text, float maxW, String outText)
+		{
+			outText.Clear();
+			if (Gui.CalcTextSize(text).x <= maxW)
+			{
+				outText.Append(text);
+				return false;
+			}
+			int n = text.Length;
+			while (n > 0)
+			{
+				n--;
+				while (n > 0 && !IsLead(text[n]))
+					n--;
+				outText.Clear();
+				outText.Append(text.Substring(0, n));
+				outText.Append("...");
+				if (Gui.CalcTextSize(outText).x <= maxW)
+					break;
+			}
+			return true;
+		}
+
 		/// A popup opened from inside a PropertyGrid would draw with the grid's tight item spacing (the
 		/// style stack is global, popups included): its rows and the search box sat 2 px apart. These two
 		/// give the popup the normal spacing at any scale; draw the popup with them instead of Gui.BeginPopup.

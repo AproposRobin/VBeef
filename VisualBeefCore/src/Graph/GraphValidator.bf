@@ -241,11 +241,20 @@ namespace VisualBeef.Graph
 
 		static StringView Display(StringView typeName) => TypeRules.BaseName(typeName);
 
+		/// `String.AppendF`: it returns a Result<void> only to report a format string that does not
+		/// match its arguments, a mistake in the text itself that is found the first time the line
+		/// runs, not a failure to react to at run time. Nobody wires it, so it carries no note
+		/// (every other Result keeps its note).
+		static bool IsFormatCall(Node n)
+		{
+			return n.Text == "AppendF" && n.OwnerType != null && TypeRules.BaseName(n.OwnerType) == "String";
+		}
+
 		static void CheckCall(Graph g, Node n)
 		{
 			// A call that returns a Result (Ok / Err) whose return pin nothing reads: a failure
 			// goes by unseen. Nothing is wrong with the text, so this is a note, not an error.
-			if (n.Result != null && n.Result.TypeName.StartsWith("Result<") && g.FindLinkFrom(n.Result) == null)
+			if (n.Result != null && n.Result.TypeName.StartsWith("Result<") && g.FindLinkFrom(n.Result) == null && !IsFormatCall(n))
 				g.AddWarning(n, scope $"'{n.Text}' returns a {n.Result.TypeName} that nothing reads, so a failure goes unnoticed. Wire its return pin into a Result: match node to react to Ok and Err, or use the Try version of the function (it returns a bool and logs the failure).");
 			if (n.Ambiguous && n.Edited)
 			{

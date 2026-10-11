@@ -523,7 +523,7 @@ declarations at the top of its body, in order (`Graph.Locals`). They are not nod
   call**: `String name = scope .();`, with Arguments, or Initial Text for a String), **Initial
   Value** with the member variable controls (None, Number, True / false, Text, Member, `default`,
   `null`, `.()`, Expression), the declaration line, Delete Local Variable.
-* **Node menu**: *Variables | Locals* has Get and Set for each; there is no Local Variable node in
+* **Node menu**: *Variables | Local Variables* has Get and Set for each; there is no Local Variable node in
   the menu and no hotkey for one.
 * **Beef**: the declarations are written first, in list order, then the flow from the entry:
 
@@ -544,7 +544,7 @@ public bool TryGet(int64 key, out int value, out String name)
   `.()`, `new` / `scope` of a type with typed arguments, an operator or member read; not a call)
   are the local variables, written back byte for byte. The run stops at the first statement that
   is not one. A declaration later in the body stays as it was (a Local Variable node in the flow,
-  read only from code); its Properties offers **Move to Locals**, which declares it at the top
+  read only from code); its Properties offers **Move to Local Variables**, which declares it at the top
   instead. A move changes when the value is computed (before the statements that were above it),
   which can change what the program does, so it is only done when asked. The pin context menu's
   **Make local variable** adds a local variable from a pin (see [Editor-UI.md](Editor-UI.md#canvas)).

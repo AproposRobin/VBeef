@@ -1123,7 +1123,16 @@ namespace VisualBeef.Editor
 				bool inLib = owner != null && owner.IsNodeLibrary;
 				bool st = Mods.Has(m.Modifiers, "static") || inLib;
 				Gui.igBeginDisabled(m.IsDtor || inLib);
-				if (Gui.Checkbox("##fstatic", &st))
+				// A locked box is drawn grey (not the blue of one you can change).
+				if (inLib)
+				{
+					Gui.igPushStyleColor_U32(ColX.CheckboxSelectedBg, Look.Dropdown);
+					Gui.igPushStyleColor_U32(ColX.CheckMark, Look.ForegroundDim);
+				}
+				bool stClicked = Gui.Checkbox("##fstatic", &st);
+				if (inLib)
+					Gui.igPopStyleColor(2);
+				if (stClicked)
 				{
 					ClassEditResult(doc, doc.SetModifierWord(m, "static", st), "Static");
 					Gui.igEndDisabled();
@@ -1131,7 +1140,7 @@ namespace VisualBeef.Editor
 				}
 				Gui.igEndDisabled();
 				if (inLib && Gui.igIsItemHovered(1 << 10 /* AllowWhenDisabled */))
-					Gui.Tooltip(scope $"{owner.Name} is a Node Library: every function in it is static. Call it as {owner.Name}.{m.Name}(...).");
+					Gui.Tooltip(scope $"A Node Library is always static\n{owner.Name} is a Node Library: every function in it is static. Call it as {owner.Name}.{m.Name}(...).");
 			}
 			if (!accessor && !special && !m.IsMixin && !(owner != null && owner.IsNodeLibrary))
 			{

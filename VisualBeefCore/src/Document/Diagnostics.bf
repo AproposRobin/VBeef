@@ -343,11 +343,30 @@ namespace VisualBeef.Document
 			return node;
 		}
 
+		/// The key a breakpoint or message stores for `n`: the layout key of a node on the Sheet,
+		/// `local:name` for one of the function's Locals.
+		public static void KeyOf(Graph graph, Node n, String outKey)
+		{
+			if (graph.Locals.Contains(n))
+				outKey.AppendF("local:{}", n.Text);
+			else
+				LayoutKeys.Compose(n, outKey);
+		}
+
 		/// The node a saved layout key names (see LayoutKeys.Reconcile). `samePlaceEdited` also
 		/// accepts a different statement at the same structural place (an edited statement; right
 		/// for breakpoints, wrong for compiler messages, which describe the text they were about).
 		public static Node FindByKey(Graph graph, StringView nodeKey, bool samePlaceEdited = true)
 		{
+			// A function's Local Variable is not on the Sheet: its key is `local:` and its name.
+			if (nodeKey.StartsWith("local:"))
+			{
+				let name = nodeKey.Substring(6);
+				for (let l in graph.Locals)
+					if (l.Text == name)
+						return l;
+				return null;
+			}
 			String key = scope .();
 			for (let n in graph.Nodes)
 			{

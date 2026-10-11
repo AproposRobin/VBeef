@@ -1382,6 +1382,31 @@ namespace VisualBeef.Editor
 			return null;
 		}
 
+		/// Show's node at the zoom two steps out, the canvas centred `gx` / `gy` grid units from its corner
+		/// (negative `gx`: the node sits at the right of the canvas).
+		void SessionPinView(float gx, float gy, int32 zoomOut)
+		{
+			let mg = SessionOpen(mSessionPlan);
+			let show = FindNodeOf(mg.Graph, .Call, "Show");
+			if (show == null)
+				return;
+			CurrentTab.SelectOnly(show.Id);
+			SessionFrameSelection();
+			CurrentTab.ZoomLevel -= zoomOut;
+			CurrentTab.CenterOn(show.X + gx, show.Y + gy);
+		}
+
+		/// The pin named `name` of Show looks as if `text` were typed into it.
+		void SessionPinTyping(StringView name, StringView text)
+		{
+			let mg = SessionOpen(mSessionPlan);
+			let show = FindNodeOf(mg.Graph, .Call, "Show");
+			mGraphPanel.mPinEditor.SelfTestRelease();
+			for (let p in show.Inputs)
+				if (p.Name == name || p.Label == name)
+					mGraphPanel.mPinEditor.SelfTestType(p.Id, text);
+		}
+
 		/// Typed pin values and the one Switch node (docs/Editor-UI.md > Pin values): the controls are
 		/// ImGui widgets, so this drives the rules (PinValue) they call, then places a
 		/// `Switch on DayOfWeek` from a drag off an enum output and checks the Beef.
@@ -1519,24 +1544,54 @@ namespace VisualBeef.Editor
 				mSessionStep--;
 				if (!mSessionPinPanned)
 				{
-					// The frame lands a frame later; then the node moves up so all of it is above the bottom panel.
+					// The frame lands a frame later; then the node moves so its upper pins are in the canvas.
 					mSessionPinPanned = true;
-					CurrentTab.ZoomLevel -= 2;
+					SessionPinView(100, 70, 2);
 					mSessionWait = 3;
 					return false;
 				}
 				if (SelfTestShot("pins-values"))
 					mSessionStep++;
 			case 7:
-				// The dropdown, open on its first frame.
+				// The lower pins of the same node (the canvas is shorter than the node at 1280x800).
+				SessionPinView(100, 190, 2);
+				mSessionWait = 3;
+			case 8:
+				mSessionStep--;
+				if (SelfTestShot("pins-values-lower"))
+					mSessionStep++;
+			case 9:
+				// The node at the right edge of the canvas: its editors must not be cut by the edge.
+				SessionPinView(-200, 70, 2);
+				mSessionWait = 3;
+			case 10:
+				mSessionStep--;
+				if (SelfTestShot("pins-values-edge"))
+					mSessionStep++;
+			case 11:
+				// The dropdown, open on its first frame, at the right edge.
 				let mg = SessionOpen(mSessionPlan);
 				let show = FindNodeOf(mg.Graph, .Call, "Show");
 				mGraphPanel.mPinEditor.SelfTestOpenPin = FirstPinOf(show).Id;
-			case 8:
+			case 12:
+				mSessionStep--;
+				if (SelfTestShot("pins-enum-open-edge"))
+					mSessionStep++;
+			case 13:
+				mGraphPanel.mPinEditor.SelfTestOpenPin = 0;
+				mGraphPanel.mPinEditor.SelfTestClose = true;
+				SessionPinView(100, 70, 2);
+				mSessionWait = 3;
+			case 14:
+				// The dropdown, open on its first frame, in the middle of the canvas.
+				let mg = SessionOpen(mSessionPlan);
+				let show = FindNodeOf(mg.Graph, .Call, "Show");
+				mGraphPanel.mPinEditor.SelfTestOpenPin = FirstPinOf(show).Id;
+			case 15:
 				mSessionStep--;
 				if (SelfTestShot("pins-enum-open"))
 					mSessionStep++;
-			case 9:
+			case 16:
 				// A number the type cannot hold typed into `level` (uint8): the frame turns red.
 				mGraphPanel.mPinEditor.SelfTestOpenPin = 0;
 				mGraphPanel.mPinEditor.SelfTestClose = true;
@@ -1545,18 +1600,57 @@ namespace VisualBeef.Editor
 				for (let p in show.Inputs)
 					if (p.Name != "target" && p.TypeName == "uint8")
 						mGraphPanel.mPinEditor.SelfTestType(p.Id, "300");
-			case 10:
+			case 17:
 				mSessionStep--;
 				if (SelfTestShot("pins-refuse"))
 					mSessionStep++;
-			case 11:
+			case 18:
+				// A bool turned off.
+				mGraphPanel.mPinEditor.SelfTestRelease();
+				let mg = SessionOpen(mSessionPlan);
+				let show = FindNodeOf(mg.Graph, .Call, "Show");
+				BeginEdit();
+				for (let p in show.Inputs)
+					if ((p.Name == "loud" || p.Label == "loud"))
+						p.Default.Set("false");
+				show.Edited = true;
+				CommitCurrent();
+				mSessionWait = 3;
+			case 19:
+				mSessionStep--;
+				if (SelfTestShot("pins-bool-off"))
+					mSessionStep++;
+			case 20:
+				// A number (a float) being typed, a long one.
+				SessionPinView(100, 190, 2);
+				SessionPinTyping("scale", "12345.678f");
+				mSessionWait = 3;
+			case 21:
+				mSessionStep--;
+				if (SelfTestShot("pins-type-number"))
+					mSessionStep++;
+			case 22:
+				SessionPinTyping("mark", "x");
+				mSessionWait = 3;
+			case 23:
+				mSessionStep--;
+				if (SelfTestShot("pins-type-char"))
+					mSessionStep++;
+			case 24:
+				SessionPinTyping("name", "a much longer line of text than the field is wide");
+				mSessionWait = 3;
+			case 25:
+				mSessionStep--;
+				if (SelfTestShot("pins-type-string"))
+					mSessionStep++;
+			case 26:
 				mGraphPanel.mPinEditor.SelfTestRelease();
 				let mg = SessionOpen(mSessionPlan);
 				let sw = FindNodeOf(mg.Graph, .Switch);
 				if (sw != null)
 					CurrentTab.SelectOnly(sw.Id);
 				SessionFrameSelection();
-			case 12:
+			case 27:
 				mSessionStep--;
 				if (SelfTestShot("pins-switch"))
 					mSessionStep++;

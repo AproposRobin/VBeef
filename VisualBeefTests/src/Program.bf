@@ -396,6 +396,20 @@ namespace VisualBeef.Tests
 				String title = scope .();
 				node?.GetTitle(title);
 				msg.AppendF("\n    {} (line {}): {}", title, (node != null) ? node.Line : 0, e.Message);
+				if (sVerbose && node != null)
+				{
+					// The pins of the refused node and what feeds them (types as the graph holds them).
+					for (let p in node.Inputs)
+					{
+						let src = g.DataSource(p);
+						msg.AppendF("\n      in {} : {} = '{}'", p.Name, p.TypeName, p.Default);
+						if (src != null)
+						{
+							let from = g.FindLinkTo(p).From;
+							msg.AppendF(" <- {} [{}] {} : {}", src.Kind, src.Text, from.Name, from.TypeName);
+						}
+					}
+				}
 			}
 			Fail(path, scope $"{what} of {key} was refused:{msg}");
 		}
