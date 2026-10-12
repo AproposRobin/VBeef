@@ -7,11 +7,11 @@ using VisualBeef.Graph;
 
 namespace VisualBeef.Editor
 {
-	/// `VB_SELFTEST=attach` (with `VB_ATTACH_MODULE=Debuggee.exe`): Debug > Attach to Game on the
+	/// `VB_SELFTEST=attach` (with `VB_ATTACH_MODULE=Debuggee.exe`): Debug > Attach to Process on the
 	/// `Debuggee` fixture's workspace while the fixture runs as its own process (`Debuggee.exe loop`,
 	/// started by the caller). The dialog empty (a module no process has), then listing the
 	/// fixture with its symbol line; Attach; the stop on the Sleep node in Main's loop (red status,
-	/// game code rows collapsed, Locals); the frames expanded; the breakpoint removed and Continue
+	/// external code rows collapsed, Locals); the frames expanded; the breakpoint removed and Continue
 	/// (running); Detach (the process keeps running). Captures `attach-*` with VB_SHOTS.
 	extension EditorApp
 	{
@@ -72,13 +72,13 @@ namespace VisualBeef.Editor
 				OpenTab(mAttachTestMg);
 				ToggleBreakpoint(mAttachTestMg, mAttachTestNode);
 				// The empty list first: a module no process has.
-				mAttachModule.Set("VbNoSuchModule.dll");
+				mAttachModuleOverride.Set("VbNoSuchModule.dll");
 				OpenAttachDialog();
 				SelfTestCheck(mAttachList.IsEmpty, "attach 1: no process has the made-up module: the dialog says so");
 				mAttachTestShot.Set("attach-empty");
 			case 1:
 				mAttachClose = true;
-				mAttachModule.Clear(); // back to VB_ATTACH_MODULE
+				mAttachModuleOverride.Clear(); // back to VB_ATTACH_MODULE
 				mAttachTestFrames = 0;
 			case 2:
 				if (!AttachTestWait(!Gui.igIsPopupOpen_Str("", PopupFlags.AnyPopup)))
@@ -106,7 +106,7 @@ namespace VisualBeef.Editor
 				for (let f in mDebug.Frames)
 					if (!f.HasSource)
 						sourceless++;
-				SelfTestCheck(sourceless > 0 && !mExpandGameFrames, scope $"attach 4: {sourceless} frame(s) without source, drawn collapsed as game code");
+				SelfTestCheck(sourceless > 0 && !mExpandGameFrames, scope $"attach 4: {sourceless} frame(s) without source, drawn collapsed as external code");
 				EvalValue v = scope .();
 				SelfTestCheck(mDebug.Evaluate("g.mCount", DebugFrame, v) && v.Value == "3", scope $"attach 4: g.mCount = {v.Value}");
 				Panels.Focus(Panels.CallStackId);
@@ -132,7 +132,7 @@ namespace VisualBeef.Editor
 				}
 				mAttachTestFrames = 0;
 				Panels.Focus(Panels.DebugOutputId);
-				SelfTestCheck(IsAttached && !IsDebugStopped, "attach 7: Continue without the breakpoint: the game runs, still attached");
+				SelfTestCheck(IsAttached && !IsDebugStopped, "attach 7: Continue without the breakpoint: the process runs, still attached");
 				mAttachTestShot.Set("attach-running");
 			case 9:
 				StopDebugging();
@@ -152,11 +152,11 @@ namespace VisualBeef.Editor
 
 namespace VisualBeef.Editor
 {
-	/// `VB_SELFTEST=attachlive` with `VB_ATTACH_FILE=<the mod's ModMain.bf>`: the live proof in a
-	/// game started by the UMP launcher with the mod installed. A breakpoint on the first Branch of
-	/// the mod's Tick, Attach to Game on the first listed process, the stop (the game paused), the
-	/// call stack and locals logged, Step Over, the breakpoint removed and Continue, Detach (the
-	/// game keeps running). Captures `live-*` with VB_SHOTS. `[ATTACHLIVE]` lines log what was seen.
+	/// `VB_SELFTEST=attachlive` with `VB_ATTACH_FILE=<the project's main .bf>`: the live proof in a
+	/// program started by its host tool with the project's DLL loaded. A breakpoint on the first Branch of
+	/// the project's Tick, Attach to Process on the first listed process, the stop (the process
+	/// paused), the call stack and locals logged, Step Over, the breakpoint removed and Continue,
+	/// Detach (the process keeps running). Captures `live-*` with VB_SHOTS. `[ATTACHLIVE]` lines log what was seen.
 	extension EditorApp
 	{
 		int mLiveStep;
@@ -218,7 +218,7 @@ namespace VisualBeef.Editor
 				ToggleBreakpoint(mLiveMg, mLiveNode);
 				OpenAttachDialog();
 				let gp = AttachPicked();
-				SelfTestCheck(gp != null, scope $"attachlive 1: the dialog lists {mAttachList.Count} game(s) with {AttachModule} ({mAttachListMs:F0} ms)");
+				SelfTestCheck(gp != null, scope $"attachlive 1: the dialog lists {mAttachList.Count} process(es) with {AttachModule} ({mAttachListMs:F0} ms)");
 				if (gp == null)
 					return true;
 				mLivePid = gp.ProcessId;
@@ -233,7 +233,7 @@ namespace VisualBeef.Editor
 				mAttachTestShot.Set("live-dialog");
 			case 1:
 				mAttachClose = true;
-				SelfTestCheck(AttachDebug(mLivePid, AttachPicked()?.ExeName ?? "game"), "attachlive 2: Attach");
+				SelfTestCheck(AttachDebug(mLivePid, AttachPicked()?.ExeName ?? "process"), "attachlive 2: Attach");
 				mLiveFrames = 0;
 			case 2:
 				if (mLiveFrames % 300 == 299 && mDebug != null)
@@ -241,7 +241,7 @@ namespace VisualBeef.Editor
 						LiveNote(scope $"waiting: breakpoint {bp.File}:{bp.Line} bound={bp.Bound} at line {bp.BoundLine}");
 				if (!LiveWait(IsDebugStopped || !IsDebugging, 2400))
 					return false;
-				SelfTestCheck(IsAttached && IsDebugStopped && DebugStopNode == mLiveNode.Id, scope $"attachlive 3: the game stopped on the node in the mod's Tick ({mDebugStopWhere})");
+				SelfTestCheck(IsAttached && IsDebugStopped && DebugStopNode == mLiveNode.Id, scope $"attachlive 3: the process stopped on the node in the project's Tick ({mDebugStopWhere})");
 				if (!IsDebugStopped)
 					return true;
 				int gameRows = 0;
@@ -252,7 +252,7 @@ namespace VisualBeef.Editor
 					if (@f.Index < 12)
 						LiveNote(scope $"frame {@f.Index}: {f.Name} {f.File}:{f.Line}");
 				}
-				LiveNote(scope $"{mDebug.Frames.Count} frames, {gameRows} without source (game code)");
+				LiveNote(scope $"{mDebug.Frames.Count} frames, {gameRows} without source (external code)");
 				List<String> locals = scope .();
 				defer { ClearAndDeleteItems!(locals); }
 				mDebug.GetLocals(DebugFrame, locals);
@@ -280,7 +280,7 @@ namespace VisualBeef.Editor
 					return false;
 				LiveNote(scope $"after Step Over: {(IsDebugStopped ? mDebugStopWhere : "not stopped")} ({(mDebug.Frames.IsEmpty ? "" : mDebug.Frames[0].File)}:{(mDebug.Frames.IsEmpty ? 0 : mDebug.Frames[0].Line)})");
 				SelfTestCheck(IsDebugStopped, "attachlive 4: Step Over stops again in the mod");
-				// Remove the breakpoint (Tick runs every frame) and let the game run.
+				// Remove the breakpoint (Tick runs every frame) and let the process run.
 				ToggleBreakpoint(mLiveMg, mLiveNode);
 				if (IsDebugStopped)
 					mDebug.Continue();
@@ -292,7 +292,7 @@ namespace VisualBeef.Editor
 					return false;
 				}
 				mLiveFrames = 0;
-				SelfTestCheck(IsAttached && !IsDebugStopped, "attachlive 5: without the breakpoint the game runs on, still attached");
+				SelfTestCheck(IsAttached && !IsDebugStopped, "attachlive 5: without the breakpoint the process runs on, still attached");
 				Panels.Focus(Panels.DebugOutputId);
 				mAttachTestShot.Set("live-running");
 			case 7:
@@ -301,9 +301,9 @@ namespace VisualBeef.Editor
 			case 8:
 				if (!LiveWait(!IsDebugging, 3000))
 					return false;
-				SelfTestCheck(mDebug != null && mDebug.Detached && GameProcesses.IsRunning(mLivePid), "attachlive 6: Detach; the game keeps running");
+				SelfTestCheck(mDebug != null && mDebug.Detached && GameProcesses.IsRunning(mLivePid), "attachlive 6: Detach; the process keeps running");
 				if (mDebug != null)
-					LiveNote(scope $"first-chance exceptions of the game skipped while attached: {mDebug.SkippedExceptions}");
+					LiveNote(scope $"first-chance exceptions of the process skipped while attached: {mDebug.SkippedExceptions}");
 				mAttachTestShot.Set("live-detached");
 			default:
 				return true;

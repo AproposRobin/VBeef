@@ -142,7 +142,7 @@ two members one key, and committing either was refused (the 172 corlib round-tri
   `BF_ENABLE_REALTIME_LEAK_CHECK`, ...). An `#elif` is judged on its own condition. The Entry
   node's subtitle shows the arm (`#else BF_X (inactive in this build)`), and the Outline lists both
   twins with the arm, the inactive one dimmed.
-* Result: corlib `roundtrip` 3,774 methods, **0 failures** (was 172); the UMP and ClockWork runs
+* Result: corlib `roundtrip` 3,774 methods, **0 failures** (was 172); the mod-platform and ClockWork runs
   are unchanged.
 
 ## 3. Literals
@@ -236,7 +236,7 @@ methods of the property's type, so every accessor with a body is a graph like an
 accessors have no body and no graph. An indexer (`int this[int i] { ... }`) is a property with
 `IsIndexer`, `Name == "this"` and `Params`; it was a Raw member before.
 
-On the UMP corpus this makes 28 more graphs (1,078 -> 1,106 methods), on corlib 814; all round-trip
+On the mod-platform corpus this makes 28 more graphs (1,078 -> 1,106 methods), on corlib 814; all round-trip
 (`roundtrip`, `orphans`).
 
 The index (`ProjectIndex`, `SymbolStore` format 4) records `virtual`, `abstract` (also an

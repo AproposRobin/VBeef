@@ -95,8 +95,8 @@ Docked at the bottom (**Ctrl+Space** also opens it as a drawer).
   `static { }` blocks show up as a "Global functions" tile.
 - **+ Add** or right-click: New Folder, New Class, New Struct, New Enum, New Interface,
   New Beef File, New Project. A new type gets its own file (`Player.bf`) with the namespace
-  its neighbours use. The dialog also takes a **Template** (Empty class, or the UMP mod
-  `ModMain : UMPMod` with Initialize / Tick / Shutdown), **Derived from** (project and library
+  its neighbours use. The dialog also takes a **Template** (Empty class, or Node Library: a
+  static class of global functions and variables), **Derived from** (project and library
   types), **Interfaces** and **Implement missing members** (stubs for abstract and interface
   members); enums take an underlying type.
 - **Double-click** a folder to enter it, a class or struct to open it in the graph
@@ -112,6 +112,14 @@ Docked at the bottom (**Ctrl+Space** also opens it as a drawer).
 `Name/src/Program.bf` (console app, library or Windows app) and registers the project in the
 workspace's `BeefSpace.toml`, creating one if there isn't one yet. Compile and the Beef IDE
 see it straight away.
+
+The fourth type, **From template folder...**, makes a project from a template a tool or library
+provides (a folder with a `template.json`, [Host-Integration.md](Host-Integration.md)): a **Template
+folder** row with **Browse...**, the template's name and description under it, and one field per
+variable the template declares, filled with its defaults. The project name is a display name ("Hello
+Tool"); the folder is made from its letters and digits (`HelloTool`), and the dialog shows
+`Creates <folder>` and the first files before you press **Create Project**. A folder that exists
+already is refused. The new folder is opened as the project, on the template's main file.
 
 ### Many files at once
 
@@ -141,23 +149,23 @@ its libraries are indexed on a worker thread (`IndexJob`):
 - When it finishes, graphs of open files that you have not touched yet (no edit, no undo
   history, no moved node) are rebuilt so their pins get their types. Edited files keep their
   graphs as they are.
-- Generated SDKs inside the folder (`Sdks\ScreechSDK`, `Sdks\HogwartsLegacySDK` in the UMP
-  repository) are loaded as cached libraries, not parsed as project files. Opening
-  `<UnrealUMP>`: first time ever 11 s in the background (both SDKs are parsed in
+- Generated libraries inside the folder (two generated game SDKs in a mod platform's repository,
+  for example) are loaded as cached libraries, not parsed as project files. Opening such a
+  repository: first time ever 11 s in the background (both libraries are parsed in
   parallel and cached), every later open 0.4 s; it was 15-16 s on the UI thread, every time.
 - Rescans of the same folder (after creating, renaming, deleting files, or when the Content
   Browser notices a change on disk) are synchronous but incremental: only files whose size or
-  time changed are parsed (85 ms for the 266 UMP files when nothing changed).
+  time changed are parsed (85 ms for a 266-file repository when nothing changed).
 - The Output Log (category `Index`) records each run: files, time, libraries, cache hits.
 - The **node menu's catalog is built on the indexer too** (`NodeCatalog.Prebuild` right after the
-  libraries load). The UI thread only adopts it (renumbering categories: 2.0 ms for Screech's
-  75,208 entries, 3.8 ms for Hogwarts' 162,080, instead of 123 / 445 ms on the first menu open)
+  libraries load). The UI thread only adopts it (renumbering categories: 2.0 ms for the smaller
+  library's 75,208 entries, 3.8 ms for the larger one's 162,080, instead of 123 / 445 ms on the first menu open)
   and warms the category tree right away (7 / 21 ms, was 470 / 1,116 ms: children are looked up by
   name). The log line "Node catalog: ... built on the indexer in N ms; adopted in ..." shows it.
 - **Search in the node menu** waits until typing pauses for 80 ms (Enter, an emptied box and the
   first frame filter at once; the idle loop wakes for it), and a query that only adds characters
   searches the previous matches with their word scores reused: typing "get actor location" key by
-  key costs 228 ms in all on Screech (worst key 27 ms) and 508 ms on Hogwarts (worst 60 ms), was
+  key costs 228 ms in all on the smaller library (worst key 27 ms) and 508 ms on the larger (worst 60 ms), was
   485 / 1,101 ms (Debug build). Measured with `VisualBeefTests catalog-scale`.
 
 ### Find References, overloads, `#if` twins
@@ -192,9 +200,9 @@ The configuration is chosen with the dropdown next to **Compile** (or **Build >
 Configuration**) and remembered per workspace. Without a choice it is:
 
 1. the Editor Preferences default (Build > Default Configuration), when it is not Automatic;
-2. **Release** for a UMP mod (a `ModConfig.json` beside `BeefSpace.toml`): the game cannot load
-   a Debug mod (it imports `Beef042Dbg64.dll`), and the mod template copies its DLL into the
-   game's mod folder in Release only;
+2. the `configuration` the project's `.vbproject` names (a project made from a host's template, see
+   [Host-Integration.md](Host-Integration.md)): a host whose program cannot load a Debug DLL (it imports
+   `Beef042Dbg64.dll`) names Release there;
 3. the Beef IDE's last configuration (`LastConfig` in `BeefSpace_User.toml`);
 4. Debug.
 

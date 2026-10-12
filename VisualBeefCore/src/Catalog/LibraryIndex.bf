@@ -9,7 +9,7 @@ namespace VisualBeef.Catalog
 {
 	/// Just enough TOML for BeefSpace.toml / BeefProj.toml: `[Table]` headers, `key = "string"`,
 	/// and inline tables `key = {A = "*", B = {Path = "x"}}`. Values are flattened to dotted keys:
-	/// "Projects.UMPSDK.Path" = "UMPSDK", "Dependencies.corlib" = "*".
+	/// "Projects.GameKit.Path" = "GameKit", "Dependencies.corlib" = "*".
 	class MiniToml
 	{
 		public List<(String key, String value)> Entries = new .() ~ { for (let e in _) { delete e.key; delete e.value; } delete _; };
@@ -125,7 +125,7 @@ namespace VisualBeef.Catalog
 			return default;
 		}
 
-		/// Names directly under a table: Children("Projects") -> ["UMPSDK", "UMPJson", ...].
+		/// Names directly under a table: Children("Projects") -> ["GameKit", "JsonKit", ...].
 		public void Children(StringView table, List<StringView> outNames)
 		{
 			for (let e in Entries)
@@ -228,7 +228,7 @@ namespace VisualBeef.Catalog
 			var rel;
 			if (rel.Length >= 2 && (rel[1] == ':' || rel.StartsWith('/') || rel.StartsWith('\\')))
 			{
-				// Absolute (UMP writes `D:/.../sdk/<game>/<Project>`): one spelling for paths and cache keys.
+				// Absolute (a host may write `D:/.../libs/<Project>`): one spelling for paths and cache keys.
 				outPath.Set(rel);
 				outPath.Replace('/', '\\');
 #if !BF_PLATFORM_WINDOWS
@@ -316,9 +316,10 @@ namespace VisualBeef.Catalog
 		/// Libraries the folder's projects use: corlib always, the dependencies named in every
 		/// BeefProj.toml of the workspace (transitively), resolved to workspace projects outside the
 		/// folder or to BeefLibs. Projects inside `folder` are skipped (the project index has them),
-		/// except `generatedDirs`: generated library projects under the folder (game SDKs, see
+		/// except `generatedDirs`: generated library projects under the folder (see
 		/// ProjectIndex.IsGeneratedLibrary), which are loaded as libraries first, and generated
 		/// libraries a dependency path points at inside the folder that the scan did not reach.
+		/// The libraries the folder's `.vbproject` names (docs/Host-Integration.md) are added too.
 		public static void Discover(StringView folder, List<LibraryRef> outLibs, List<String> generatedDirs = null)
 		{
 			String libsDir = scope .();
@@ -412,7 +413,7 @@ namespace VisualBeef.Catalog
 				{
 					if (IsUnder(wsDir, folder))
 					{
-						// Part of the project index already, unless it is a generated library (a game SDK) the
+						// Part of the project index already, unless it is a generated library the
 						// project scan did not reach (under `build`, a dot folder, deeper than the scan): a
 						// dependency path pointing at it still loads it as a cached library.
 						if (!ProjectIndex.IsGeneratedLibrary(wsDir))
@@ -435,6 +436,33 @@ namespace VisualBeef.Catalog
 				lib.Dir.Set(dir);
 				outLibs.Add(lib);
 				AddDepsOf(dir);
+			}
+
+			// Libraries the project manifest names that the workspace does not list.
+			VisualBeef.Document.ProjectManifest manifest = scope .();
+			if (manifest.Read(folder) && !manifest.Libraries.IsEmpty)
+			{
+				List<String> dirs = scope .();
+				defer { ClearAndDeleteItems!(dirs); }
+				manifest.LibraryDirs(folder, dirs);
+				for (let d in dirs)
+				{
+					if (!Directory.Exists(d))
+						continue;
+					bool known = false;
+					for (let l in outLibs)
+						if (ProjectIndex.SamePath(l.Dir, d))
+							known = true;
+					String name = scope .();
+					ProjectName(d, name);
+					if (known || seen.Contains(name) || IsUnder(folder, d))
+						continue;
+					seen.Add(new String(name));
+					LibraryRef lib = new .();
+					lib.Name.Set(name);
+					lib.Dir.Set(d);
+					outLibs.Add(lib);
+				}
 			}
 		}
 

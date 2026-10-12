@@ -4,19 +4,19 @@ using System.IO;
 
 namespace VisualBeef.Debug
 {
-	/// A running process the debugger can attach to (Debug > Attach to game...).
+	/// A running process the debugger can attach to (Debug > Attach to Process...).
 	class GameProcess
 	{
 		public int32 ProcessId;
-		/// "HogwartsLegacy.exe".
+		/// "Game.exe".
 		public String ExeName = new .() ~ delete _;
-		/// Full paths of the DLLs loaded from a UMP mods folder (`...\mods\<game>\<id>\X.dll`).
+		/// Full paths of the project modules it has loaded (the ones `Find` was asked about).
 		public List<String> Mods = new .() ~ DeleteContainerAndItems!(_);
 	}
 
 	/// The symbol file a DLL or EXE names in its debug directory (the CodeView record the linker
 	/// writes: the PDB's full path at build time, its GUID and age). The debugger engine reads the
-	/// PDB from that path, so a mod DLL copied into the launcher's mods folder still finds the PDB
+	/// PDB from that path, so a DLL a host copied into its own folders still finds the PDB
 	/// next to its build output.
 	class SymbolInfo
 	{
@@ -108,13 +108,11 @@ namespace VisualBeef.Debug
 		}
 	}
 
-	/// Finds the processes a visual mod can be debugged in: the ones with the UMP runtime
-	/// (`UMPRuntime.dll`) loaded, by listing each process's modules with the Win32 tool help
-	/// snapshot (no file system scan).
+	/// Finds the processes a project can be debugged in: the ones with a given module loaded (the
+	/// module the project's `.vbproject` names under `attach`, else the project's own DLL), by
+	/// listing each process's modules with the Win32 tool help snapshot (no file system scan).
 	static class GameProcesses
 	{
-		public const String RuntimeModule = "UMPRuntime.dll";
-
 #if BF_PLATFORM_WINDOWS
 		[CRepr]
 		struct PROCESSENTRY32W
@@ -185,8 +183,9 @@ namespace VisualBeef.Debug
 		}
 #endif
 
-		/// Every process with `moduleName` loaded (the UMP runtime by default), sorted by name.
-		public static void Find(List<GameProcess> outList, StringView moduleName = RuntimeModule)
+		/// Every process with `moduleName` loaded, sorted by name. `projectModules` (file names) are
+		/// recorded in `GameProcess.Mods` when the process has them loaded.
+		public static void Find(List<GameProcess> outList, StringView moduleName, Span<StringView> projectModules = default)
 		{
 #if BF_PLATFORM_WINDOWS
 			let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -217,8 +216,9 @@ namespace VisualBeef.Debug
 				gp.ProcessId = (int32)pid;
 				Wide(&pe.szExeFile, 260, gp.ExeName);
 				for (let m in modules)
-					if (IsModPath(m))
-						gp.Mods.Add(new String(m));
+					for (let want in projectModules)
+						if (!want.IsEmpty && FileNameIs(m, want))
+							gp.Mods.Add(new String(m));
 				outList.Add(gp);
 			}
 			while (Process32NextW(snap, &pe) != 0);
@@ -268,15 +268,6 @@ namespace VisualBeef.Debug
 				}
 			}
 			return false;
-		}
-
-		/// A DLL loaded from a UMP mods folder (`...\mods\<game>\<id>\X.dll`).
-		public static bool IsModPath(StringView path)
-		{
-			String lower = scope .(path);
-			lower.ToLower();
-			lower.Replace('/', '\\');
-			return lower.EndsWith(".dll") && lower.Contains("\\mods\\");
 		}
 
 		public static bool FileNameIs(StringView path, StringView name)

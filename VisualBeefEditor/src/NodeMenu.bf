@@ -535,7 +535,7 @@ namespace VisualBeef.Editor
 			Add(.Construct, "Lifetime", "Construct Array  (new T[n])", "int", "new", "array").Tooltip.Set("new int[n] - an array of Count elements; set the element type in Properties");
 			Add(.Delete, "Lifetime", "Delete", "delete").Tooltip.Set("delete obj; - frees an object made with new");
 			Add(.Defer, "Lifetime", "Defer").Tooltip.Set("defer { Deferred } - runs Deferred when the block ends (the last Defer runs first)");
-			Add(.Using, "Lifetime", "Using").Tooltip.Set("using (Value) { Body } - disposes Value when Body ends (UMP's lock idiom: using (lock.Enter()))");
+			Add(.Using, "Lifetime", "Using").Tooltip.Set("using (Value) { Body } - disposes Value when Body ends (the lock idiom: using (lock.Enter()))");
 			Add(.ResultMatch, "Lifetime", "Result: match", "Ok").Tooltip.Set("if (Result case .Ok(let value)) { Ok } else { Err } - Value is set in the Ok arm");
 			Add(.ResultMatch, "Lifetime", "Result: match Err", "Err").Tooltip.Set("if (Result case .Err) { Err } else { Ok }");
 		}

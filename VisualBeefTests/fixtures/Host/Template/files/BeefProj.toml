@@ -1,0 +1,7 @@
+FileVersion = 1
+Dependencies = {corlib = "*", FixtureKit = "*"}
+
+[Project]
+Name = "@@Identifier@@"
+TargetType = "BeefConsoleApplication"
+StartupObject = "@@Identifier@@.Program"

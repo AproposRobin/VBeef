@@ -28,16 +28,16 @@ straight to a page if you know what you need.
 | 7 | [Flow-Nodes.md](Flow-Nodes.md) | Switch, Sequence, Do Once, Do N, Flip Flop, Gate, Multi Gate, loops with Break | 10 min |
 | 7a | [Math-Expression.md](Math-Expression.md) | A formula typed on one node: its inputs, Result type, checks, the `#math` side-file record | 5 min |
 | 7b | [Calls-and-Receivers.md](Calls-and-Receivers.md) | Member calls and their Receiver / this, static calls, the This node, out and ref pins, GraphValidator's errors | 15 min |
-| 7c | [Lifetime-Nodes.md](Lifetime-Nodes.md) | `new` / `scope` (Construct), Delete, Defer, Using, `case .Ok(let v)` (Result: match), the lifetime rules, coverage on UMP code | 10 min |
-| 7d | [Classes-and-Members.md](Classes-and-Members.md) | Type Settings, parents and interfaces, overrides and stubs, the Base node, properties / indexers / constructors as graphs, project-wide renames, new types and the UMP mod template | 15 min |
+| 7c | [Lifetime-Nodes.md](Lifetime-Nodes.md) | `new` / `scope` (Construct), Delete, Defer, Using, `case .Ok(let v)` (Result: match), the lifetime rules, coverage on a large real code base | 10 min |
+| 7d | [Classes-and-Members.md](Classes-and-Members.md) | Type Settings, parents and interfaces, overrides and stubs, the Base node, properties / indexers / constructors as graphs, project-wide renames, new types and the class templates | 15 min |
 | 8 | [Catalog-and-Types.md](Catalog-and-Types.md) | How nodes are found and pins typed without a compiler; the node menu's data | 15 min |
 | 9 | [Node-Attributes.md](Node-Attributes.md) | Tagging your own code (`[Node]`, `[Pure]`, ...) to decide what becomes a node | 10 min |
-| 9b | [Debugging.md](Debugging.md) | Breakpoints on nodes, Start Debugging, stepping, pin values, Locals, Call Stack; how Beef's debugger engine is used; phase 2 (attach for UMP mods) | 10 min |
+| 9b | [Debugging.md](Debugging.md) | Breakpoints on nodes, Start Debugging, stepping, pin values, Locals, Call Stack; how Beef's debugger engine is used; phase 2 (attach to a running process) | 10 min |
 | 10 | [Files-and-Safety.md](Files-and-Safety.md) | What is written when; atomic saves, conflicts, read-only mode, delete, undo | 10 min |
 | 11 | [Testing.md](Testing.md) | Every `VisualBeefTests` command, expected counts, how to add a case | 10 min |
 | - | [CI.md](CI.md), [Code-Signing.md](Code-Signing.md) | Build and release automation, release integrity (unsigned releases, build attestations, checksums) | 10 min |
 | - | [Updating.md](Updating.md), [Releasing.md](Releasing.md) | How the editor updates itself from GitHub Releases; the signing key, signing and publishing `release.json` | 10 min |
-| 11b | [UMP-Integration.md](UMP-Integration.md) | How UnrealUMP launches VisualBeef: command line, exit codes, `.vbproject`, `--new-ump-mod`, game SDKs as node libraries, files needed at run time | 10 min |
+| 11b | [Host-Integration.md](Host-Integration.md) | How a host tool starts VisualBeef: command line, exit codes, `template.json`, `.vbproject`, node libraries declared by attributes, `host-install.json` | 10 min |
 
 Reference: [CHANGELOG.md](CHANGELOG.md) (what changed and when) and [../THIRD_PARTY.md](../THIRD_PARTY.md) (licences of
 bundled components).

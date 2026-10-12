@@ -247,7 +247,7 @@ namespace VisualBeef.Editor
 
 		// ---------------------------------------------------------------- compile configuration
 
-		/// "Debug" / "Release" for the workspace, and why ("your choice", "UMP mod", ...).
+		/// "Debug" / "Release" for the workspace, and why ("your choice", "the project's .vbproject", ...).
 		public void ResolveCompileConfig(StringView workspaceDir, String outConfig, String outReason = null)
 		{
 			let chosen = Settings.ProjectValue(workspaceDir, "config");
@@ -263,15 +263,14 @@ namespace VisualBeef.Editor
 				outReason?.Set("Editor Preferences default");
 				return;
 			}
-			String probe = scope .();
-			probe.AppendF("{}{}ModConfig.json", workspaceDir, Path.DirectorySeparatorChar);
-			if (File.Exists(probe))
+			ProjectManifest manifest = scope .();
+			if (manifest.Read(workspaceDir) && (manifest.Configuration == "Debug" || manifest.Configuration == "Release"))
 			{
-				outConfig.Set("Release");
-				outReason?.Set("UMP mod (ModConfig.json): the game loads Release builds only");
+				outConfig.Set(manifest.Configuration);
+				outReason?.Set(manifest.Host.IsEmpty ? "named by the project's .vbproject" : scope $"named by the project's .vbproject ({manifest.Host})");
 				return;
 			}
-			probe.Clear();
+			String probe = scope .();
 			probe.AppendF("{}{}BeefSpace_User.toml", workspaceDir, Path.DirectorySeparatorChar);
 			MiniToml user = scope .();
 			if (MiniToml.Load(probe, user))

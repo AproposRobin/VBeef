@@ -11,8 +11,13 @@ namespace VisualBeef.Tests
 	///   VisualBeefTests vocabulary [<repo-root>] [-v]
 	///
 	/// A hit is a whole word (letters, digits and `_` around it do not count, so `SelfTest`,
-	/// `TargetType` or `BlueprintType` are not hits). The allow-list holds only Beef keywords,
-	/// internal ids that are never shown, and the SDK's own names.
+	/// `TargetType` or `BlueprintType` are not hits). The allow-list holds only Beef keywords
+	/// and internal ids that are never shown.
+	///
+	/// The host rule (docs/Host-Integration.md): VisualBeef is a standalone editor that host tools
+	/// integrate through a generic contract, so no host product is named anywhere: not in the
+	/// sources (comments included), the test fixtures, the scripts or the docs (CHANGELOG.md, the
+	/// history, is exempt). The words are below in `sHostWords`; this file is the only exemption.
 	static class VocabularyTests
 	{
 		struct Lit
@@ -36,8 +41,16 @@ namespace VisualBeef.Tests
 		/// type rules compare against, and the pin ids (`target`, `exec`) the layout hashes keep.
 		static StringView[?] sAllowedLiterals = .("target", "target=", "exec", "Self", "SelfBase", "Action<");
 
-		/// Substrings that make a literal belong to the SDK / game data.
-		static StringView[?] sAllowedParts = .("UnrealUMP", "Universal Unreal Mod Platform");
+		/// Substrings that make a literal acceptable whole (none today).
+		static StringView[?] sAllowedParts = .();
+
+		/// The host rule's whole words and phrases (case-insensitive), and the identifier prefixes
+		/// (case-sensitive, followed by an upper-case letter: a type or member named after the host).
+		static StringView[?] sHostWords = .("ump", "unrealump", "universalump", "universal unreal mod platform");
+		static StringView[?] sHostPrefixes = .("UMP", "Ump");
+		/// The one exact token the host rule allows: the deprecated command-line option kept for one
+		/// release (EditorArgs.DeprecatedNewOption).
+		const String cHostAllowedToken = "--new-ump-mod";
 
 		/// Docs that record history or the mapping itself.
 		static StringView[?] sExcludedDocs = .("CHANGELOG.md", "Roadmap.md", "Vocabulary.md", "udit-2026-10-10.md");
@@ -324,10 +337,117 @@ namespace VisualBeef.Tests
 					line++;
 					String term = scope .();
 					String scrubbed = scope .(l);
-					scrubbed.Replace("UnrealUMP.Unreal", ""); // the game SDK's namespace
-					scrubbed.Replace("UnrealUMP|Unreal", ""); // and its node category
-					scrubbed.Replace("Universal Unreal Mod Platform", ""); // the modding platform's product name
 					FindBanned(scrubbed, term);
+					if (!term.IsEmpty)
+					{
+						String shown = scope .(l);
+						shown.Trim();
+						if (shown.Length > 90)
+							shown.RemoveToEnd(90);
+						Fail(f, line, term, shown);
+						hits++;
+					}
+				}
+			}
+			return hits;
+		}
+
+		// ------------------------------------------------------------------ host rule
+
+		/// The first host word or host-named identifier in `text`, or empty.
+		public static void FindHostWord(StringView textIn, String outTerm)
+		{
+			String text = scope .(textIn);
+			text.Replace(cHostAllowedToken, "");
+			String lower = scope .(text);
+			lower.ToLower();
+			for (let w in sHostWords)
+				if (HasWord(lower, w))
+				{
+					outTerm.Set(w);
+					return;
+				}
+			for (let p in sHostPrefixes)
+			{
+				int from = 0;
+				while (true)
+				{
+					int at = text.IndexOf(p, from);
+					if (at < 0)
+						break;
+					int end = at + p.Length;
+					if ((at == 0 || !IsWordChar(text[at - 1])) && end < text.Length && text[end].IsUpper)
+					{
+						int stop = end;
+						while (stop < text.Length && IsWordChar(text[stop]))
+							stop++;
+						outTerm.Set(StringView(text, at, stop - at));
+						return;
+					}
+					from = at + 1;
+				}
+			}
+		}
+
+		static void CollectAll(StringView dir, List<String> files)
+		{
+			if (!Directory.Exists(dir))
+				return;
+			for (let e in Directory.Enumerate(scope $"{dir}/*", .Files | .Directories))
+			{
+				String path = scope .();
+				e.GetFilePath(path);
+				String name = scope .();
+				e.GetFileName(name);
+				if (e.IsDirectory)
+				{
+					if (name == "build" || name == "dist" || name == "node_modules" || name.StartsWith('.'))
+						continue;
+					CollectAll(path, files);
+				}
+				else
+				{
+					String ext = scope .();
+					Path.GetExtension(name, ext);
+					ext.ToLower();
+					switch (ext)
+					{
+					case ".bf", ".md", ".toml", ".json", ".txt", ".ps1", ".sh", ".mjs", ".js", ".yml", ".desktop", "":
+						files.Add(new String(path));
+					default:
+					}
+				}
+			}
+		}
+
+		/// Every line of the sources (comments included), fixtures, scripts, packaging and docs.
+		static int ScanHost(StringView root, ref int fileCount)
+		{
+			List<String> files = scope .();
+			defer { for (let f in files) delete f; }
+			for (let sub in StringView[?]("VisualBeefCore", "VisualBeefEditor", "VisualBeefMeta", "VisualBeefTests", "docs", "scripts", "packaging", ".github"))
+				CollectAll(scope $"{root}/{sub}", files);
+			for (let top in StringView[?]("README.md", "CONTRIBUTING.md", "SECURITY.md", "NOTICE", "THIRD_PARTY.md", "BeefSpace.toml"))
+			{
+				String p = scope $"{root}/{top}";
+				if (File.Exists(p))
+					files.Add(new String(p));
+			}
+			int hits = 0;
+			for (let f in files)
+			{
+				if (f.EndsWith("CHANGELOG.md") || f.EndsWith("VocabularyTests.bf"))
+					continue;
+				String text = scope .();
+				if (File.ReadAllText(f, text, true) case .Err)
+					continue;
+				fileCount++;
+				int line = 0;
+				for (let l in text.Split('\n'))
+				{
+					line++;
+					String term = scope .();
+					FindHostWord(l, term);
 					if (!term.IsEmpty)
 					{
 						String shown = scope .(l);
@@ -383,6 +503,18 @@ namespace VisualBeef.Tests
 			t.Clear();
 			FindBanned("Pure Function Call", t);
 			Check(t == "pure function", "a banned phrase is found");
+			for (let probe in StringView[?]("a UMP mod", "UmpContract = 1", "uses UMPSDK", "UnrealUMP.exe", "the Universal Unreal Mod Platform page"))
+			{
+				t.Clear();
+				FindHostWord(probe, t);
+				Check(!t.IsEmpty, scope $"the host rule finds '{probe}' ({t})");
+			}
+			for (let probe in StringView[?]("jump, dump, Bump", "pump_x", "run --new-ump-mod once", "ump3"))
+			{
+				t.Clear();
+				FindHostWord(probe, t);
+				Check(t.IsEmpty, scope $"the host rule leaves '{probe}' alone ({t})");
+			}
 		}
 
 		public static int Run(String[] args)
@@ -405,7 +537,10 @@ namespace VisualBeef.Tests
 			hits += ScanSources(root, "VisualBeefMeta/src", ref files, ref lits);
 			int docs = 0;
 			hits += ScanDocs(root, ref docs);
-			Console.WriteLine("vocabulary: source files={} string literals={} docs={} hits={} failures={}", files, lits, docs, hits, sFailures);
+			int hostFiles = 0;
+			int hostHits = ScanHost(root, ref hostFiles);
+			hits += hostHits;
+			Console.WriteLine("vocabulary: source files={} string literals={} docs={} host-rule files={} host-rule hits={} hits={} failures={}", files, lits, docs, hostFiles, hostHits, hits, sFailures);
 			return sFailures;
 		}
 	}

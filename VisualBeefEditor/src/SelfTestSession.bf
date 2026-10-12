@@ -1247,7 +1247,7 @@ namespace VisualBeef.Editor
 				String src = scope .();
 				src.AppendF("{}{}src", mProjectRoot, Path.DirectorySeparatorChar);
 				ResetCreateTypeOptions();
-				mCBNewTemplate = 2;
+				mCBNewTemplate = 1;
 				CreateAsset(.Library, src, "Tools");
 				mSessionLibPath.Clear();
 				mSessionLibPath.AppendF("{}{}Tools.bf", src, Path.DirectorySeparatorChar);

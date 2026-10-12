@@ -75,18 +75,22 @@ namespace VisualBeef.Editor
 				Console.WriteLine(text);
 		}
 
-		/// Command line before any window (docs/UMP-Integration.md): --version / --help / usage errors exit here;
-		/// --new-ump-mod writes its files here so a failure is an exit code, not a dialog. -1 = carry on.
+		/// Command line before any window (docs/Host-Integration.md): --version / --help / usage errors exit here;
+		/// --new-from-template writes its files here so a failure is an exit code, not a dialog. -1 = carry on.
 		static int PrepareArgs(String[] args, EditorArgs parsed, String root, String file)
 		{
 			EditorArgs.Parse(args, parsed);
+			if (!parsed.Deprecation.IsEmpty)
+				ConsoleOut(parsed.Deprecation, true);
 			switch (parsed.Action)
 			{
 			case .PrintHelp:
 				ConsoleOut(EditorArgs.Usage);
 				return EditorArgs.ExitOk;
 			case .PrintVersion:
-				ConsoleOut(scope $"{VisualBeefInfo.Name} {VisualBeefInfo.Version}-{VisualBeefInfo.Channel} (UMP contract {VisualBeefInfo.UmpContract})");
+				String line = scope .();
+				VisualBeefInfo.VersionLine(line);
+				ConsoleOut(line);
 				return EditorArgs.ExitOk;
 			case .Usage:
 				ConsoleOut(scope $"VisualBeef: {parsed.Error}\n\n{EditorArgs.Usage}", true);
@@ -96,26 +100,24 @@ namespace VisualBeef.Editor
 			if (parsed.IsEmpty)
 				return -1;
 			String error = scope .();
+			if (parsed.NewFromTemplate)
+			{
+				List<String> lines = scope .();
+				defer { ClearAndDeleteItems!(lines); }
+				let code = ProjectContract.WriteFromTemplate(parsed, root, file, lines, error);
+				for (let l in lines)
+					ConsoleOut(l);
+				if (code >= 0)
+				{
+					ConsoleOut(scope $"VisualBeef: {error}", true);
+					return code;
+				}
+				return parsed.NoOpen ? EditorArgs.ExitOk : -1;
+			}
 			if (!ProjectContract.ResolveTarget(parsed.Path, parsed.File, root, file, error))
 			{
 				ConsoleOut(scope $"VisualBeef: {error}", true);
 				return EditorArgs.ExitUsage;
-			}
-			if (parsed.NewUmpMod)
-			{
-				if (file.IsEmpty)
-					file.Set(scope $"{root}{System.IO.Path.DirectorySeparatorChar}{ProjectContract.DefaultMain}");
-				List<String> created = scope .();
-				defer { ClearAndDeleteItems!(created); }
-				if (ProjectContract.WriteUmpMod(parsed, root, file, created, error) case .Err)
-				{
-					ConsoleOut(scope $"VisualBeef: {error}", true);
-					return EditorArgs.ExitFailed;
-				}
-				for (let c in created)
-					ConsoleOut(scope $"Created {c}");
-				if (created.IsEmpty)
-					ConsoleOut(scope $"{file} exists; not overwritten");
 			}
 			return -1;
 		}

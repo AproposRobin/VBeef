@@ -47,7 +47,7 @@ The steps are implemented in `scripts/ci-windows.ps1`, so the workflow and the l
 5. **build**: `BeefBuild` for `VisualBeefTests` (Debug, the configuration `docs/Testing.md` uses), and
    `VisualBeefCore` and `VisualBeefTests` in Release. The editor itself is built by the package step.
 6. **test**: every suite that needs no outside source corpus, one at a time: `edits flow calls lifetime textforms
-   classes safety parser catalog diagnostics hotkeys update ump vocabulary stress compile debug`, then `edits classes
+   classes safety parser catalog diagnostics hotkeys update host vocabulary stress compile debug`, then `edits classes
    parser safety stress update` again on the Release build (a bug that only shows in Release, such as a delete of a
    scope-allocated object, is caught there). The table is written to the job summary. The corpus suites
    (`roundtrip`, `orphans`, `loadall`, `savecheck`, `debugmap`, `inits`) read other projects' sources and are run by

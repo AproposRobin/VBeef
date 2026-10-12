@@ -9,6 +9,42 @@ order: 25
 
 Newest first. Dates are commit dates; commit ids refer to the development history before the public repository was created.
 
+## Unreleased: generic host contract (VisualBeef no longer names UMP)
+
+VisualBeef was bound to one host, UMP (UnrealUMP / Universal Unreal Mod Platform). It now has one
+generic contract any host tool uses (docs/Host-Integration.md, replacing docs/UMP-Integration.md),
+and nothing outside this changelog names a host.
+
+- `--version` prints `(host contract 1)` (`VisualBeefInfo.HostContract`, was `UmpContract`).
+- New `--new-from-template <template folder> <destination> [--name N] [--var KEY=VALUE]... [--no-open]`:
+  a project from any template folder (`template.json`: name, description, host, variables, files with
+  `@@Key@@` / `@@Key:str@@` substitutions, main, configuration, attach, libraries; never overwrites).
+  `--new-ump-mod` is a hidden deprecated alias for one release: it prints a deprecation line and maps
+  onto `--new-from-template` (with `--template <folder>`) or onto a plain open.
+- `UmpModProject.bf` (UMP folder names, UMPSDK / BJSON fallbacks, ModConfig.json, `MakeUMPMod`) is
+  replaced by `ProjectKind.bf`: `ProjectManifest` (`.vbproject`: kind, template, host, main,
+  configuration, attach, libraries), `TemplateManifest`, `ProjectKind`. Libraries come from the
+  workspace's BeefSpace.toml and the manifest's `libraries`.
+- File > New Project: "UMP Mod" became **From template folder...** (Template folder row, the
+  template's variables as fields). Create Asset's "UMP Mod" class template is gone.
+- Node libraries: `[NodeLibrary("Display Name")]` (DisplayName, Category, Tooltip) and the new
+  `[CallbackNode]` (Role Register / Remove / Original, Callback parameter) for callback-shaped APIs
+  (what the hook nodes of a generated game SDK need). Symbol cache version 5.
+- Default compile configuration: `configuration` of `.vbproject` (was: Release when ModConfig.json
+  sits beside BeefSpace.toml).
+- Debug > Attach to Game is **Attach to Process**: the module comes from `attach.module` of
+  `.vbproject`, else the project's own output (was `UMPRuntime.dll`); the debugger's "game code" rows
+  are "external code".
+- Updates: `host-install.json` beside the exe marks a copy a host keeps up to date (was: a
+  `tools\VisualBeef` folder beside `UnrealUMP.exe`).
+- Tests: suite `ump` -> `host` (76 checks, fixtures in VisualBeefTests/fixtures/Host); `catalog` + 5 checks
+  (`[NodeLibrary]` display name, `[CallbackNode]`); `classes` uses a generic base class;
+  `VB_SELFTEST=modauthor` -> `VB_SELFTEST=host`; `vocabulary` bans UMP, UnrealUMP, UniversalUMP and
+  "Universal Unreal Mod Platform" (and UMP-/Ump-prefixed identifiers) in every source, fixture, script
+  and doc except this changelog. `catalog-scale` takes the library folder or `VB_SCALE_LIB`.
+- `scripts/release.mjs`: the default signing key is `VB_RELEASE_KEY`, else
+  `%USERPROFILE%\.visualbeef\vb-release-signing.key`.
+
 ## 0.2.2-alpha
 
 - Updates: an Install button on Editor Preferences > Updates, the Help menu says "Update to X..." when a version is available, a status bar item opens the Updates page, and "Later" hides the notice for the current session only.

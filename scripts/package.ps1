@@ -4,8 +4,7 @@
 
 .DESCRIPTION
   Output: dist\VisualBeef\ and dist\VisualBeef-<version>-win64.zip (+ .sha256).
-  The folder is what UnrealUMP copies to tools\VisualBeef\ (UnrealUMP scripts\package.ps1 -VisualBeef) and what a
-  standalone user unzips: VisualBeefEditor.exe, vbhost.dll (the native ImGui/SDL2 host, beside the exe),
+  The folder is what a standalone user unzips and what a host tool installs (docs/Host-Integration.md): VisualBeefEditor.exe, vbhost.dll (the native ImGui/SDL2 host, beside the exe),
   assets\fonts\lucide.ttf, LICENSE, NOTICE, THIRD_PARTY.md, THIRD_PARTY\ (licence texts), docs\ (the user pages only, see below) and
   VERSION.txt (the version from VisualBeefInfo). The Beef runtime is linked statically, so no Beef DLL ships.
 
@@ -164,7 +163,7 @@ if (-not $Minimal) {
 }
 # Check the produced folder: every page in it is a user page, and the developer pages named in the rule are absent.
 if (-not $Minimal) {
-    $denied = @('Architecture.md', 'Testing.md', 'CI.md', 'Code-Signing.md', 'Releasing.md', 'Codegen.md', 'Parsing-and-Layout.md', 'Catalog-and-Types.md', 'Linux.md', 'Roadmap.md', 'UMP-Integration.md', 'Vocabulary.md', 'CHANGELOG.md', 'README.md')
+    $denied = @('Architecture.md', 'Testing.md', 'CI.md', 'Code-Signing.md', 'Releasing.md', 'Codegen.md', 'Parsing-and-Layout.md', 'Catalog-and-Types.md', 'Linux.md', 'Roadmap.md', 'Host-Integration.md', 'Vocabulary.md', 'CHANGELOG.md', 'README.md')
     foreach ($shipped in Get-ChildItem (Join-Path $Out "docs") -Filter *.md) {
         if ($denied -contains $shipped.Name -or $shipped.Name -like '*Audit*') { throw "developer page in the package: docs\$($shipped.Name)" }
         $head = @(Get-Content -LiteralPath $shipped.FullName -TotalCount 6 -Encoding UTF8) -join "`n"
@@ -184,7 +183,7 @@ try {
     $reported = (Get-Content $vOut -TotalCount 1 -ErrorAction SilentlyContinue | Out-String).Trim()
 }
 finally { Remove-Item -Force -ErrorAction SilentlyContinue $vOut }
-if ($reported -notlike "VisualBeef $FullVersion (UMP contract *") { throw "VisualBeefEditor.exe --version printed '$reported', expected 'VisualBeef $FullVersion (UMP contract n)'" }
+if ($reported -notlike "VisualBeef $FullVersion (host contract *") { throw "VisualBeefEditor.exe --version printed '$reported', expected 'VisualBeef $FullVersion (host contract n)'" }
 
 # Zip: written with System.IO.Compression so entry names use "/" (Compress-Archive in PowerShell 5.1 writes "\").
 New-Item -ItemType Directory -Force $ZipDir | Out-Null

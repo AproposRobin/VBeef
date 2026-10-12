@@ -67,4 +67,22 @@ namespace Game
 	{
 		[Node] public static void NotShown() { }
 	}
+
+	/// A node library with a display name and callback-shaped functions.
+	[NodeLibrary("Timer Kit")]
+	static class Timers
+	{
+		/// Seconds since start.
+		public static float Elapsed() => 0;
+
+		/// Calls `Callback` every `seconds`.
+		[CallbackNode("Every", Keywords="interval repeat")]
+		public static Result<void> Every(float seconds, function void(float) Callback) => .Ok;
+
+		[CallbackNode("Stop Every", Role="Remove", Category="Timer Kit|Stop")]
+		public static void StopEvery() { }
+
+		[CallbackNode(DisplayName="After Delay", Callback="Then")]
+		public static void After(float seconds, delegate void() Then, function void(int) Unused = null) { }
+	}
 }

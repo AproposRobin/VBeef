@@ -20,9 +20,10 @@ Every command exits 0 on success and 1 on any failure, prints `ok` / `FAIL` line
 failures, without `-v`) and ends with a count line. Build it with the normal Debug build
 (`BeefBuild -workspace=<repo> -config=Debug -platform=Win64`).
 
-Placeholders in the commands below: `<repo>` is this checkout, `<UnrealUMP>` is the root of an
-UnrealUMP checkout and `<ClockWork>` the ClockWorkEngine folder (the corpus the long suites read; pass
-your own paths). `<scratch-dir>` is any empty folder for the output.
+Placeholders in the commands below: `<repo>` is this checkout, `<Corpus>` is the root of a large Beef code base
+(a mod platform's checkout was used for the numbers below), `<CorpusA>`, `<CorpusB>` and `<CorpusC>` three of
+its source folders (its launcher, runtime and SDK core sources), and `<ClockWork>` the ClockWorkEngine folder
+(the corpus the long suites read; pass your own paths). `<scratch-dir>` is any empty folder for the output.
 
 ## Before you push: the full run
 
@@ -38,26 +39,26 @@ catalog
 diagnostics
 hotkeys
 update
-ump
+host
 vocabulary
 stress
 compile -out <scratch-dir>
 debug -out <scratch-dir>
-debugmap <UnrealUMP>/src <UnrealUMP>/UMPRuntime/src <UnrealUMP>/UnrealSDKCore/src <ClockWork>
-roundtrip <UnrealUMP>/src <UnrealUMP>/UMPRuntime/src <UnrealUMP>/UnrealSDKCore/src
-roundtrip -types <UnrealUMP>/src <UnrealUMP>/UMPRuntime/src <UnrealUMP>/UnrealSDKCore/src
-roundtrip <UnrealUMP>/src <ClockWork> -out <scratch-dir>
-orphans <UnrealUMP>/src <UnrealUMP>/UMPRuntime/src <UnrealUMP>/UnrealSDKCore/src
-loadall <UnrealUMP>
-savecheck <UnrealUMP>/src <UnrealUMP>/UMPRuntime/src <UnrealUMP>/UnrealSDKCore/src <ClockWork>
+debugmap <CorpusA> <CorpusB> <CorpusC> <ClockWork>
+roundtrip <CorpusA> <CorpusB> <CorpusC>
+roundtrip -types <CorpusA> <CorpusB> <CorpusC>
+roundtrip <CorpusA> <ClockWork> -out <scratch-dir>
+orphans <CorpusA> <CorpusB> <CorpusC>
+loadall <Corpus>
+savecheck <CorpusA> <CorpusB> <CorpusC> <ClockWork>
 inits "C:/Program Files/BeefLang/BeefLibs/corlib/src"
-inits <UnrealUMP>/src <UnrealUMP>/UMPRuntime/src <UnrealUMP>/UnrealSDKCore/src <ClockWork>
+inits <CorpusA> <CorpusB> <CorpusC> <ClockWork>
 ```
 
 Run them one at a time (the roundtrip / orphans / loadall runs are long and single-threaded;
 on a shared machine start them at BelowNormal priority).
 
-Lint: `powershell -ExecutionPolicy Bypass -File scripts\lint-scope-delete.ps1` prints `OK: no delete of a scope-allocated object` (exit 0). Run it before the full run; it is the same check UnrealUMP runs.
+Lint: `powershell -ExecutionPolicy Bypass -File scripts\lint-scope-delete.ps1` prints `OK: no delete of a scope-allocated object` (exit 0). Run it before the full run; it is the same check the owner's other Beef projects run.
 
 Expected output on the tree this page was written against (2026-10-10, after the last text forms, `#if` keys, the node menu on the indexer, Find References, the overload choice and the robustness pass):
 
@@ -76,21 +77,21 @@ Expected output on the tree this page was written against (2026-10-10, after the
 | `diagnostics` | `diagnostics checks: 49  failures: 0` | < 1 s |
 | `hotkeys` | `hotkey checks: 36  failures: 0` | < 1 s |
 | `update` | `update checks: 98  failures: 0` | < 1 s |
-| `ump` | `ump checks: 49  failures: 0` (16 for New Project > UMP Mod: names, the SDK folder resolved, the files written) | < 1 s |
+| `host` | `host checks: 76  failures: 0` (command line, `.vbproject`, templates, the Fixture Kit node library, `host-install.json`) | < 1 s |
 | `stress` | `stress checks: 68  failures: 0` (4 context checks + 16 runs of 50 random edits x 4 checks) | about 2 s |
 | `debug -out <dir>` | `debug checks: 83  failures: 0` (9 for a breakpoint on a Local declaration) | about 8 s (one small BeefBuild, three runs under the debugger, two attaches) |
-| `debugmap` (UMP `src`, `UMPRuntime/src`, `UnrealSDKCore/src`, ClockWork) | `debugmap: files=204 methods=1702 statements=25724 values=49778 without-line=57 failures=0` | about 15 s |
-| `ump -sdk <launcher data>\sdk\hogwarts-legacy\HogwartsLegacySDK` (emitter v5) | `ump checks: 46  failures: 0` | 18 s on the first run (parse + cache), about 1 s after |
+| `debugmap` (the three corpus folders, ClockWork) | `debugmap: files=204 methods=1702 statements=25724 values=49778 without-line=57 failures=0` | about 15 s |
+| `host -lib <a large generated library>` | the `host` checks plus load time, catalog size, output pins and callback nodes of that library | 18 s on the first run of a 20k-function library (parse + cache), about 1 s after |
 | `compile -out <dir>` | `compile: cases=43 compiled=31 refusals=12 failures=0` (`MathExpression`: Math.Sqrt over an int and a float, a cast, int arithmetic, run: `len 10 7 5`) | about 1.5 s warm, longer on the first BeefBuild |
-| `roundtrip` (UMP `src`, `UMPRuntime/src`, `UnrealSDKCore/src`) | `files=174 methods=1552 failures=0 broken=0` | about 15 s |
+| `roundtrip` (the three corpus folders) | `files=174 methods=1552 failures=0 broken=0` | about 15 s |
 | `roundtrip -types` (same three) | same | about 15 s |
-| `roundtrip <UnrealUMP>/src <ClockWork> -out <dir>` | `files=106 methods=1235 failures=0 broken=0` | about 8 s |
-| `orphans` (same three UMP folders) | `orphans: files=197 methods=2034 failures=0` | about 25 s |
-| `loadall <UnrealUMP>` | `loadall: files=323 methods=3213 nodes=156944 ... warnings=22 failures=0` (warnings were 499: 477 were String.AppendF) | about 6-30 s (most of it indexing the SDKs the first time) |
-| `inits` corlib, then the three UMP folders + ClockWork | one line per folder ending `failures=0`, then `inits: failures=0` (counts in [`inits`](#inits--v--noflip-files-or-folders)) | about 25 s for corlib, 10 s for the rest |
-| `savecheck` (the three UMP folders + ClockWork) | `savecheck: files=204 edits=353 failures=0` (all BeefLibs corlib + UMP + ClockWork + the report project: `files=401 edits=659 failures=0`) | about 11 s |
+| `roundtrip <CorpusA> <ClockWork> -out <dir>` | `files=106 methods=1235 failures=0 broken=0` | about 8 s |
+| `orphans` (same three corpus folders) | `orphans: files=197 methods=2034 failures=0` | about 25 s |
+| `loadall <Corpus>` | `loadall: files=323 methods=3213 nodes=156944 ... warnings=22 failures=0` (warnings were 499: 477 were String.AppendF) | about 6-30 s (most of it indexing the SDKs the first time) |
+| `inits` corlib, then the three corpus folders + ClockWork | one line per folder ending `failures=0`, then `inits: failures=0` (counts in [`inits`](#inits--v--noflip-files-or-folders)) | about 25 s for corlib, 10 s for the rest |
+| `savecheck` (the three corpus folders + ClockWork) | `savecheck: files=204 edits=353 failures=0` (all BeefLibs corlib + the corpus + ClockWork + the report project: `files=401 edits=659 failures=0`) | about 11 s |
 
-The UMP tree is edited by other work, so its file and method counts drift; `failures=0` is what
+The corpus is edited by other work, so its file and method counts drift; `failures=0` is what
 matters.
 
 If a count differs, the number of cases changed: update this table in the same commit.
@@ -172,8 +173,8 @@ generation (code as read must not be refused), the layout text a save would writ
 invariants (each link between pins of nodes in the graph and of the right kinds, unique ids,
 finite positions, keys). Nothing is written, except with `-savelayout` (side files written next to
 each file: use it on a scratch copy, then run `loadall` again to load them back). On
-`<UnrealUMP>` (2026-10-10): `files=331 methods=2883 nodes=136007 failures=0`; on a scratch
-copy of `src`, `UMPRuntime`, `UnrealSDKCore` with side files written and reloaded:
+`<Corpus>` (2026-10-10): `files=331 methods=2883 nodes=136007 failures=0`; on a scratch
+copy of the three corpus folders with side files written and reloaded:
 `files=150 methods=1190 sidecars=110 failures=0`.
 
 ### `coverage [-notypes] [-v] <folders>...`
@@ -183,9 +184,9 @@ and prints the method bodies with no Code node and with no text node at all (no 
 Expression node), every node kind, the Code / Expression nodes and pin texts grouped by the
 construct they start with (`using`, `defer`, `scope`, `case` pattern, lambda, ...), and what a dry
 generation reports on code as read (the editor's first check). `-v` lists each text node, pin text
-and report with its file and line. It measures, it does not fail. On the three UMP folders
+and report with its file and line. It measures, it does not fail. On the three corpus folders
 (2026-10-10, after the last text forms): 1,361 of 1,366 bodies (99.6 %) have no Code node and 1,345
-(98.4 %) no text at all, nothing reported (see [Lifetime-Nodes.md](Lifetime-Nodes.md#coverage-on-ump-code) for before / after).
+(98.4 %) no text at all, nothing reported (see [Coverage](#coverage-lifetime-nodes-on-a-large-code-base) for before / after).
 
 ### `safety`
 File-safety scenarios on real files in a scratch folder **`vb_safety_tmp` under the current
@@ -230,7 +231,7 @@ property holding it excepted) is still in the file. Then a member variable is ad
 class and saved: every member is still there. Prints `savecheck: files=N edits=N failures=0`.
 
 ### `decls <files or folders>`
-Prints every declaration error the editor would show (a return type, parameter or member variable type that does not fit its place, see [Catalog-and-Types.md](Catalog-and-Types.md#what-a-type-field-accepts)) and a count. Use it on a new tree before trusting the rules: corlib, UMP and ClockWork give `declaration errors=0`. The editor session test has 82 checks (41 before the 0.1.1 work) (step 20: an illegal `var` Return Type and a `void` variable are refused with the reason, file unchanged).
+Prints every declaration error the editor would show (a return type, parameter or member variable type that does not fit its place, see [Catalog-and-Types.md](Catalog-and-Types.md#what-a-type-field-accepts)) and a count. Use it on a new tree before trusting the rules: corlib, the corpus and ClockWork give `declaration errors=0`. The editor session test has 82 checks (41 before the 0.1.1 work) (step 20: an illegal `var` Return Type and a `void` variable are refused with the reason, file unchanged).
 
 ### `inits [-v] [-noflip] <files or folders>...`
 Ownership and initial values on real code (`InitTests.bf`, [Classes-and-Members.md](Classes-and-Members.md#ownership-and-initial-values)).
@@ -241,9 +242,9 @@ choice (`Owned, made here` -> `Owned, set later`, `Reference` -> `Pointer`, ...)
 give the original file byte for byte (`T *name` pointers, written C style, are not flipped). Each
 folder prints `files= members= custom= convertible= multi= flips= failures=`, the count per choice and
 the ten most frequent Custom forms (`-v` lists every Custom member). 2026-10-11: corlib 2,061 members,
-29 Custom (2 convertible), 24 Disposed with it, 2,030 flips; UMP `src` 997 / 3; `UMPRuntime/src` 376 / 9 (36 Owned for
-the run); `UnrealSDKCore/src` 707 / 0; ClockWork 133 / 0; `failures=0` everywhere. Before Owned for the run and
-Disposed with it (0.1.5): corlib 53 Custom, `UMPRuntime/src` 45, the rest unchanged.
+29 Custom (2 convertible), 24 Disposed with it, 2,030 flips; corpus A 997 / 3; corpus B 376 / 9 (36 Owned for
+the run); corpus C 707 / 0; ClockWork 133 / 0; `failures=0` everywhere. Before Owned for the run and
+Disposed with it (0.1.5): corlib 53 Custom, corpus B 45, the rest unchanged.
 
 ### `classes`
 The type-level model (`ClassTests.bf`, [Classes-and-Members.md](Classes-and-Members.md)), 353 checks
@@ -260,8 +261,8 @@ struct parents, the type pickers); graph checks (the override error on the Entry
 node read, regenerated and refused in a static function, accessor graphs); renames across two files
 (a field: 7 references, Other's same-named field kept; a type: 8 references and the function key
 that follows a parameter type; refusals with file and line; a parameter and a local with
-interpolated strings); the new-type templates and the UMP mod (graphs, Override list,
-OnWorldReady with its parent call); ownership and initial values (`InitTests.RunChecks`, 126 checks:
+interpolated strings); the new-type templates and a host template's entry class (`ToolMain : ToolBase`: graphs, Override list,
+OnLevelReady with its parent call); ownership and initial values (`InitTests.RunChecks`, 126 checks:
 `~ delete _` parsed as a member variable, type kinds, the choices per type, every form read and
 written back byte for byte, each edit with its exact text and one undo step, the refusals (appended in
 a struct or static, owned on a property or a const, `int a, b;`), literal formatting and escaping, enum
@@ -292,23 +293,24 @@ as the indexer does, then adopted: same entries, names, categories and tree) wit
 `build\vbtest-cache\` next to the repository (found through the source path baked into the exe,
 so run the exe on the machine and tree that built it).
 
-### `catalog-scale [sdk-dir]`
+### `catalog-scale <lib-dir>`
 Not an assertion suite: timings of indexing, the content-hash cache hit, the path cache hit, the
-catalog build, and several searches on a large SDK (a generated game SDK with about 4,000+ nodes).
-Without a folder it reads the `VB_UMP_SDK` environment variable (the SDK folder); when that is unset
-or empty the default is `D:/UnrealUMP/UnrealUMP/Sdks/ScreechSDK`. Use it to catch performance regressions.
+catalog build, and several searches on a large generated library (a generated game SDK with about
+4,000+ nodes was used below). Without a folder it reads the `VB_SCALE_LIB` environment variable (the
+library folder); when that is unset too it prints its usage and exits 2. Use it to catch performance
+regressions.
 It also times the catalog built the way the indexer does (`catalog prebuild` on the worker,
 `catalog adopt` on the UI thread), the category tree, and typing "get actor location" one key at a
 time from scratch and incrementally. Typical on this machine (Debug, 2026-10-10, a loaded
-machine): Screech catalog 131 ms in place / prebuild 132 ms + adopt 2.0 ms, tree 7 ms, typing 485 ms
-from scratch vs 228 ms incremental (worst key 27 ms), searches 1-35 ms; Hogwarts catalog 445 ms /
+machine), a 75k-entry SDK: catalog 131 ms in place / prebuild 132 ms + adopt 2.0 ms, tree 7 ms, typing 485 ms
+from scratch vs 228 ms incremental (worst key 27 ms), searches 1-35 ms; a 162k-entry SDK: catalog 445 ms /
 adopt 3.8 ms, tree 21 ms, typing 1,101 vs 508 ms (worst key 60 ms), searches up to 83 ms.
 
 ### `catalog-scale -root <dir>`
 Opens a whole folder exactly like the editor's background indexer (`IndexJob.Run` on the test
 thread), with an empty cache (cold) and again (warm), then times a rescan of the same root, an
 open with only the content-keyed caches, and how fast a running job stops after `Cancel`. On
-`<UnrealUMP>` (2026-10-10, Debug):
+`<Corpus>` (2026-10-10, Debug):
 
 ```
 open root (cold): 11260 ms total; project index 403 ms, 266 files (3 generated SDK folders skipped); libraries 10858 ms, 4 stores [...] (0 from cache, 4 parsed, 29904 types)
@@ -321,28 +323,37 @@ cancel: worker stopped 36.5 ms after Cancel (done=True)
 Before this change the same folder took 15.0 s cold and 16.0 s warm (751 files parsed as
 project sources on every open, on the UI thread). The cache goes to `build\vbtest-cache\root`.
 
-### `ump [-sdk <dir>]`
-The UnrealUMP contract ([UMP-Integration.md](UMP-Integration.md)), `UmpTests.bf`: the command line
-(`EditorArgs.Parse`: every option, `--version` as print vs. the mod's version, the usage errors and
-exit codes), project resolution (`ProjectContract.ResolveTarget`: folder, `.vbproject` main, `.bf`
-file walking up to its project, `BeefProj.toml`, relative `--file`, missing paths, a marker `main`
-outside the project), `--new-ump-mod` (`WriteUmpMod`: the file and `.vbproject`, byte for byte the
-text UMP's launcher writes, never overwriting), and generated libraries reached through a workspace
-dependency inside the opened folder (under `build\`, with `*.g.bf` or a `.vblibrary` marker, not for an
-ordinary project). With `-sdk <dir>` it loads a UMP-generated SDK (emitter v5) as a library and
-checks the node catalog: attributed, no `_PE` / hook members, output pins from `[Pin(Out=true)]`,
-`[Expose]` Get nodes, Break Vector (category, pure, static, three output pins labelled X / Y / Z),
-Get Actor Location (display name without `K2_`, category, pure member, tooltip from the dump), Set
-Actor Location (flow node with an output pin), and search ranking.
+### `host [-lib <dir>]`
+The host contract ([Host-Integration.md](Host-Integration.md)), `HostTests.bf`, 76 checks: the command line
+(`EditorArgs.Parse`: `--version` with the host contract number, `--new-from-template` with `--name`, `--var`
+and `--no-open`, the usage errors and exit codes, and the deprecated option of contract 1 mapped onto the new
+one: a deprecation line, its values as template variables, with a template folder a fill-in of the existing
+folder that keeps every file), the project manifest (`ProjectManifest`: every key, unknown keys ignored, a BOM,
+write and read back, broken JSON, a `main` outside the project), project resolution
+(`ProjectContract.ResolveTarget`: folder, `.vbproject` main, `.bf` file walking up to its project,
+`BeefProj.toml`, relative `--file`, missing paths), templates with the fixture
+`VisualBeefTests/fixtures/Host/Template` (`TemplateManifest`, the built-in names `Identifier` / `Slug`,
+`@@Key@@` and `@@Key:str@@` substitutions, an unknown key, bad template folders, the files and `.vbproject`
+written, a second run refused without writing, existing files kept, `ProjectContract.WriteFromTemplate` with
+exit codes 1 and 2), generated libraries reached through a workspace dependency inside the opened folder (under
+`build\`, with `*.g.bf` or a `.vblibrary` marker, not for an ordinary project) and a library only the
+`.vbproject` names, the Fixture Kit node library (`VisualBeefTests/fixtures/Host/FixtureKit`: its own attribute
+types, `[NodeLibrary("Fixture Kit")]`, the four `[CallbackNode]` roles and their callback pin, `[NodeHidden]`,
+an attributed struct, search), and `host-install.json` (`InstallInfo.IsHostManaged`). With `-lib <dir>` it
+also loads any large generated library and prints its load time, catalog size, output pins and callback nodes.
 
 ### `vocabulary [root] [-v]`
 Reads the string literals of `VisualBeefCore/src`, `VisualBeefEditor/src` and `VisualBeefMeta/src`
 (comments and interpolation holes skipped) and every page of `docs/` and `README.md`, and fails on a
 banned whole word (the list is at the top of `VocabularyTests.bf`: the older terms of [Vocabulary.md](Vocabulary.md)
-and the words that name their old pins and panels). Only Beef keywords, ids nobody sees (the old pin ids and
-type names the layout hashes keep) and the game SDK's own names are allowed, and
-`CHANGELOG.md` and `Vocabulary.md` itself are skipped (history and the
-mapping). Run it from the repository root or pass the root.
+and the words that name their old pins and panels). Only Beef keywords and ids nobody sees (the old pin ids and
+type names the layout hashes keep) are allowed, and
+`CHANGELOG.md`, `Roadmap.md`, the audit reports and `Vocabulary.md` itself are skipped (history and the
+mapping). It also enforces the host rule ([Vocabulary.md](Vocabulary.md#host-names)) on every line of the
+sources (comments included), the test fixtures, `scripts/`, `packaging/` and every doc but `CHANGELOG.md`:
+the host words and identifier prefixes listed in `VocabularyTests.bf` (the only file allowed to hold them).
+The count line ends `host-rule files=N host-rule hits=0 hits=0 failures=0`. Run it from the repository root or
+pass the root.
 
 ### `diagnostics`
 49 checks (`DiagnosticsTests.bf`). **Output parsing** (`BuildOutput.Parse`): BeefBuild's
@@ -438,7 +449,7 @@ from `NodeFactory` nodes; `ClassHierarchyInterface`:
 an abstract class with a virtual function, an abstract one, a virtual property and a protected
 out function, and a class implementing an interface whose stubs and overrides were added with the
 Type Settings APIs (`Case.Prepare`, with a TypeService over the file: `Case.WithTypes`);
-`OverrideTickFromDropdown`: `Initialize` / `Tick` overrides of a UMP-like base with the parent call
+`OverrideTickFromDropdown`: `Initialize` / `Tick` overrides of a host-like base class with the parent call
 and a graph edit), 12 *refusal* cases that must not write anything and must name the problem on a
 node (`RefusalContains`), including `RefuseTargetSelfInStatic`, `RefuseScopeAfterBlock`,
 `RefuseReturnInDefer`, `RefuseResultValueOutsideArm` and `RefuseOverrideWithoutBase`. `-out` is the scratch folder (default `<temp>b-codegen`); `-v` prints
@@ -460,8 +471,8 @@ index and `TypeService` with libraries, like the editor, so graphs are typed. Co
 
 | Corpus | Result |
 |---|---|
-| `<UnrealUMP>/src` + `<ClockWork>` (the standard pre-push run) | files=99 methods=1126 failures=0 |
-| UMP `src` + `UMPRuntime/src` + `UnrealSDKCore/src`, with and without `-types` | files=166 methods=1424 failures=0 |
+| `<CorpusA>` + `<ClockWork>` (the standard pre-push run) | files=99 methods=1126 failures=0 |
+| the three corpus folders, with and without `-types` | files=166 methods=1424 failures=0 |
 | `<ClockWork>` with `-types` | files=30 methods=150 failures=0 |
 | Beef corlib `C:/Program Files/BeefLang/BeefLibs/corlib/src` (about 80 s) | files=201 methods=3774 failures=0 (was 172 before methods in `#if` / `#else` arms got their own keys, see [Parsing-and-Layout.md](Parsing-and-Layout.md#methods-in-if--else-arms)) |
 | The Beef IDE sources (`IDE/src` of the Beef repository, not installed with the toolchain) | with corlib and ClockWork about 9,000 methods in total, 0 failures when last run (not re-run for this page) |
@@ -470,7 +481,7 @@ index and `TypeService` with libraries, like the editor, so graphs are typed. Co
 For every method: disconnect the body from the entry, save the layout, reload text and layout,
 compare the unconnected nodes, reconnect, and compare the rebuilt graph with the original.
 Proves that breaking a wire never loses work. A refused reconnect commit is a failure. Standard
-runs: `orphans <ClockWork>` (`files=30 methods=136 failures=0`) and the three UMP
+runs: `orphans <ClockWork>` (`files=30 methods=136 failures=0`) and the three corpus
 folders (`files=166 methods=1424 failures=0`).
 
 ### Developer tools
@@ -566,7 +577,7 @@ The editor was verified by driving a real window:
   rename-undo / move-undo / find-refs expect a project with a `Player` class whose `mHealth` field
   is used in `Player.Hit(int)` and in another file. `openall` opens every function of the project
   in a tab, lets it draw, and closes it; with `VB_NO_IDLE=1` and `--view` (read-only) it ran over
-  `<UnrealUMP>` (2,084 functions, all drawn, no crash) in about 100 s.
+  `<Corpus>` (2,084 functions, all drawn, no crash) in about 100 s.
   2026-10-10: rename-undo confirmed that one undo / redo of a project rename from either file moves
   both files (the group undo works; nothing to fix), move-undo that a drag is one undo step that
   leaves the text clean, find-refs 6 references in 2 files.
@@ -616,22 +627,22 @@ The editor was verified by driving a real window:
 * **`newcomer`** (`VB_SELFTEST=newcomer`, `SelfTestNewcomer.bf`; an empty scratch folder as the project, a fresh `VB_HOME`): a first-time user's path through the calls the UI makes. File > New Project `Mod`, New Struct `Point`, New Interface `IGreeter` with a function (written as a declaration), New Class `Greeter` implementing it (the stub), Add Variable `List<int>` (Owned, made here; `using System.Collections;` added) and `int mCount = 3`, a constructor `(int start)`, Set on create (refused on `mCount` because `this(int)` exists, then a `String mName`), a For Loop with a print, `TryGet(out int value)` with Set value and Return, `Run` with a Defer, a call, a Branch on `TryGet`'s value and the out pin printed, then in `Main` Construct Greeter (from another file, with the create constructor's input), Defer -> Delete and Run on its Receiver, Save All, a Release compile, close / reopen byte for byte, Reload node, Reload Sheet, undo / redo / undo, and a debugger stop on the print in the loop (`i = 0`) then Continue to exit code 0. `[NEWCOMER]` lines log what each chooser offered and the code written. 2026-10-11: 15 checks, `done failures=0`; the program prints `Hello from Mod`, 0-9, 3, `Run done`. 2026-10-11 (`wt/newcomer2`): 25 checks, `done failures=0`; added: the For Loop's Counter pin `i` wired into the print and read back after reopen, `TryGet` made through the Add Function dialog's Inputs rows with Passing out (the chooser offers value, out, ref, in), Properties > Inputs reads out and writes ref (undone), the Return in `TryGet` starts with `false`, the Set of the parameter labels its pin Variable, the template's print in `Main` takes Object and accepts a wired int, a bare Construct Greeter shows "needs a constructor" until one is chosen.
 * **`attach`** (`VB_SELFTEST=attach`, `SelfTestAttach.bf`; the `Debuggee` fixture's workspace as the
   project, `VB_ATTACH_MODULE=Debuggee.exe`, the fixture running as `Debuggee.exe loop` started by the
-  caller): Attach to Game with a made-up module (the empty list, Attach disabled; capture
+  caller): Attach to Process with a made-up module (the empty list, Attach disabled; capture
   `attach-empty`), then the fixture listed with a green symbol line (`attach-dialog`), Attach, the
-  stop on the Sleep node with the red status and the game code rows collapsed (`attach-stopped`),
+  stop on the Sleep node with the red status and the external code rows collapsed (`attach-stopped`),
   Locals (`attach-locals`), the rows expanded (`attach-frames`), the breakpoint removed and Continue
   (`attach-running`), Detach with the process still running (`attach-detached`). 2026-10-12: 13
   checks, `done failures=0`, at 1280x800 and 1920x1080, Dark and Darker, `VB_UI_SCALE` 1.0 and 1.25;
   no `[ASSERT]` lines.
-* **`attachlive`** (`VB_SELFTEST=attachlive`, `VB_ATTACH_FILE=<the mod's ModMain.bf>`,
-  `VB_ATTACH_TEXT=<the statement to stop on>`): the live proof on a game started by the UMP launcher
-  with the mod installed: the dialog (`live-dialog`), Attach, the stop in the mod's Tick
+* **`attachlive`** (`VB_SELFTEST=attachlive`, `VB_ATTACH_FILE=<the project's main .bf>`,
+  `VB_ATTACH_TEXT=<the statement to stop on>`): the live proof on a program started by its host tool
+  with the project's DLL loaded: the dialog (`live-dialog`), Attach, the stop in the project's Tick
   (`live-stopped`, `live-locals`), `[ATTACHLIVE]` lines with the frames and locals, Step Over,
-  Continue without the breakpoint (`live-running`), Detach (`live-detached`). 2026-10-12 on the Epic
-  Hogwarts Legacy client: 9 checks, `done failures=0`, the game ran on after Detach.
+  Continue without the breakpoint (`live-running`), Detach (`live-detached`). 2026-10-12 on a game
+  client started through its store launcher: 9 checks, `done failures=0`, the game ran on after Detach.
 * **`fnlocals`** (`VB_SELFTEST=fnlocals`, `SelfTestLocals.bf`; an empty scratch folder as the project, a fresh `VB_HOME`): the 2026-10-12 owner requests through the calls the UI makes. Add Input, remove and a type change keep TryGet's Sheet in front and Properties on it, the new row focused; Outputs with two `out` rows and a Return writing `value = 0; name = null; return false;`; L adds `int newLocal = 0;` selected in the Outline with its name box focused, renamed there to `count`; a String local variable made here (`scope .()`); Get / Set count from the Node menu (no Local Variable node offered); Make variable / Make local variable / Make variable (Get) from pins, one undo step each; Save All and a Release compile; close / reopen byte for byte; no `[ASSERT]` line in the session log. Captures `fn-outputs`, `local-props`, `outline-locals`. 2026-10-12: 28 checks, `done failures=0`.
 * **`mathexpr`** (`VB_SELFTEST=mathexpr`, `SelfTestMath.bf`; a scratch project with a `Shapes` class: `Length(int x, float y, float scale)` and `Sum(int p, int q)` returning `0`, member variables `a`, `b`, `int mTotal = 0`): a Math Expression picked from the Node menu off Length's Return value (the search finds it by `math` and `expression`; it starts as `a + b`, its inputs need values: the error on the node), its formula typed and the parameters wired (`return Math.Sqrt(x * x + y * y) * scale;`, the Result float), a second one in Sum with `r` left open (the error, Sum not written) and `p * (q +` typed into its field (the red frame), then Properties of `mTotal`: Initial Value > Expression stays chosen over `0` with nothing written, `a + b` written and read back as Expression, `a +` refused (red frame and the reason), `r` given a value and Save All writing the `#math` records. Captures `math-first`, `math-node`, `math-error`, `init-expr-chosen`, `init-expr-written`, `init-expr-refused`. 2026-10-12: 18 checks, `done failures=0` at Dark and Darker x 1280x800 and 1920x1080 x 100% and 125%.
-* **`modauthor`** (`VB_SELFTEST=modauthor`, `SelfTestModAuthor.bf`; an empty scratch folder as the project, a fresh `VB_HOME`, the game SDK in `VB_MODAUTHOR_SDK`, default `D:\UnrealUMP\UnrealUMP\Sdks\HogwartsLegacySDK`): a first UMP mod. File > New Project > UMP Mod `Hello Mod` with the Game SDK row resolved (game id, UMP libraries, runtime ABI), the OnWorldReady override, `UWorld* mWorld`, `bool mLevelLogged`, `String mConfigText`, a static `uint64 OnDaysInYear(uint64 year)` returning `Original_DaysInYear(year)`, Hook Days In Year in Initialize with OnDaysInYear picked from its Callback pin's Node menu, File.ReadAllText of the mod's ModConfig.json (`using System.IO;` added) and a second Log of it, Tick's Branch / Get Current Level Name (bool input starts `false`) / Set, Shutdown's Remove All, Save All, a Release compile to `HelloMod.dll`, ModConfig.json checked against UMP's docs/Mods.md and `Info()`, close / reopen, Reload Sheet, Reload node and identity commits byte for byte. `[MODAUTHOR]` lines log Node menu timings and what each chooser offered. 2026-10-11: 22 checks, `done failures=0` (also as `newcomer,modauthor` in one run). 2026-10-11 (`wt/hook-nodes`): 42 checks over UMP's v5 SDK: the hook part uses the Node menu only (Try hook with a Branch on its bool, Call original through two Casts, ReadModFile, Get ModDirectoryPath, To Owned String, Unhook with its unread-Result note), catalog and raw-name search checks. `newproject-mod:<sdk folder>` opens the New Project dialog on UMP Mod for captures (`close-popups` closes it).
+* **`host`** (`VB_SELFTEST=host`, `SelfTestHost.bf`; an empty scratch folder as the project, a fresh `VB_HOME`, the template folder in `VB_HOST_TEMPLATE`, default `VisualBeefTests/fixtures/Host/Template` of the checkout that built the exe): a project made from a host tool's template, through the calls the UI makes. File > New Project offers **From template folder...**; a folder without `template.json` says so; the fixture template loads with its two variables (fields `Id` = `hello-tool`, `Version` = `0.1.0`); `Hello Tool` is created and opened (`HelloTool`, `src/Program.bf`); `.vbproject` names main and configuration and `tool.json` has the filled-in id; the Fixture Kit library is indexed; the Node menu lists Days In Year under Fixture Kit and the four callback nodes under Callbacks, not the `[NodeHidden]` function; **Try register Days In Year** is placed in `Main` and `OnDaysInYear` is picked from its callback pin's Node menu, written `Clock.TryRegisterDaysInYear(=> OnDaysInYear);`; the compile configuration is Release because the `.vbproject` names it; Save All and a compile with the library; close / reopen, Reload Sheet and identity commits byte for byte. `[HOST]` lines log what the Node menu offered and the code written. `newproject-template:<template folder>` opens the New Project dialog on From template folder... with the folder filled in, for captures (`close-popups` closes it).
 * **`nodoc`** (`VB_SELFTEST=nodoc`, `SelfTest.bf`; run with no project, a fresh `VB_HOME`): asks for the Add Variable and Add Function dialogs and Type Settings with no document loaded. Add Variable / Add Function need a selected type: with no document they are refused (counted in `mDialogRefusals`, nothing opens) and `FindType` returns null. Before the fix the first frame crashed (access violation reading null in `FindType`, `Doc.Unit` is null for the empty document). 2026-10-11: 3 checks, `done failures=0`.
 * **`disk`** (`VB_SELFTEST=disk`, chained after `session,debug` as `session,debug,disk`, or in a second process on the project `session` left, like `reload-check`, with `VB_SELFTEST_DELETE_OK=1`. 2026-10-12, undoplace: `session,debug,disk` chains, 108 + 20 + 17 checks `done failures=0`; it used to fail its first save because session step 32 stopped undoing when the text equalled the saved file and left the Branch and the value-less print in Hello's graph. `reload-check` does not follow `disk` (the scratch `src` was deleted and rewritten, no compile record). 2026-10-12, 0.1.7 merge: `disk` 17 checks `done failures=0`; `SelfTestDisk.bf`, 17 checks): the disk going wrong under the open editor, through
   Save All and Reload From Disk. A read-only `Greeter.bf`: Save All is refused ("Save failed: Could not replace ... The original
@@ -667,8 +678,7 @@ The editor was verified by driving a real window:
   layout can be checked on a 100 % screen.
 * Launch the Debug or Release exe in a scratch copy of a project (never your real repo).
 * **`VB_DEBUG_NODE_MENU_SEARCH=<text>`** pre-fills the node menu's search box each time it opens,
-  since typing cannot be posted (below); picking a result is still a posted click. The UMP end-to-end
-  run in [UMP-Integration.md](UMP-Integration.md#end-to-end-check) used it.
+  since typing cannot be posted (below); picking a result is still a posted click.
 * Send **window messages** (mouse move, button, wheel, `WM_CHAR`) with `PostMessage`. Do not use
   global input injection.
 * Capture with **`PrintWindow`** (flag 2, `PW_RENDERFULLCONTENT`), not screen capture, so other windows
@@ -690,7 +700,7 @@ read and unread, ref). `compile` builds and runs this in a derived class, This, 
 `var` / `?` / hoisted / loop-declared out values, `ref` and `[Pin(Out=true)]`
 (`CallsSelfStaticOutRef`), and refuses this in a static method (`RefuseTargetSelfInStatic`).
 `roundtrip` and `orphans` fail on any refused commit of real code, so a validator false positive on
-the UMP sources shows up as a failure. See [Testing.md](Testing.md).
+the corpus sources shows up as a failure. See [Testing.md](Testing.md).
 
 ## Tests: classes and members
 
@@ -700,15 +710,15 @@ text and undo; inheritance (Override list, missing members, document errors, stu
 signatures for virtual / protected-out / property / generic bases, abstract members, unknown bases,
 sealed and struct parents, the pickers); graph checks (the Entry error, the Base node read, written
 and refused in a static function, accessor graphs); renames across two files (field, type, refused
-plans, parameter and local); templates (the UMP mod's graphs and Override list). `compile` builds
+plans, parameter and local); templates (a host template's entry class: graphs and Override list). `compile` builds
 and runs a class hierarchy with an interface whose stubs and overrides were made with these APIs
 (`ClassHierarchyInterface`), an Tick override from the Override dropdown (`OverrideTickFromDropdown`),
 and refuses an override with nothing to override (`RefuseOverrideWithoutBase`).
 
-## Coverage: lifetime nodes on UMP code
+## Coverage: lifetime nodes on a large code base
 
-`VisualBeefTests coverage` (the audit's probe, now a command) over UMP `src`, `UMPRuntime/src` and
-`UnrealSDKCore/src` with the editor's setup (1,078 method bodies):
+`VisualBeefTests coverage` (the audit's probe, now a command) over the three corpus folders with the
+editor's setup (1,078 method bodies):
 
 | Measure | Before | After |
 |---|---|---|
@@ -722,7 +732,7 @@ and refuses an override with nothing to override (`RefuseOverrideWithoutBase`).
 What is left as text is mostly lambdas and delegates (`new () => ...`, gap 5), `const` locals,
 casts to `(.)` and nested `{ }` blocks.
 
-After the last text forms (2026-10-10, same command; the UMP tree had grown to 162 files, 1,366
+After the last text forms (2026-10-10, same command; the corpus had grown to 162 files, 1,366
 bodies):
 
 | Measure | Before | After |

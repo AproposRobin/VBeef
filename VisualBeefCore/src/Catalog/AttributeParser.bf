@@ -73,7 +73,7 @@ namespace VisualBeef.Catalog
 		{
 			switch (name)
 			{
-			case "Node", "Pure", "Expose", "Pin", "NodeLibrary", "NodeHidden", "Conversion", "ExpandEnumAsFlow", "ExpandEnumAsExecs", "ExposeType", "BlueprintType":
+			case "Node", "Pure", "Expose", "Pin", "NodeLibrary", "CallbackNode", "NodeHidden", "Conversion", "ExpandEnumAsFlow", "ExpandEnumAsExecs", "ExposeType", "BlueprintType":
 				return true;
 			default:
 				return false;

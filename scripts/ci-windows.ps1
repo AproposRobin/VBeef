@@ -204,7 +204,7 @@ function Step-Test {
     if (Test-Path $scratch) { Remove-Item -Recurse -Force $scratch }
     New-Item -ItemType Directory -Force $scratch | Out-Null
     $suites = @('edits', 'flow', 'calls', 'lifetime', 'textforms', 'classes', 'safety', 'parser', 'catalog', 'diagnostics',
-        'hotkeys', 'update', 'ump', 'vocabulary', 'stress', 'compile', 'debug')
+        'hotkeys', 'update', 'host', 'vocabulary', 'stress', 'compile', 'debug')
     $rows = @(); $failed = 0; $firstFail = ''
     Remove-Item -Force (Join-Path $Work 'first-failure.txt') -ErrorAction SilentlyContinue
     foreach ($s in $suites) {
@@ -241,7 +241,7 @@ function Step-Test {
 # The zips carry only user pages (docs/ with front matter audience: user). A developer page fails the step.
 function Test-PackageDocs {
     param([string]$ZipPath)
-    $denied = @('Architecture.md', 'Testing.md', 'CI.md', 'Code-Signing.md', 'Codegen.md', 'Parsing-and-Layout.md', 'Catalog-and-Types.md', 'Linux.md', 'UMP-Integration.md', 'Roadmap.md', 'Vocabulary.md', 'CHANGELOG.md', 'README.md')
+    $denied = @('Architecture.md', 'Testing.md', 'CI.md', 'Code-Signing.md', 'Codegen.md', 'Parsing-and-Layout.md', 'Catalog-and-Types.md', 'Linux.md', 'Host-Integration.md', 'Roadmap.md', 'Vocabulary.md', 'CHANGELOG.md', 'README.md')
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
     try {

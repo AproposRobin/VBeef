@@ -1,0 +1,21 @@
+using System;
+using FixtureKit;
+
+namespace @@Identifier@@
+{
+	class Program
+	{
+		/// @@Name@@ @@Version@@: prints the days of a year, once through the callback.
+		public static int Main(String[] args)
+		{
+			Console.WriteLine("@@Name:str@@ @@Version@@");
+			return 0;
+		}
+
+		/// The callback: a leap-free calendar.
+		public static int32 OnDaysInYear(int32 year)
+		{
+			return 365;
+		}
+	}
+}

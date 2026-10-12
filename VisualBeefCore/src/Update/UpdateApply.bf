@@ -1,6 +1,6 @@
 // Copyright 2026 AproposRobin. Licensed under the Apache License, Version 2.0 (LICENSE at the repository root).
-// The swap / backup / health-check flow follows UniversalUMP's launcher updater (src/Update/UpdateApply.bf, same owner,
-// same licence), cut down to what a folder install of the editor needs.
+// The swap / backup / health-check flow follows an updater by the same owner (Update/UpdateApply.bf, same licence),
+// cut down to what a folder install of the editor needs.
 
 using System;
 using System.Collections;

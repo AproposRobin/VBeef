@@ -9,8 +9,9 @@ order: 3
 
 Run a program from VisualBeef, stop it on a node, look at the values on the pins, and step
 through the Sheet node by node. Start Debugging runs standalone Beef programs (a workspace whose
-startup project is a console or Windows program, built in Debug). **Attach to Game** debugs your
-visual mod inside a running game started by the UMP launcher (see [Attach to game](#attach-to-game)).
+startup project is a console or Windows program, built in Debug). **Attach to Process** debugs your
+project inside a running program that has loaded it, such as a game a host tool started (see
+[Attach to a process](#attach-to-a-process)).
 
 ![The debugger stopped on a node](images/debug-stopped.png)
 
@@ -39,8 +40,8 @@ visual mod inside a running game started by the UMP launcher (see [Attach to gam
 | **F10** | Step Over | Runs the stopped node; stops at the next node of the Sheet. |
 | **F11** | Step Into | Goes into the function the node calls, when it is your code. A call into a library (corlib, BeefLibs) is stepped over: stepping stays in the workspace's own files. |
 | **Shift+F11** | Step Out | Runs to the end of the function; stops in the caller. |
-| (Debug menu) | Attach to Game... | Lists the running games with the UMP runtime; attaches the debugger to the one you pick (see [Attach to game](#attach-to-game)). |
-| **Shift+F5** while attached | Detach | The debugger lets go; the game keeps running. Also the toolbar's red **Detach** button. |
+| (Debug menu) | Attach to Process... | Lists the running processes that have the attach module loaded; attaches the debugger to the one you pick (see [Attach to a process](#attach-to-a-process)). |
+| **Shift+F5** while attached | Detach | The debugger lets go; the process keeps running. Also the toolbar's red **Detach** button. |
 | (Debug menu) | Remove All Breakpoints | For the current workspace. |
 
 In the Project Browser, F5 still refreshes the browser.
@@ -70,60 +71,64 @@ In the Project Browser, F5 still refreshes the browser.
 * **Output Log**, category `Debug`: the command line, the engine used, "Process terminated.
   ExitCode: N." and the engine's messages; a toast says "The program exited with code N".
 
-## Attach to game
+## Attach to a process
 
-A UMP mod is a DLL inside a game that Steam or Epic started and the UMP launcher injected; VisualBeef
-cannot start that game itself, so it attaches to it.
+Some projects are not programs of their own: they build a DLL that another program loads, for example
+a game started by a host tool. VisualBeef cannot start that program itself, so it attaches to it.
 
-1. Open your mod's project folder in VisualBeef, compile it in **Release** and install it in the game
-   (the launcher's Install, or `--pack-mod` then `--install-zip`). Start the game from the UMP launcher.
+1. Open the project folder in VisualBeef, compile it (the configuration the project's `.vbproject`
+   names, see [Host-Integration.md](Host-Integration.md)) and put the output where the program loads it
+   (the host tool's own install step). Start the program.
 2. Set breakpoints on the nodes you want to stop on (a node in `Tick` stops every frame).
-3. **Debug > Attach to Game...** lists the running processes that have the UMP runtime
-   (`UMPRuntime.dll`) loaded, with the mods each has loaded. Pick the game and press **Attach**
-   (or double-click it). **Refresh** lists again.
-4. Under the list, a line says whether the picked game runs **this project's** mod:
-   * green: `HelloMod.dll is loaded and matches this project's Release build`: breakpoints will stop
-     the game;
-   * yellow: the mod is not compiled, not loaded in that game, compiled from another copy of the
-     project folder, or the game runs an older build than the one in `build\` (reinstall the mod and
-     restart the game, or stops land on the wrong nodes);
-   * red: the DLL in the game has no debug information, or its symbol file (`.pdb`, written next to
+3. **Debug > Attach to Process...** lists the running processes that have the **attach module**
+   loaded: `attach.module` of the project's `.vbproject` (a host's runtime DLL, for example), else the
+   project's own output file (`HelloTool.dll`). The columns are **Program**, **Process** (the id) and
+   **This project** (the project's DLL when that process has it loaded). Pick one and press **Attach**
+   (or double-click it). **Refresh** lists again. With no process listed, the dialog shows the
+   `.vbproject`'s `attach.hint`, else "Start the program that loads this project, then Refresh."
+4. Under the list, a line says whether the picked process runs **this project's** build:
+   * green: `HelloTool.dll is loaded and matches this project's Release build`: breakpoints will stop
+     the process;
+   * yellow: the project is not compiled, not loaded in that process, compiled from another copy of the
+     project folder, or the process runs an older build than the one in `build\` (put the new output in
+     place and restart the program, or stops land on the wrong nodes);
+   * red: the DLL in the process has no debug information, or its symbol file (`.pdb`, written next to
      the build output) is gone.
-5. When the game reaches a breakpoint it **pauses** (every thread of the game stops): the Sheet opens
-   on the node, Locals and Call Stack show the mod's frame, F10 / F11 / Shift+F11 step, **F5**
-   continues. Remove the breakpoint or Continue to let the game run again.
-6. **Detach** (Shift+F5, the toolbar's red Detach, or Debug > Detach) ends the session; the game
-   keeps running. Closing VisualBeef while attached detaches too, and so does VisualBeef ending in
-   any other way: attaching never kills the game.
+5. When the process reaches a breakpoint it **pauses** (every thread stops): the Sheet opens on the
+   node, Locals and Call Stack show the project's frame, F10 / F11 / Shift+F11 step, **F5** continues.
+   Remove the breakpoint or Continue to let it run again.
+6. **Detach** (Shift+F5, the toolbar's red Detach, or Debug > Detach) ends the session; the process
+   keeps running. Closing VisualBeef while attached detaches too, and so does VisualBeef ending in any
+   other way: attaching never kills the process.
 
-While attached the status bar is **red**: `Attached to HogwartsLegacy.exe (14852) - running`, or
-`- game paused at ModMain.Tick: F5 Continue, Shift+F5 Detach` while it is stopped. A paused game
+While attached the status bar is **red**: `Attached to Game.exe (14852) - running`, or
+`- paused at ToolMain.Tick: F5 Continue, Shift+F5 Detach` while it is stopped. A paused process
 stays paused until you continue or detach.
 
-![Stopped in a mod's Tick inside the running game](images/debug-attached.png)
+![Stopped in a project's Tick inside a running program](images/debug-attached.png)
 
-* **Call Stack**: your mod's frames (and the UMP runtime's, which has symbols) are normal rows; runs
-  of frames without source (the game's own code) are one dimmed **game code** row. Tick **Show game
-  code frames** to see each one. When the game's main program file has no symbol file on your PC, the
-  debugger does not read it (see below) and the stack ends with a `game code (callers not shown: no
-  symbols)` row.
+* **Call Stack**: your project's frames (and those of any other module with symbols) are normal rows;
+  runs of frames without source (the program's own code) are one dimmed **external code** row. Tick
+  **Show external code frames** to see each one. When the program's main file has no symbol file on your
+  PC, the debugger does not read it (see below) and the stack ends with an `external code (callers not
+  shown: no symbols)` row.
 * **Locals**: a Release build is optimised: fields (`this`, `mTicks`) read fine, but some parameters
   and locals live in registers and show stale or meaningless values.
-* **Debug Output**: the attach and detach lines and the debugger's messages. What the game and its
-  mods log goes to the UMP runtime log (the launcher's Logs page).
-* Exceptions the game raises and handles itself are not stops; the Output Log says how many there
+* **Debug Output**: the attach and detach lines and the debugger's messages. What the attached program
+  logs goes to its own log.
+* Exceptions the process raises and handles itself are not stops; the Output Log says how many there
   were when you detach.
 
 Things to know:
 
 * Breakpoints are placed by source path and line, matched through the symbol file the build wrote
-  (its path is inside the DLL), so the DLL the launcher copied into its mods folder still finds it.
-  Compile and install from the same project folder you have open.
-* The game's own main program file is read only as its headers when it has no symbol file here: Beef
-  0.43.6's debugger engine crashes on some protected game executables (Hogwarts Legacy's), so
-  VisualBeef never lets it read one.
+  (its path is inside the DLL), so a DLL a host copied into its own folders still finds it. Compile
+  and install from the same project folder you have open.
+* The program's own main file is read only as its headers when it has no symbol file here: Beef
+  0.43.6's debugger engine crashes on some protected program files (a 457 MB protected game program file
+  does it every time), so VisualBeef never lets it read one.
 * One debugging session at a time; Start Debugging is unavailable while attached.
-* Windows only. Attaching needs the same rights as the game (a game run as administrator needs
+* Windows only. Attaching needs the same rights as the program (one run as administrator needs
   VisualBeef run as administrator), and no other debugger attached.
 
 ## Faults

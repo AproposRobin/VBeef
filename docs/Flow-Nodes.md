@@ -236,7 +236,7 @@ These three are flow nodes with bodies too ([Lifetime-Nodes.md](Lifetime-Nodes.m
 | Scope | *Body*, *Completed* | a nested block `{ ... }`: its locals and `scope` values end with it |
 | Do While Loop spelled `repeat` | as Do While | `repeat { ... } while (x);` (Node.Alloc = `repeat`; `do` otherwise) |
 
-* A nested block used to be a Code node; it is a **Scope** node now (54 in the UMP sources). The
+* A nested block used to be a Code node; it is a **Scope** node now (54 in a mod platform's sources). The
   block is a block for the generator's scope analysis, so `scope` lifetimes and locals declared in
   it follow the same rules as in an `if` arm.
 * **Statement attributes** (`[ConstSkip] { ... }`, `[IgnoreErrors] { ... }`, an attribute in front

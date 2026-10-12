@@ -90,9 +90,11 @@ namespace VisualBeef.Editor
 				return;
 			mUpdateHidden = false;
 			mUpdates.Channel.Set(UpdatePrefs.ChannelName);
-			if (mUpdates.Install.Kind == .Bundled)
+			if (mUpdates.Install.Kind == .HostManaged)
 			{
-				Notify.Info("This copy of VisualBeef came with UniversalUMP; the UniversalUMP launcher updates it.");
+				String why = scope .();
+				mUpdates.AutomaticBlocker(why);
+				Notify.Info(why);
 				return;
 			}
 			if (mUpdateView.State == .Ready)

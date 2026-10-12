@@ -563,6 +563,26 @@ namespace VisualBeef.Tests
 			Check(CountLabel(cat, "Platform") == 1, "#if arms listed once");
 			Check(CountLabel(cat, "Not Shown") == 0, "[NodeHidden] type hides its members");
 
+			// [NodeLibrary("Timer Kit")]: the display name is the category; [CallbackNode] functions.
+			let elapsed = FindSpec(cat, "Elapsed");
+			defer delete elapsed;
+			Check(elapsed != null && elapsed.Category == "Timer Kit" && elapsed.Kind == .Pure && !elapsed.IsCallback, "[NodeLibrary(\"Timer Kit\")]: its name is the category");
+			let every = FindSpec(cat, "Every");
+			defer delete every;
+			Check(every != null && every.IsCallback && every.Kind == .Call && every.Category == "Callbacks|Timers" && every.CallbackRole == "Register" && every.CallbackParam == "Callback",
+				"[CallbackNode]: a flow node under Callbacks|<Type>, Register by default, the function-typed parameter is the callback");
+			if (every != null)
+				Check(every.Pins.Count == 2 && !every.Pins[0].IsCallback && every.Pins[1].IsCallback && every.Pins[1].Tooltip.Contains("function void(float)") && every.Keywords.Contains("interval") && every.Keywords.Contains("callback"),
+					"[CallbackNode]: the callback pin's tooltip names its shape; keywords keep the attribute's and add callback");
+			let stop = FindSpec(cat, "Stop Every");
+			defer delete stop;
+			Check(stop != null && stop.IsCallback && stop.CallbackRole == "Remove" && stop.Category == "Timer Kit|Stop" && stop.CallbackParam.IsEmpty && stop.Tooltip.Contains("Removes a callback"),
+				"[CallbackNode(Role=\"Remove\", Category)]: no callback pin, its own category");
+			let after = FindSpec(cat, "After Delay");
+			defer delete after;
+			Check(after != null && after.CallbackParam == "Then" && after.Pins.Count == 3 && after.Pins[1].IsCallback && !after.Pins[2].IsCallback,
+				"[CallbackNode(Callback=\"Then\")]: the named parameter is the callback (a delegate), not the first function-typed one");
+
 			// Search over the catalog
 			List<SearchHit> hits = scope .();
 			cat.Search("blend", hits, 10);

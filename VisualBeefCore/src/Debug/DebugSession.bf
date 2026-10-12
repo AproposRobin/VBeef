@@ -266,7 +266,7 @@ namespace VisualBeef.Debug
 			return true;
 		}
 
-		/// Attaches to a running process (a game started by the UMP launcher, with the mod DLL
+		/// Attaches to a running process (a program started by a host tool, with the project's DLL
 		/// loaded). The engine's attach flags are 0 (not ShutdownOnExit): Stop / Detach and the end
 		/// of the session detach and leave the process running, never kill it. The break Windows
 		/// makes for the attach is continued at once (the process keeps running until a breakpoint).

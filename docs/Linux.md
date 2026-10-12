@@ -39,7 +39,7 @@ BeefBuild -workspace=$PWD -project=VisualBeefEditor -config=Debug
 build/Debug_Linux64/VisualBeefEditor/VisualBeefEditor <project-folder>
 
 # 3. Headless tests
-scripts/linux-ci.sh [corpus-folder]         # corpus-folder holds UnrealUMP/ and ClockWorkEngine/ sources
+scripts/linux-ci.sh [corpus-folder]         # corpus-folder: Beef source trees, one per subfolder
 ```
 
 * Clone on Linux (LF line endings) and build in the Linux file system. A Windows checkout seen
@@ -56,7 +56,8 @@ scripts/linux-ci.sh [corpus-folder]         # corpus-folder holds UnrealUMP/ and
 ## Test results (2026-10-11, WSL2, Debug)
 
 Every suite of [Testing.md](Testing.md) except `debug`, run by `scripts/linux-ci.sh` on a copy of
-the UnrealUMP and ClockWork sources (`*.bf` and `*.toml` only):
+a mod platform's and the ClockWork sources (`*.bf` and `*.toml` only). The `host` suite (it replaced
+an older integration suite after this run) has 76 checks on Windows:
 
 | Command | Linux | Windows (Testing.md table) |
 |---|---|---|
@@ -65,19 +66,19 @@ the UnrealUMP and ClockWork sources (`*.bf` and `*.toml` only):
 | `safety` | `failures=0`, 119 `ok` lines | `failures=0`, 130 `ok` lines (see below) |
 | `parser` | 296 checks, 0 failures | same |
 | `catalog` | 219 passed, 0 failed | same |
-| `diagnostics` / `ump` | 49 / 32 checks, 0 failures | same |
+| `diagnostics` | 49 checks, 0 failures | same |
 | `vocabulary` | 83 source files, 0 hits, 0 failures | same |
 | `compile -out` | `cases=42 compiled=30 refusals=12 failures=0` (1.7 s) | same |
-| `roundtrip` (3 UMP folders) | `files=174 methods=1545 failures=0 broken=0` (29 s) | `failures=0 broken=0` (about 15 s) |
+| `roundtrip` (3 mod-platform folders) | `files=174 methods=1545 failures=0 broken=0` (29 s) | `failures=0 broken=0` (about 15 s) |
 | `roundtrip -types` | same counts, 0 failures (30 s) | same |
-| `roundtrip` UMP `src` + ClockWork | `files=106 methods=1229 failures=0 broken=0` (23 s) | `failures=0` (about 8 s) |
+| `roundtrip` mod-platform `src` + ClockWork | `files=106 methods=1229 failures=0 broken=0` (23 s) | `failures=0` (about 8 s) |
 | `orphans` | `files=174 methods=1545 failures=0` (55 s) | `failures=0` (about 25 s) |
 | `loadall` | `files=322 methods=2718 nodes=125145 ... failures=0` (5 s) | `failures=0` (about 30 s) |
 | `savecheck` | `files=204 edits=353 failures=0` (4.3 s) | identical counts |
 | `debugmap` | `files=204 methods=1695 statements=25516 values=49295 without-line=56 failures=0` | identical counts |
 | `debug` | not run: the debugger is Windows-only | 47 checks |
 
-File and method counts differ from the Windows table only because the UMP tree moved on. The long
+File and method counts differ from the Windows table only because the mod-platform tree moved on. The long
 suites are 2 to 3 times slower than on Windows under WSL (`nice -n 15` next to a busy Windows
 side).
 
@@ -118,7 +119,7 @@ through `APPIMAGETOOL` / `APPIMAGE_RUNTIME`, `PATH`, or `APPIMAGE_TOOLS` (defaul
 `~/.cache/visualbeef-ci/appimage-tools`); `scripts/fetch-appimagetool.sh [dir]` downloads both and
 checks the sha256 GitHub publishes for the release assets. appimagetool runs with `APPIMAGE_EXTRACT_AND_RUN=1`, so
 the build needs no FUSE. The script checks that the AppImage's `--version` prints
-`VisualBeef <ver>-<channel> (UMP contract N)`.
+`VisualBeef <ver>-<channel> (host contract N)`.
 
 Run it as `./VisualBeef-0.1.7-alpha-x86_64.AppImage [project-folder]`, or with
 `--appimage-extract-and-run` first where FUSE is missing (containers). Checked under WSL2 / WSLg on
@@ -201,7 +202,7 @@ lookup, pruning); the signal path was checked under WSLg with `VB_DEBUG_CRASH_TE
 * **Window integration.** The idle wait is a Windows call: on Linux the idle loop wakes every
   16 ms instead of sleeping until input. Raising and the display scale go through the SDL host
   (below). There is no "second instance hands its arguments to the running editor" path on any
-  platform yet (a later UMP item), so nothing asks the window to rise
+  platform yet (a later item), so nothing asks the window to rise
   except the editor itself.
 * **Open dialogs** use `zenity` (started without a shell, the folder is one argument). Without
   zenity the editor's own ImGui file browser is used. The zenity path was built but not driven in

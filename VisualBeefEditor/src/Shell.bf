@@ -435,7 +435,7 @@ namespace VisualBeef.Editor
 					ResolveCompileConfig(cfgWs, cfg, cfgReason);
 				if (ToolbarButton("compile", Icon.Compile, "Compile", scope $"Compile (F7): {(cfg.IsEmpty ? "no workspace" : cfg)}\n{CompileTip(state)}", true, 0, false, CompileBadge(state), CompileColor(state)))
 					Compile();
-				// Configuration dropdown next to Compile (UMP mods must be built Release).
+				// Configuration dropdown next to Compile (a .vbproject may name the one a host needs).
 				if (ToolbarButton("config", Icon.ChevronDown, cfg.IsEmpty ? "Config" : cfg, scope $"Compile configuration: {(cfg.IsEmpty ? "no workspace" : cfg)}{(cfgReason.IsEmpty ? "" : " (")}{cfgReason}{(cfgReason.IsEmpty ? "" : ")")}\nClick to choose Debug or Release for this project", !cfgWs.IsEmpty))
 					Gui.OpenPopup("##configmenu");
 				if (Gui.igBeginPopup("##configmenu", 0))

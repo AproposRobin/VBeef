@@ -85,7 +85,7 @@ first; the subtitle says "runs at the end of the block" (`defer::`: "when the me
 ## Using
 
 A flow node with a **Value** input, a **Body** and **Completed**: `using (sLock.Enter()) { ... }`
-(UMP's lock idiom) or `using (let scope1 = sLock.Enter()) { ... }`, which adds a **variable**
+(the lock idiom) or `using (let scope1 = sLock.Enter()) { ... }`, which adds a **variable**
 output (name and type in Properties, like a Local Variable). The variable can be read only inside
 Body (refused elsewhere, like a loop element). Headers keep their spelling (`using(` / `using (`,
 K&R or Allman) while only the body changes.
@@ -155,8 +155,8 @@ refuses the commit like every other refusal.
 the store and the reader were all read from the code (the compiler accepted it), the `scope` rules
 are warnings; they are errors only once the graph was edited there (a node or a wire made in the
 editor). The `new` ownership warning is only given for Construct nodes made in the editor (a thread
-started with auto-delete, an object that registers itself, ... are the author's call). On the UMP
-and ClockWork sources a dry generation reports no lifetime error and no warning.
+started with auto-delete, an object that registers itself, ... are the author's call). On a mod platform's
+sources and ClockWork a dry generation reports no lifetime error and no warning.
 
 ## The last text forms
 
@@ -195,7 +195,7 @@ under the lambda (`s1/arg0/body/s0`). The orphan codec writes a lambda's body in
 lambda, never as a chain of its own; the generator treats a lambda's statements as statements
 (for temps, out values and scope analysis) inside the statement that holds the lambda.
 
-**Still text** (on UMP: 10 Code and 20 Expression nodes left, in 21 of 1,366 bodies): tuple
+**Still text** (on a mod platform's sources: 10 Code and 20 Expression nodes left, in 21 of 1,366 bodies): tuple
 assignments and `let (a, b) = ...` (6), object initialisers `.() { x = 1 }` /
 `JsonWriterOptions() { Indented = true }` (8), casts the parser cannot tell from arithmetic
 (`(uint)*(uint64*)p`, `*(uint32*)&b[0] = ...`: 5), `offsetof(...)` (2), assignments used as values

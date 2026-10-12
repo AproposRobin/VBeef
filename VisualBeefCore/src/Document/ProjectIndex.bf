@@ -150,7 +150,7 @@ namespace VisualBeef.Document
 	{
 		public String Root = new .() ~ delete _;
 		public List<IndexedFile> Files = new .() ~ DeleteContainerAndItems!(_);
-		/// Generated library projects (game SDKs) found under Root. They are not parsed as
+		/// Generated library projects found under Root. They are not parsed as
 		/// project files: TypeService loads them through LibraryIndex (cached) instead.
 		public List<String> GeneratedLibraries = new .() ~ DeleteContainerAndItems!(_);
 		/// Bumped on every change, so caches built from the index (the node catalog) refresh.
@@ -311,8 +311,8 @@ namespace VisualBeef.Document
 		}
 
 		/// True for a folder that holds a generated library project: a `BeefProj.toml` with
-		/// `TargetType = "BeefLib"` whose sources are mostly generated (`*.g.bf`, as UMP's
-		/// UnrealSDKEmitter writes them), or any library folder with a `.vblibrary` marker file.
+		/// `TargetType = "BeefLib"` whose sources are mostly generated (`*.g.bf`, as code
+		/// generators write them), or any library folder with a `.vblibrary` marker file.
 		/// Such a folder is indexed as a library (parsed once, cached by LibraryIndex), not as
 		/// project sources.
 		public static bool IsGeneratedLibrary(StringView dir)

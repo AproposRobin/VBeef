@@ -105,8 +105,10 @@ On Linux the folder is `~/.local/share/VisualBeef/update/`. `VB_HOME` moves all 
 * **Linux (AppImage)**: the new AppImage replaces the file you started, under the same name, and is started. The
   previous file is kept in the `previous` folder.
 * **Linux (tarball)**: VisualBeef tells you about new versions; download and unpack the new tarball yourself.
-* **A copy another program bundles**: when VisualBeef ships inside another program's folder, that program
-  updates it, so the bundled copy does not check or install by itself.
+* **A copy installed by a host tool**: when a host tool installs VisualBeef and keeps it up to date, it writes a
+  `host-install.json` file next to the program, and that copy does not check or install by itself: Help > Check for
+  Updates says "This copy of VisualBeef was installed by <host>, which keeps it up to date." A host that leaves updates
+  to VisualBeef writes `"updates": "visualbeef"` in the file instead.
 
 ## Going back
 

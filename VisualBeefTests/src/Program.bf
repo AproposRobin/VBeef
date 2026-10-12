@@ -27,21 +27,22 @@ namespace VisualBeef.Tests
 	///       run it and compare its output; plus graphs that must be refused (CompileTests.bf).
 	///   VisualBeefTests catalog         Node catalog, attributes, type resolution, conversions,
 	///                                   fuzzy search, corlib cache (CatalogTests).
-	///   VisualBeefTests catalog-scale [sdk-dir]   Index + search timings on a generated SDK.
+	///   VisualBeefTests catalog-scale <lib-dir>   Index + search timings on a generated library.
 	///   VisualBeefTests catalog-scale -root <dir> Opening a whole folder like the editor (background
 	///                                   indexer, SDKs under the root as cached libraries), cold / warm.
 	///   VisualBeefTests lifetime        Construct / Delete / Defer / Using / Result nodes and the lifetime
 	///                                   rules (LifetimeTests; the Defer / Using bodies also run in `flow`).
 	///   VisualBeefTests coverage [-notypes] [-v] <dir>...   What the graphs of real code contain (bodies
 	///                                   with no text nodes, node kinds, text by construct).
-	///   VisualBeefTests vocabulary [root]   No Unreal term in the string literals of the sources or in the docs.
+	///   VisualBeefTests vocabulary [root]   No Unreal term in the string literals of the sources or in the docs, and
+	///                                   no host product name anywhere in the sources, scripts or docs.
 	///   VisualBeefTests hotkeys         Node hotkeys and favorites (defaults, conflicts, clear).
 	///   VisualBeefTests update          The updater: signed descriptors, sequences, downloads, swap / restore.
 	///   VisualBeefTests diagnostics     Compiler output parsing and error-line -> node mapping.
 	///   VisualBeefTests debugmap [-v] <dir>...   The debugger's node <-> line map on a corpus (DebugTests).
 	///   VisualBeefTests debug [-out <dir>] [-v]  Builds the Debuggee fixture and debugs it with Beef's engine.
-	///   VisualBeefTests ump [-sdk <dir>] UMP integration: command line, project contract, --new-ump-mod,
-	///                                   generated SDKs through dependency paths, an SDK as a node library.
+	///   VisualBeefTests host [-lib <dir>] The host contract: command line, .vbproject, templates, attribute-declared
+	///                                   node libraries, generated libraries through dependency paths (HostTests).
 	///   VisualBeefTests loadall [-v] <dir>...   Opens every project file of a folder like the editor
 	///                                   (index, libraries, side files, every graph laid out, a dry
 	///                                   generation, layout text) and checks the graphs (LoadAllTests).
@@ -124,8 +125,8 @@ namespace VisualBeef.Tests
 				return CoverageTests.Run(args);
 			if (args[0] == "lifetime")
 				return (LifetimeTests.Run() == 0) ? 0 : 1;
-			if (args[0] == "ump")
-				return UmpTests.Run(args);
+			if (args[0] == "host")
+				return HostTests.Run(args);
 			if (args[0] == "debugmap")
 				return DebugTests.RunMap(args);
 			if (args[0] == "debug")
@@ -150,11 +151,16 @@ namespace VisualBeef.Tests
 			{
 				if (args.Count > 2 && args[1] == "-root")
 					return CatalogTests.ScaleRoot(args[2]);
-				// Without a folder: VB_UMP_SDK (the SDK folder), else the default under a UnrealUMP checkout (docs/Testing.md).
-				String sdkDir = scope .();
-				if (Environment.GetEnvironmentVariable("VB_UMP_SDK", sdkDir) case .Err || sdkDir.IsEmpty)
-					sdkDir.Set("D:/UnrealUMP/UnrealUMP/Sdks/ScreechSDK");
-				return CatalogTests.Scale((args.Count > 1) ? args[1] : sdkDir);
+				// Without a folder: VB_SCALE_LIB (a large generated library folder, docs/Testing.md).
+				String libDir = scope .();
+				if (args.Count > 1)
+					libDir.Set(args[1]);
+				else if (Environment.GetEnvironmentVariable("VB_SCALE_LIB", libDir) case .Err || libDir.IsEmpty)
+				{
+					Console.WriteLine("usage: VisualBeefTests catalog-scale <generated library folder> (or set VB_SCALE_LIB)");
+					return 2;
+				}
+				return CatalogTests.Scale(libDir);
 			}
 			if (args[0] == "graph")
 				return GraphDump(args[1]);

@@ -1,0 +1,5 @@
+FileVersion = 1
+Projects = {@@Identifier@@ = {Path = "."}, FixtureKit = {Path = "@@Lib.FixtureKit@@"}}
+
+[Workspace]
+StartupProject = "@@Identifier@@"

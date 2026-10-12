@@ -242,8 +242,8 @@ namespace VisualBeef.Debug
 
 		/// The engine reads every module of the debugged process from its file, for symbols and
 		/// unwind data. Beef 0.43.6's reader crashes (an access violation on the engine's thread,
-		/// which ends the editor) on some protected game executables: HogwartsLegacy.exe (457 MB,
-		/// a protector's section layout) does it every time; reproduced without the game by mapping
+		/// which ends the editor) on some protected executables: a 457 MB game executable with
+		/// a protector's section layout does it every time; reproduced without the game by mapping
 		/// the file into a stand-in process (`VisualBeefTests attachprobe`).
 		/// For an image listed here the engine reads a stripped copy of its headers instead of the
 		/// file: the same image base and size, no sections and no data directories (no exports,

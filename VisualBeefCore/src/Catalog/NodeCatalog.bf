@@ -35,6 +35,8 @@ namespace VisualBeef.Catalog
 		public const uint8 cGeneric = 16;
 		public const uint8 cOverloaded = 32;
 		public const uint8 cAttributed = 64;
+		/// `[CallbackNode]`: registers, removes or stands in for a callback.
+		public const uint8 cCallback = 128;
 
 		public bool IsStatic => (Flags & cStatic) != 0;
 	}
@@ -51,6 +53,8 @@ namespace VisualBeef.Catalog
 		public bool Advanced;
 		/// `[Pin(Out=true)]` on a `ref` parameter: shown as an output pin like `out`.
 		public bool OutRef;
+		/// The callback parameter of a `[CallbackNode]` (a `function` / `delegate` type).
+		public bool IsCallback;
 
 		/// The parameter is an output of the node: `out`, or `ref` marked `[Pin(Out=true)]`.
 		public bool IsOutput => OutRef || IsOutModifier(Modifier);
@@ -94,6 +98,10 @@ namespace VisualBeef.Catalog
 		public bool IsConversion;
 		public bool IsCompact;
 		public String CompactTitle = new .() ~ delete _;
+		/// `[CallbackNode]`: its role ("Register", "Remove", "Original") and the callback parameter ("" when none).
+		public bool IsCallback;
+		public String CallbackRole = new .() ~ delete _;
+		public String CallbackParam = new .() ~ delete _;
 		public bool IsPure => Kind == .Pure || Kind == .Get;
 	}
 
@@ -391,7 +399,7 @@ namespace VisualBeef.Catalog
 				if (!store.IsLibrary && (type.TypeFlags & TypeRec.cStatic) != 0 && store.Str(type.Kind) == "class" && m.IsStatic && m.Visibility == .Public)
 					return true;
 				// Attributed store: only what is tagged (or public static in a [NodeLibrary]).
-				if (AttributeParser.Find(attrs, "Node") != null || AttributeParser.Find(attrs, "Pure") != null ||
+				if (AttributeParser.Find(attrs, "Node") != null || AttributeParser.Find(attrs, "Pure") != null || AttributeParser.Find(attrs, "CallbackNode") != null ||
 					AttributeParser.Find(attrs, "Expose") != null || AttributeParser.Find(attrs, "Conversion") != null)
 					return true;
 				return typeIsLibrary && m.IsStatic && m.Visibility == .Public && m.IsMethod;
@@ -431,8 +439,11 @@ namespace VisualBeef.Catalog
 				let ns = store.Str(type.Namespace);
 				bool projectLibrary = lib == null && !store.IsLibrary && (type.TypeFlags & TypeRec.cStatic) != 0 && kind == "class";
 				typeCategory.Clear();
-				if (lib != null && !lib.Get("Category", 0).IsEmpty)
-					typeCategory.Set(lib.Get("Category", 0));
+				// [NodeLibrary("Display Name", Category="...")]: the category, else the library's name.
+				if (lib != null && !lib.Get("Category").IsEmpty)
+					typeCategory.Set(lib.Get("Category"));
+				else if (lib != null && !lib.Get("DisplayName", 0).IsEmpty)
+					typeCategory.Set(lib.Get("DisplayName", 0));
 				else
 				{
 					if (!ns.IsEmpty)
@@ -477,15 +488,19 @@ namespace VisualBeef.Catalog
 					let pure = AttributeParser.Find(attrs, "Pure");
 					let expose = AttributeParser.Find(attrs, "Expose");
 					let conv = AttributeParser.Find(attrs, "Conversion");
+					let cb = m.IsMethod ? AttributeParser.Find(attrs, "CallbackNode") : null;
 					let expand = (AttributeParser.Find(attrs, "ExpandEnumAsFlow") ?? AttributeParser.Find(attrs, "ExpandEnumAsExecs"));
 
 					category.Clear();
 					StringView explicitCat = default;
 					if (node != null) explicitCat = node.Get("Category", 0);
+					if (explicitCat.IsEmpty && cb != null) explicitCat = cb.Get("Category");
 					if (explicitCat.IsEmpty && pure != null) explicitCat = pure.Get("Category", 0);
 					if (explicitCat.IsEmpty && expose != null) explicitCat = expose.Get("Category", 0);
 					if (!explicitCat.IsEmpty)
 						category.Set(explicitCat);
+					else if (cb != null)
+						category.AppendF("Callbacks|{}", typeName); // the callback nodes of a type sit together
 					else
 						category.Set(typeCategory);
 					// A static variable is a global: Get / Set from any sheet under Globals > Owner.
@@ -499,6 +514,7 @@ namespace VisualBeef.Catalog
 					display.Clear();
 					StringView explicitName = default;
 					if (node != null) explicitName = node.Get("DisplayName");
+					if (explicitName.IsEmpty && cb != null) explicitName = cb.Get("DisplayName", 0);
 					if (explicitName.IsEmpty && expose != null) explicitName = expose.Get("DisplayName");
 					if (!explicitName.IsEmpty)
 						display.Set(explicitName);
@@ -508,14 +524,20 @@ namespace VisualBeef.Catalog
 					keywords.Clear();
 					if (node != null)
 						keywords.Set(node.Get("Keywords"));
+					if (cb != null)
+					{
+						keywords.Append(cb.Get("Keywords"));
+						keywords.Append(keywords.IsEmpty ? "callback" : " callback");
+					}
 
 					uint8 flags = 0;
 					if (m.IsStatic) flags |= CatalogEntry.cStatic;
 					if (conv != null) flags |= CatalogEntry.cConversion;
-					if (node != null && node.GetBool("Advanced")) flags |= CatalogEntry.cAdvanced;
+					if ((node != null && node.GetBool("Advanced")) || (cb != null && cb.GetBool("Advanced"))) flags |= CatalogEntry.cAdvanced;
 					if (node != null && node.GetBool("Compact")) flags |= CatalogEntry.cCompact;
 					if (typeGeneric || !store.Str(m.GenericParams).IsEmpty) flags |= CatalogEntry.cGeneric;
-					if (node != null || pure != null || expose != null || conv != null) flags |= CatalogEntry.cAttributed;
+					if (node != null || pure != null || expose != null || conv != null || cb != null) flags |= CatalogEntry.cAttributed;
+					if (cb != null) flags |= CatalogEntry.cCallback;
 
 					void AddEntry(NodeEntryKind ek, StringView prefix)
 					{
@@ -551,7 +573,7 @@ namespace VisualBeef.Catalog
 						}
 						if (pure != null || (node != null && node.GetBool("Pure")))
 							ek = .Pure;
-						else if (node == null && lib != null && m.IsStatic && ret != "void" && !hasRefOut)
+						else if (node == null && cb == null && lib != null && m.IsStatic && ret != "void" && !hasRefOut)
 							ek = .Pure; // [NodeLibrary] default
 						if (expand != null)
 							ek = .Flow;
@@ -624,9 +646,16 @@ namespace VisualBeef.Catalog
 			AttributeParser.Parse(store.Str(m.Attributes), attrs);
 			let node = AttributeParser.Find(attrs, "Node");
 			let expose = AttributeParser.Find(attrs, "Expose");
+			let cb = AttributeParser.Find(attrs, "CallbackNode");
 			let expand = (AttributeParser.Find(attrs, "ExpandEnumAsFlow") ?? AttributeParser.Find(attrs, "ExpandEnumAsExecs"));
 			if (node != null)
 				spec.CompactTitle.Set(node.Get("CompactTitle"));
+			if (cb != null && m.IsMethod)
+			{
+				spec.IsCallback = true;
+				spec.CallbackRole.Set(cb.Get("Role"));
+				spec.CallbackParam.Set(cb.Get("Callback"));
+			}
 			if (expand != null)
 				spec.ExpandEnumParam.Set(expand.Get("Param", 0));
 
@@ -639,6 +668,7 @@ namespace VisualBeef.Catalog
 			// Tooltip: [Node(Tooltip)] / [Expose(Tooltip)], else the doc comment summary.
 			StringView tip = default;
 			if (node != null) tip = node.Get("Tooltip");
+			if (tip.IsEmpty && spec.IsCallback) tip = cb.Get("Tooltip");
 			if (tip.IsEmpty && expose != null) tip = expose.Get("Tooltip");
 			let doc = store.Str(m.Doc);
 			if (!tip.IsEmpty)
@@ -655,7 +685,7 @@ namespace VisualBeef.Catalog
 					let p = ref store.Params[m.FirstParam + pi];
 					PinSpec pin = new .();
 					pin.Name.Set(store.Str(p.Name));
-					// `@X` (a verbatim identifier, as UMP's SDK writes every parameter) is labelled X.
+					// `@X` (a verbatim identifier, as generated libraries often write every parameter) is labelled X.
 					pin.Label.Set(pin.Name.StartsWith('@') ? pin.Name.Substring(1) : pin.Name);
 					pin.Type.Set(store.Str(p.Type));
 					pin.Default.Set(store.Str(p.Default));
@@ -676,6 +706,19 @@ namespace VisualBeef.Catalog
 					}
 					if (pin.Tooltip.IsEmpty)
 						DocComment.Param(doc, pin.Name, pin.Tooltip);
+					if (spec.IsCallback && !pin.IsOutput)
+					{
+						// The callback parameter: the one the attribute names, else the first function / delegate.
+						bool named = !spec.CallbackParam.IsEmpty && (pin.Name == spec.CallbackParam || pin.Label == spec.CallbackParam);
+						bool shaped = spec.CallbackParam.IsEmpty && (pin.Type.StartsWith("function ") || pin.Type.StartsWith("delegate "));
+						if (named || shaped)
+						{
+							pin.IsCallback = true;
+							spec.CallbackParam.Set(pin.Name);
+							if (pin.Tooltip.IsEmpty)
+								pin.Tooltip.AppendF("The callback: a static function of this class with the shape {}, written => Name.", pin.Type);
+						}
+					}
 					if (pi > 0)
 						spec.ParamsText.Append(", ");
 					if (!pin.Modifier.IsEmpty)
@@ -687,6 +730,32 @@ namespace VisualBeef.Catalog
 				}
 				if (spec.ExpandEnumParam == "return")
 					EnumCasesOf(store, type, spec.ReturnType, spec.EnumCases);
+			}
+
+			if (spec.IsCallback)
+			{
+				bool hasPin = false;
+				for (let p in spec.Pins)
+					if (p.IsCallback)
+						hasPin = true;
+				if (spec.CallbackRole.IsEmpty && hasPin)
+					spec.CallbackRole.Set("Register");
+				if (!hasPin && spec.CallbackRole != "Register")
+					spec.CallbackParam.Clear();
+				StringView roleText = default;
+				switch (spec.CallbackRole)
+				{
+				case "Register": roleText = "Registers a callback: pick a static function of this class for its callback pin.";
+				case "Remove": roleText = "Removes a callback.";
+				case "Original": roleText = "Calls the code the callback replaced; use it inside the callback.";
+				default:
+				}
+				if (!roleText.IsEmpty && !spec.Tooltip.Contains(roleText))
+				{
+					if (!spec.Tooltip.IsEmpty)
+						spec.Tooltip.Append(' ');
+					spec.Tooltip.Append(roleText);
+				}
 			}
 
 			// Menu label: display name, plus parameter types when overloaded.

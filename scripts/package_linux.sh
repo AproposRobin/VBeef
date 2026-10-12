@@ -74,14 +74,14 @@ else
   echo "binary has no rpath"; exit 1
 fi
 REPORTED=$(cd "$D" && env -u LD_LIBRARY_PATH ./VisualBeefEditor --version | head -1)
-case "$REPORTED" in "VisualBeef $FULL (UMP contract "*) ;; *) echo "--version printed '$REPORTED', expected 'VisualBeef $FULL ...'"; exit 1;; esac
+case "$REPORTED" in "VisualBeef $FULL (host contract "*) ;; *) echo "--version printed '$REPORTED', expected 'VisualBeef $FULL ...'"; exit 1;; esac
 
 mkdir -p "$OUTDIR"
 TAR="$OUTDIR/VisualBeef-$FULL-linux64.tar.gz"
 rm -f "$TAR" "$TAR.sha256"
 tar -C "$STAGE" --owner=0 --group=0 --sort=name -czf "$TAR" VisualBeef
 # Owner's rule (2026-10-12): no developer page in a package. This tarball has no docs at all; the check proves it.
-if tar -tzf "$TAR" | grep -E '(^|/)(docs/|(Architecture|Testing|CI|Code-Signing|Releasing|Codegen|Parsing-and-Layout|Catalog-and-Types|Linux|UMP-Integration|Roadmap|Vocabulary|CHANGELOG|README)\.md$)'; then
+if tar -tzf "$TAR" | grep -E '(^|/)(docs/|(Architecture|Testing|CI|Code-Signing|Releasing|Codegen|Parsing-and-Layout|Catalog-and-Types|Linux|Host-Integration|Roadmap|Vocabulary|CHANGELOG|README)\.md$)'; then
   echo "developer documentation in $TAR" >&2; exit 1
 fi
 ( cd "$OUTDIR" && sha256sum "$(basename "$TAR")" > "$(basename "$TAR").sha256" )
@@ -132,7 +132,7 @@ APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 VERSION="$FULL" nice -n "$NICE" "$TOOL" -
   > build/linux-appimage.log 2>&1 || { tail -30 build/linux-appimage.log; echo "appimagetool failed (build/linux-appimage.log)"; exit 1; }
 chmod +x "$APPIMG"
 REPORTED=$(APPIMAGE_EXTRACT_AND_RUN=1 env -u LD_LIBRARY_PATH "$APPIMG" --version | head -1)
-case "$REPORTED" in "VisualBeef $FULL (UMP contract "*) ;; *) echo "AppImage --version printed '$REPORTED', expected 'VisualBeef $FULL ...'"; exit 1;; esac
+case "$REPORTED" in "VisualBeef $FULL (host contract "*) ;; *) echo "AppImage --version printed '$REPORTED', expected 'VisualBeef $FULL ...'"; exit 1;; esac
 ( cd "$OUTDIR" && sha256sum "$(basename "$APPIMG")" > "$(basename "$APPIMG").sha256" )
 echo "Packaged $APPIMG ($(du -h "$APPIMG" | cut -f1)): $REPORTED"
 cat "$APPIMG.sha256"

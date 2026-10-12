@@ -137,7 +137,7 @@ namespace VisualBeef.Editor
 			case "debugshots": finished = SelfTestDebugShots();
 			case "faultshot": finished = SelfTestFaultShot();
 			case "newcomer": finished = SelfTestNewcomer();
-			case "modauthor": finished = SelfTestModAuthor();
+			case "host": finished = SelfTestHost();
 			case "fnlocals": finished = SelfTestFnLocals();
 			case "localsui": finished = SelfTestLocalsUi();
 			case "mathexpr": finished = SelfTestMath();
@@ -183,12 +183,12 @@ namespace VisualBeef.Editor
 					SelfTestAddVar(test.Substring(7));
 				else if (test.StartsWith("initbuf:")) // what the Value box shows, as if typed (error state captures)
 					mInitValueBuf.Set(test.Substring(8));
-				else if (test.StartsWith("newproject-mod:")) // File > New Project with UMP Mod chosen and the Game SDK filled in
+				else if (test.StartsWith("newproject-template:")) // File > New Project with From template folder... chosen and the folder filled in
 				{
 					StartNewProject();
-					mNPType = 3;
-					mNPName.Set("Hello Mod");
-					mNPSdk.Set(test.Substring(15));
+					mNPType = cTemplateType;
+					mNPName.Set("Hello Tool");
+					mNPTemplate.Set(test.Substring(20));
 				}
 				else if (test == "close-popups")
 					mSelfTestClosePopups = true;

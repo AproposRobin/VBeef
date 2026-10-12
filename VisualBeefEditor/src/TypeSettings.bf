@@ -1552,14 +1552,6 @@ namespace VisualBeef.Editor
 		/// and (optionally) stubs for what they require.
 		void MakeNewTypeText(AssetKind kind, StringView ns, StringView name, String outText)
 		{
-			if (kind == .Class && mCBNewTemplate == 1)
-			{
-				String id = scope .();
-				id.AppendF("{}.{}", ns, name);
-				id.ToLower();
-				TypeTemplates.MakeUMPMod(ns, name, id, ns, "1.0.0", outText);
-				return;
-			}
 			StringView kindWord = "class";
 			StringView typeMods = "";
 			switch (kind)
@@ -1617,37 +1609,27 @@ namespace VisualBeef.Editor
 			{
 				Gui.Text("Template");
 				Gui.igSetNextItemWidth(380 * Look.Scale);
-				StringView[3] templates = .("Empty class", "UMP Mod (ModMain : UMPMod, Initialize / Tick / Shutdown)", "Node Library (static class: global functions and variables)");
+				StringView[2] templates = .("Empty class", "Node Library (static class: global functions and variables)");
 				if (PropertyGrid.Combo("##tmpl", ref mCBNewTemplate, templates))
 				{
 					if (mCBNewTemplate == 1)
-					{
-						mCBNameBuf.Set("ModMain");
-						mCBNewParent.Set("UMPMod");
-					}
-					else if (mCBNewTemplate == 2)
 					{
 						mCBNewParent.Clear();
 						ClearAndDeleteItems!(mCBNewInterfaces);
 					}
 					// The chosen template decides the kind: its icon, title and the file written.
 					let nameNow = StringView(mCBNameBuf.View);
-					if (mCBNewTemplate == 2 && nameNow.StartsWith("NewClass"))
+					if (mCBNewTemplate == 1 && nameNow.StartsWith("NewClass"))
 						mCBNameBuf.Set("NewLibrary");
-					else if (mCBNewTemplate != 2 && nameNow.StartsWith("NewLibrary"))
+					else if (mCBNewTemplate != 1 && nameNow.StartsWith("NewLibrary"))
 						mCBNameBuf.Set("NewClass");
-					mCBNewKind = (mCBNewTemplate == 2) ? .Library : .Class;
+					mCBNewKind = (mCBNewTemplate == 1) ? .Library : .Class;
 				}
 			}
 			if (kind == .Library)
 			{
 				Gui.TextDisabled("A static class: its functions and variables are global, called as Name.Function(...).");
 				Gui.TextDisabled("It has no parent, interfaces or constructors and is never constructed.");
-				return;
-			}
-			if (kind == .Class && mCBNewTemplate == 1)
-			{
-				Gui.TextDisabled("A UMP mod entry point: Tick is the Tick override.");
 				return;
 			}
 			if (kind == .Enum)
@@ -1733,7 +1715,7 @@ namespace VisualBeef.Editor
 					let m = ref t.Store.Members[mi];
 					if (m.Visibility == .Protected && !m.IsMethod && !(isStatic && !m.IsStatic))
 					{
-						// A protected field or property of a parent (UMPMod.ModDirectoryPath): read (and set) on self.
+						// A protected field or property of a parent (ToolBase.DataPath): read (and set) on self.
 						let fname = t.Store.Str(m.Name);
 						if (fname.IsEmpty || fname.Contains('.') || seen.ContainsAlt(fname))
 							continue;

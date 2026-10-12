@@ -34,14 +34,17 @@ Beef compiler (step A of audit gap #3). The code is in `VisualBeefCore/src/Catal
 
   A rescan of the same folder (`Build` on an index that already holds it) keeps every file
   whose size and modification time did not change (`IndexedFile.Stamp`) and parses only the
-  rest: 85 ms for the 266 UMP project files when nothing changed.
-- **Generated SDKs under the folder.** A sub-folder holding a `BeefProj.toml` with
-  `TargetType = "BeefLib"` whose sources are mostly `*.g.bf` (what UMP's `UnrealSDKEmitter`
-  writes), or any library folder with a `.vblibrary` marker file, is not entered by the
-  project scan: it goes to `ProjectIndex.GeneratedLibraries`, and `LibraryIndex.Discover`
-  loads it as a library (cached, below), followed by its own dependencies. Opening the UMP
-  repository root therefore indexes 266 project files plus `HogwartsLegacySDK`, `ScreechSDK`
-  and the emitter's `SampleGameSDK` golden output as libraries.
+  rest: 85 ms for a 266-file project when nothing changed.
+- **Generated libraries under the folder.** A sub-folder holding a `BeefProj.toml` with
+  `TargetType = "BeefLib"` whose sources are mostly `*.g.bf` (what code generators write), or
+  any library folder with a `.vblibrary` marker file, is not entered by the project scan: it
+  goes to `ProjectIndex.GeneratedLibraries`, and `LibraryIndex.Discover` loads it as a library
+  (cached, below), followed by its own dependencies. Opening a mod platform's repository root
+  with two generated game SDKs and a generator's golden output therefore indexes 266 project
+  files plus those three folders as libraries.
+- **Libraries the project manifest names.** The `libraries` of the folder's `.vbproject`
+  ([Host-Integration.md](Host-Integration.md)) are loaded as libraries too, even when the
+  workspace does not list them.
 - **Libraries.** `LibraryIndex.Discover(folder)` reads the nearest `BeefSpace.toml` and the
   `BeefProj.toml` of every workspace project in or above the folder, and follows their
   `Dependencies` transitively. It resolves each dependency to one of:
@@ -58,14 +61,14 @@ Beef compiler (step A of audit gap #3). The code is in `VisualBeefCore/src/Catal
      whose header holds a signature of every source path and its modification time plus the
      format version (4 since the class model: members carry virtual / abstract / override / sealed,
      types abstract / sealed / static, which ClassModel reads). The files are only listed and stat'ed; on a match the cache is read with
-     a few `memcpy`s (6 ms for ScreechSDK, 9-11 ms for HogwartsLegacySDK);
+     a few `memcpy`s (6 ms for the smaller game SDK, 9-11 ms for the larger);
   2. the **content-keyed** cache `index\sdk-<FNV-64 of the content>.bin`, keyed by a hash of every
      file's path relative to the library and its bytes. It is shared by every copy of a library
      with the same files: an SDK regenerated with identical output (new times, same text), the
      same SDK in a second checkout, or a cache built ahead of time. On a hit the store's file
      records are re-pointed at this copy and the path-keyed cache is re-written, so the next
-     start is stat-only again (hashing reads the files: 0.24 s for ScreechSDK, 0.5 s for
-     Hogwarts, against 4.6 s / 9.7 s to parse);
+     start is stat-only again (hashing reads the files: 0.24 s for the smaller SDK, 0.5 s for
+     the larger, against 4.6 s / 9.7 s to parse);
   3. a full parse, which writes both caches.
 
   Files are written to a temp file and then moved into place, so a crash never leaves a broken
@@ -295,10 +298,9 @@ interface). Without one, name heuristics are used: `E…`/`…Kind` is an enum, 
 `Theme.TypeColor` in the editor shell should call `TypeRules.PinColor` (that change is left to
 the shell owner).
 
-## Generated SDKs (UMP and other very large libraries)
+## Generated libraries (very large libraries)
 
-Measured on `<UnrealUMP>\Sdks\ScreechSDK` (Debug build). The SDK has 209 files,
-23 MB and 475k lines:
+Measured on a generated game SDK of 209 files, 23 MB and 475k lines (Debug build):
 
 | Step | Time |
 |---|---|
@@ -324,36 +326,32 @@ What makes this scale:
 - **Separate library catalogs.** A library's catalog is built once per session. Project edits
   don't touch it.
 
-### How a generator should emit an SDK
+### How a generator should emit a library
 
-The ScreechSDK today has no attributes, so every public member is offered, under the one
-category `UnrealUMP|Unreal|<Class>`. To get the game's own categories, the generator
-(`UnrealSDKEmitter`) should emit:
+A generated library without attributes offers every public member, under `Namespace|Type`
+categories. A generator gets its own categories and hides its plumbing by emitting the node
+attributes ([Node-Attributes.md](Node-Attributes.md), [Host-Integration.md](Host-Integration.md#node-libraries)).
+It may declare the attribute types itself (VisualBeef matches them by simple name and fields), so the
+library does not depend on `VisualBeefMeta`:
 
-1. `using VisualBeef;`, and add `VisualBeefMeta` to the SDK's `BeefProj.toml` dependencies.
-2. `[NodeLibrary(Category="Game|<Package>|<Class>")]` on each class's wrapper type, or on a
-   static wrapper class per UClass.
-3. On each `UFunction` wrapper:
-   - `[Node(Category=<the game's Category metadata>, DisplayName=<the game's DisplayName metadata>, Tooltip=<the game's ToolTip metadata>, Keywords=<the game's Keywords metadata>)]`
-     for `FUNC_BlueprintCallable`;
-   - `[Pure]` for `FUNC_BlueprintPure`;
-   - `[NodeHidden]` for internal thunks, `Flow*` stubs, `K2_*` duplicates that have a nicer
-     alias, and `StaticClass`;
-   - `[Node(Advanced=true)]` for `AdvancedDisplay`-heavy functions.
-4. `[Expose(Category=..., ReadOnly=!CPF_Edit)]` on `BlueprintVisible` properties, and nothing
-   on the rest.
-5. `[Pin(Name=<DisplayName>, Default=<CPP_Default_X meta>)]` on parameters. Prefer real Beef
-   default values when the type allows them.
-6. `[Conversion]` on `BlueprintAutocast` functions, and `[ExpandEnumAsFlow("…")]` from the
-   `ExpandEnumAsExecs` meta.
+1. `[Node(Category=..., DisplayName=..., Tooltip=..., Keywords=...)]` on the functions to offer, with
+   `Pure=true` for the ones without side effects and `Advanced=true` for rarely used ones;
+2. `[CallbackNode("...", Role=...)]` on the functions that register, remove or call through a
+   replaceable callback;
+3. `[NodeHidden]` on internal thunks and duplicates;
+4. `[Expose(Category=..., ReadOnly=...)]` on the properties to offer;
+5. `[Pin(Name=..., Default=..., Out=true)]` on parameters (prefer real Beef default values when the
+   type allows them);
+6. `[Conversion]` on automatic conversions and `[ExpandEnumAsFlow("...")]` where an enum result
+   should become flow outputs.
 
 Once a store uses any attribute it switches to attributed mode, so only the tagged API is
 offered. Emitting at least one attribute is therefore enough to remove the noise. Doc comments
 (`/// <summary>`) are also picked up as tooltips, if the generator prefers those to `Tooltip=`.
 
-When the open folder contains a generated SDK (the UMP repository root), the SDK is loaded as a
-cached library, not parsed as project files (see [Indexing](#indexing)). Opening
-`<UnrealUMP>` (`VisualBeefTests catalog-scale -root`, Debug build):
+When the open folder contains a generated library (a mod platform's repository root, for example),
+it is loaded as a cached library, not parsed as project files (see [Indexing](#indexing)). Opening
+such a repository (`VisualBeefTests catalog-scale -root`, Debug build):
 
 | | Before (2026-10-10 audit) | After |
 |---|---|---|
@@ -365,8 +363,8 @@ cached library, not parsed as project files (see [Indexing](#indexing)). Opening
 | Cancel | - | worker stops within 40 ms |
 
 Still on the UI thread: building a library's catalog the first time the node menu opens
-(113 ms Screech, 254 ms Hogwarts), the first category tree (0.3 / 0.9 s), and search
-(up to 33 / 78 ms per query on Screech / Hogwarts).
+(113 ms for the smaller SDK, 254 ms for the larger), the first category tree (0.3 / 0.9 s), and search
+(up to 33 / 78 ms per query on the smaller / larger SDK).
 
 ## What a type field accepts
 

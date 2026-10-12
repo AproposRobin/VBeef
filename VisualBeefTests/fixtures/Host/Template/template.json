@@ -1,0 +1,22 @@
+{
+  "template": 1,
+  "name": "Fixture tool",
+  "description": "A console program that uses the Fixture Kit node library.",
+  "host": "Fixture Host",
+  "variables": [
+    {"key": "Id", "label": "Id", "default": "@@Slug@@"},
+    {"key": "Version", "label": "Version", "default": "0.1.0"}
+  ],
+  "files": [
+    {"from": "files/BeefSpace.toml", "to": "BeefSpace.toml"},
+    {"from": "files/BeefProj.toml", "to": "BeefProj.toml"},
+    {"from": "files/Program.bf.txt", "to": "src/Program.bf"},
+    {"from": "files/tool.json", "to": "tool.json"}
+  ],
+  "main": "src/Program.bf",
+  "configuration": "Release",
+  "attach": {"module": "FixtureHost.dll", "hint": "Start the fixture host, then Refresh."},
+  "libraries": [
+    {"name": "FixtureKit", "path": "../FixtureKit"}
+  ]
+}

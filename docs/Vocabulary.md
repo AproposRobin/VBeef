@@ -30,7 +30,7 @@ anywhere else a user can read it (string literals of the sources, the manual, th
 | **Flow nodes** | Nodes that sit in the order of execution (statements, loops, branches, calls with side effects). | Executable actions |
 | **Overrides** | Functions a type replaces from its base type; each opens as its own sheet with a red entry. | Events, "UE: Create Event" |
 | **Create override** | The command that adds an override (Type Settings > Add Override, or FUNCTIONS > Override in the Outline). | Add Event / Create Event |
-| **Tick override** | The `Tick` override of a UMP mod: runs every frame. | Event Tick |
+| **Tick override** | The `Tick` override of an entry class (a host's base class): runs every frame. | Event Tick |
 | **Value call** | A call with no flow pins: it is evaluated where its value is used. | Pure Function Call |
 | **Return** | The node that leaves the function (with a value when the function has one). | Return Node |
 | **Find in Sheets** | Project-wide search for types, functions, variables and node text (Ctrl+Shift+F). | Find in Blueprints |
@@ -38,6 +38,15 @@ anywhere else a user can read it (string literals of the sources, the manual, th
 | `VISUALBEEF` | The faint label in the corner of the graph, followed by the function's name. | BLUEPRINT watermark |
 | `[ExposeType]` | Attribute: a type usable for variables and pins (with Make/Break nodes). `[BlueprintType]` is still read. | BlueprintType |
 | `[ExpandEnumAsFlow]` | Attribute: one flow output per enum or `Result` case. `[ExpandEnumAsExecs]` is still read. | ExpandEnumAsExecs |
+
+## Host names
+
+VisualBeef is a standalone editor; a host tool that starts it or provides templates and node
+libraries integrates through the generic contract in [Host-Integration.md](Host-Integration.md).
+No host product is named anywhere in VisualBeef: not in the UI, the sources (comments included),
+the test fixtures, the scripts or the docs. `VisualBeefTests vocabulary` enforces this with a list
+of banned host names and identifier prefixes (in `VocabularyTests.bf`, the only file allowed to hold
+them); `CHANGELOG.md`, the history, is exempt.
 
 ## What did not change
 

@@ -262,5 +262,5 @@ entries (`MenuEntryKind.CallMethod` with `OnType` / `Static`), Outline drops and
   call statement.
 * The ambiguity marker has no overload dropdown yet.
 * A `ref` parameter becomes an output pin only with `[Pin(Out=true)]` (or as an `out` parameter);
-  untagged it is a `ref` input. UMP's SDK generator tags the parameters its functions only write
-  (emitter v5).
+  untagged it is a `ref` input. A library generator tags the parameters its functions only write
+  ([Host-Integration.md](Host-Integration.md#node-libraries)).

@@ -132,26 +132,67 @@ namespace VisualBeef
 		}
 	}
 
-	/// Marks a static class whose public static functions all become nodes.
-	/// Non-void functions without ref/out parameters default to pure.
+	/// Marks a class (or struct) as a node library: its public static functions all become nodes, under the
+	/// library's name in the Node menu. Non-void functions without ref/out parameters default to pure.
 	///
 	/// ```
-	/// [NodeLibrary(Category="Math|Vector")]
+	/// [NodeLibrary("Vector Kit", Category="Math|Vector")]
 	/// public static class VectorLib { public static float Dot(Vector3 a, Vector3 b) => ...; }
 	/// ```
 	[AttributeUsage(.Class | .Struct)]
 	public struct NodeLibraryAttribute : Attribute
 	{
+		/// The library's name ("Vector Kit"); also the menu category when `Category` is not set.
+		public String DisplayName;
+		/// Menu path of its functions (`|` separates submenus).
 		public String Category;
+		public String Tooltip;
 
 		public this()
 		{
 			this = default;
 		}
 
-		public this(String category)
+		public this(String displayName)
 		{
-			Category = category;
+			this = default;
+			DisplayName = displayName;
+		}
+	}
+
+	/// A function that registers, removes or stands in for a callback: a callback node. The node menu lists it
+	/// under `Callbacks|<Type>` (or `Category`), and its callback parameter (a `function` or `delegate` type)
+	/// offers the static functions of the edited class with that exact shape, written `=> Name`.
+	///
+	/// ```
+	/// [CallbackNode("Register Tick Listener", Role="Register")]
+	/// public static Result<void> AddTickListener(function void(float) Callback) { ... }
+	/// [CallbackNode("Remove Tick Listener", Role="Remove")]
+	/// public static void RemoveTickListener() { ... }
+	/// ```
+	[AttributeUsage(.Method)]
+	public struct CallbackNodeAttribute : Attribute
+	{
+		public String DisplayName;
+		public String Category;
+		public String Keywords;
+		public String Tooltip;
+		/// "Register" (installs the callback; the default when the function takes one), "Remove", or "Original"
+		/// (calls the code the callback replaced; used inside the callback).
+		public String Role;
+		/// The callback parameter's name; default the first parameter whose type is a `function` or `delegate`.
+		public String Callback;
+		public bool Advanced;
+
+		public this()
+		{
+			this = default;
+		}
+
+		public this(String displayName)
+		{
+			this = default;
+			DisplayName = displayName;
 		}
 	}
 

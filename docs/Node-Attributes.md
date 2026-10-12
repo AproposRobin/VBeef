@@ -35,15 +35,16 @@ Then add `using VisualBeef;` to the files that use the attributes.
 VisualBeef recognises an attribute by its simple name (`Node`, `NodeAttribute`, `VisualBeef.Node`
 and `Some.Other.NodeAttribute` are all `Node`) and reads the fields below. A library that should
 not depend on `VisualBeefMeta` may therefore declare its own attribute types with these names and
-fields: UnrealUMP's game SDKs do (`UnrealUMP.Unreal.NodeMeta`). Do not import both sets into one
-file, or the names become ambiguous for the compiler.
+fields: a generated library a tool ships often does (see `FixtureKit.NodeMeta` in the test fixture
+`VisualBeefTests/fixtures/Host/FixtureKit`). Do not import both sets into one file, or the names
+become ambiguous for the compiler.
 
 ## What becomes a node
 
 | Your code | What the node menu offers |
 |---|---|
 | A project or library with **no** VisualBeef attributes | Every `public` member (`internal` ones too, inside your own project). Categories are `Namespace\|Type`. |
-| A project or library that uses **any** VisualBeef attribute | Only members tagged `[Node]`, `[Pure]`, `[Expose]` or `[Conversion]`, plus the `public static` functions of `[NodeLibrary]` classes. |
+| A project or library that uses **any** VisualBeef attribute | Only members tagged `[Node]`, `[Pure]`, `[CallbackNode]`, `[Expose]` or `[Conversion]`, plus the `public static` functions of `[NodeLibrary]` classes. |
 | The class whose graph is open | All of its own functions and variables, private ones included. |
 | Anything tagged `[NodeHidden]` (a member, or a whole type) | Nothing. |
 
@@ -125,11 +126,12 @@ public void Fire([Pin(Default="1")] int count) { ... }   // when the signature c
 
 ### `[NodeLibrary]`: a function library class
 
-Every `public static` function of the class becomes a node. Non-void functions without
-`ref`/`out` parameters are pure by default. Void functions have flow pins.
+Every `public static` function of the class becomes a node, under the library's name in the node
+menu. Non-void functions without `ref`/`out` parameters are pure by default. Void functions have
+flow pins.
 
 ```beef
-[NodeLibrary(Category="Math|Vector")]
+[NodeLibrary("Vector Kit", Category="Math|Vector")]
 public static class VectorLib
 {
 	/// Dot product.
@@ -139,6 +141,58 @@ public static class VectorLib
 	public static Vector3 Lerp(Vector3 a, Vector3 b, float t) => ...; // and has flow pins
 }
 ```
+
+| Field | Meaning | Default |
+|---|---|---|
+| `DisplayName` (or the first argument) | The library's name ("Vector Kit") | none |
+| `Category` | Menu path of its functions | `DisplayName`, else `Namespace\|Type` |
+| `Tooltip` | Hover text | The `///` doc comment |
+
+`[NodeLibrary(Category="Math|Vector")]` (no name) still works as before.
+
+### `[CallbackNode]`: a function that takes a callback
+
+Some APIs let you hand over one of your own functions to be called later: a listener, a hook, a
+replacement for a built-in function. `[CallbackNode]` marks the functions of such an API: the one
+that registers the callback, the one that removes it, and the one that calls the code the callback
+replaced. Each becomes a flow node.
+
+```beef
+[NodeLibrary("Fixture Kit")]
+public static class Clock
+{
+	/// Days in a year (the callback's answer when one is registered).
+	public static int32 DaysInYear(int32 year) { ... }                  // a pure node under "Fixture Kit"
+
+	[CallbackNode("Register Days In Year", Role="Register")]
+	public static Result<void> RegisterDaysInYear(function int32(int32) Callback) { ... }
+
+	[CallbackNode("Try register Days In Year", Tooltip="Registers the callback; false when one is registered already.")]
+	public static bool TryRegisterDaysInYear(function int32(int32) Callback) { ... }
+
+	[CallbackNode("Remove Days In Year", Role="Remove")]
+	public static void RemoveDaysInYear() { ... }
+
+	[CallbackNode("Call original Days In Year", Role="Original")]
+	public static int32 CallOriginalDaysInYear(int32 year) { ... }
+}
+```
+
+| Field | Meaning | Default |
+|---|---|---|
+| `DisplayName` (or the first argument) | Title in the menu | The name split into words |
+| `Category` | Menu path | `Callbacks\|<Type>` (`Callbacks\|Clock` above) |
+| `Keywords` | Extra search words; `callback` is always added | none |
+| `Tooltip` | Hover text; the role adds a sentence after it | The `///` doc comment |
+| `Role` | `"Register"`: installs the callback ("Registers a callback: pick a static function of this class for its callback pin."). `"Remove"`: removes it ("Removes a callback."). `"Original"`: calls the code the callback replaced ("Calls the code the callback replaced; use it inside the callback.") | `"Register"` when the function takes a callback, else none |
+| `Callback` | The name of the callback parameter | The first parameter whose type is a `function` or `delegate` |
+| `Advanced` | Ranked last in search results | `false` |
+
+The callback parameter is the node's **callback pin**. Open the node menu from it (drag off the pin,
+or right-click it) and it lists the static functions of the class you are editing whose shape matches
+exactly (`function int32(int32)` above: `static int32 OnDaysInYear(int32 year)`), written
+`=> OnDaysInYear`. A function with another shape is not offered; add one with **Add Function** first.
+Inside the callback, use the **Call original** node to run the code it replaced.
 
 ### `[NodeHidden]`: keep something out of the menu
 

@@ -1,5 +1,5 @@
 // Copyright 2026 AproposRobin. Licensed under the Apache License, Version 2.0 (LICENSE at the repository root).
-// Adapted from UniversalUMP's launcher updater (src/Update/Ed25519.bf, same owner, same licence); the Ed25519
+// Adapted from an updater by the same owner (Update/Ed25519.bf, same licence); the Ed25519
 // arithmetic is a port of TweetNaCl (public domain). Changed here: the namespace, comments, and the constants L and
 // gf1 are filled by the static constructor (a Debug-build workaround, see L).
 

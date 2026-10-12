@@ -25,9 +25,8 @@ nodes and wires, and lets you edit the program either way:
   running it in the test suites.
 * **A debugger on the graph.** Run a program, stop on a node, read the values on its pins and step node by node,
   using Beef's own debugger engine from the installation.
-* **Works with Universal Unreal Mod Platform (UMP) mod projects.** They open as ordinary Beef projects; see
-  [docs/UMP-Integration.md](docs/UMP-Integration.md) and the
-  [UMP repository](https://github.com/AproposRobin/UniversalUnrealModPlatform).
+* **Works with host tools.** Host tools can start VisualBeef on a project and declare node libraries; see
+  [docs/Host-Integration.md](docs/Host-Integration.md).
 
 VisualBeef is not an installer-based product: unzip the package and run `VisualBeefEditor.exe`. It does not
 collect data or change system settings; its only network use is the update check, which can be turned off
@@ -165,7 +164,7 @@ Known limitations (true today):
 
 Where it is going: a node-graph editor with nodes declared from Beef attributes, a viewer mode for
 projects that are not VisualBeef projects, a compiler-backed language service, a debugger on the graph, and
-a generated game SDK as a node library. See the roadmap.
+a generated library as a node library. See the roadmap.
 
 ## About the download warning
 

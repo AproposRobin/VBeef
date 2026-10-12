@@ -1,5 +1,5 @@
 // Copyright 2026 AproposRobin. Licensed under the Apache License, Version 2.0 (LICENSE at the repository root).
-// Mirrors UniversalUMP's launcher updater (src/Update, GitHub Releases variant; same owner, same licence).
+// Mirrors an updater by the same owner (GitHub Releases variant; same licence).
 
 using System;
 using System.Collections;
@@ -23,9 +23,13 @@ namespace VisualBeef.Update
 			LinuxFolder,
 			/// No VERSION.txt beside the program: a build from source.
 			Development,
-			/// The copy UniversalUMP ships in tools\VisualBeef: the launcher updates it.
-			Bundled
+			/// A copy a host tool installed and keeps up to date (`host-install.json` beside the program,
+			/// docs/Host-Integration.md > Installed by a host tool).
+			HostManaged
 		}
+
+		/// The file a host tool writes beside the program when it installs VisualBeef.
+		public const String HostInstallFile = "host-install.json";
 
 		public Kind Kind;
 		public String ExePath = new .() ~ delete _;
@@ -35,6 +39,8 @@ namespace VisualBeef.Update
 		public String AppImagePath = new .() ~ delete _;
 		/// No docs folder: the minimal (blank) package.
 		public bool Minimal;
+		/// `host` of host-install.json: the tool that installed this copy ("" when none).
+		public String HostName = new .() ~ delete _;
 
 		public void Detect()
 		{
@@ -52,35 +58,38 @@ namespace VisualBeef.Update
 			else
 				AppImagePath.Clear();
 #endif
+			HostName.Clear();
 			if (Version.IsEmpty)
 				Kind = .Development;
-			else if (IsBundled(Dir))
-				Kind = .Bundled;
+			else if (IsHostManaged(Dir, HostName))
+				Kind = .HostManaged;
 		}
 
-		/// <root>\tools\VisualBeef with UnrealUMP.exe in <root>.
-		public static bool IsBundled(StringView dir)
+		/// A host tool installed this copy and updates it: `host-install.json` in the folder, with
+		/// `"updates": "host"` (the default). `"updates": "visualbeef"` leaves updates to VisualBeef.
+		/// `outHost` is the tool's display name ("a host tool" when the file names none).
+		public static bool IsHostManaged(StringView dir, String outHost)
 		{
-			String d = scope .(dir);
-			while (d.EndsWith('\\') || d.EndsWith('/'))
-				d.RemoveFromEnd(1);
-			String name = scope .();
-			Path.GetFileName(d, name);
-			if (!name.Equals("VisualBeef", .OrdinalIgnoreCase))
+			String path = scope .();
+			UpdateApply.Join(path, dir, HostInstallFile);
+			String text = scope .();
+			if (File.ReadAllText(path, text) case .Err)
 				return false;
-			String tools = scope .();
-			if (Path.GetDirectoryPath(d, tools) case .Err)
+			StringView body = text;
+			if (body.StartsWith("\xEF\xBB\xBF"))
+				body.RemoveFromStart(3);
+			String host = scope .();
+			String updates = scope .();
+			if (UpdateJson.Parse(body) case .Ok(let root))
+			{
+				defer delete root;
+				root.GetString("host", host);
+				root.GetString("updates", updates);
+			}
+			if (updates == "visualbeef")
 				return false;
-			String toolsName = scope .();
-			Path.GetFileName(tools, toolsName);
-			if (!toolsName.Equals("tools", .OrdinalIgnoreCase))
-				return false;
-			String root = scope .();
-			if (Path.GetDirectoryPath(tools, root) case .Err)
-				return false;
-			String launcher = scope .();
-			UpdateApply.Join(launcher, root, "UnrealUMP.exe");
-			return File.Exists(launcher);
+			outHost.Set(host.IsEmpty ? "a host tool" : host);
+			return true;
 		}
 
 		/// True when a file can be created in the folder.
@@ -202,7 +211,7 @@ namespace VisualBeef.Update
 			switch (Install.Kind)
 			{
 			case .Development: outWhy.Set("This is a development build (no VERSION.txt beside the program), so it does not look for updates by itself.");
-			case .Bundled: outWhy.Set("This copy of VisualBeef came with UniversalUMP; the UniversalUMP launcher updates it.");
+			case .HostManaged: outWhy.Set(scope $"This copy of VisualBeef was installed by {Install.HostName}, which keeps it up to date.");
 			default:
 				if (!ReleaseDescriptor.HasKeys(Keys))
 					outWhy.Set("Updates are not set up in this build. New versions are on the VisualBeef release page.");
@@ -822,7 +831,7 @@ namespace VisualBeef.Update
 			switch (Install.Kind)
 			{
 			case .Development: outWhy.Set("This is a development build; updates install only into a packaged copy.");
-			case .Bundled: outWhy.Set("This copy came with UniversalUMP; the launcher updates it.");
+			case .HostManaged: outWhy.Set(scope $"This copy was installed by {Install.HostName}, which updates it.");
 			case .LinuxFolder: outWhy.Set("Updates install into the AppImage only. Download the new tarball from the release page.");
 			case .AppImage:
 				String dir = scope .();

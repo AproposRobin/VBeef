@@ -94,6 +94,7 @@ public static class SmokeWin {
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
   [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
   public static void Park(IntPtr h) { RECT r; GetClientRect(h, out r); int x = (r.R - r.L) / 2, y = 12; PostMessage(h, 0x0200, IntPtr.Zero, (IntPtr)((y << 16) | (x & 0xFFFF))); }
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
   public static void Shot(IntPtr h, string path) {
@@ -142,7 +143,7 @@ function Invoke-EditorRun {
   param([string]$Name, [string]$Tests, [string]$Project, [string]$Home2, [string]$Exe, [string]$Scale = "", [string]$Size = "1280x800",
         [int]$TimeoutSec = 600, [string]$ShotDir, [string]$AfterDonePattern = "")
   $res = [ordered]@{ name = $Name; tests = $Tests; size = $Size; scale = $(if ($Scale) { $Scale } else { "1" }); result = "timeout"; failures = $null
-                     asserts = 0; selftestFails = @(); shotsRequested = 0; shotsMissing = @(); crash = @(); seconds = 0; log = ""; ok = $false; why = @() }
+                     asserts = 0; selftestFails = @(); shotsRequested = 0; shotsMissing = @(); crash = @(); seconds = 0; log = ""; ok = $false; why = @(); repeated = $false }
   New-Item -ItemType Directory -Force $Home2, $ShotDir | Out-Null
   Reset-VbEnv
   $env:VB_HOME = $Home2; $env:VB_NO_IDLE = "1"; $env:VB_SELFTEST = $Tests; $env:VB_SHOTS = $ShotDir
@@ -174,7 +175,15 @@ function Invoke-EditorRun {
             else {
               [SmokeWin]::Park($hwnd); Start-Sleep -Milliseconds 900
               $png = Join-Path $ShotDir "$n-$curSize.png"
-              try { [SmokeWin]::Shot($hwnd, $png) } catch { }
+              # The editor window is visible on a machine someone may be using: a capture of a minimized window is the caption
+              # only, and a PrintWindow of a window the compositor has not drawn yet is black. Restore and retry a few times.
+              for ($try = 0; $try -lt 4; $try++) {
+                if ([SmokeWin]::IsIconic($hwnd)) { SizeTo $curSize; Start-Sleep -Milliseconds 1200; [SmokeWin]::Park($hwnd); Start-Sleep -Milliseconds 400 }
+                try { [SmokeWin]::Shot($hwnd, $png) } catch { }
+                if ((Test-Path $png) -and (Get-Item $png).Length -ge 6000) { break }
+                Say "  capture $n-$curSize came back empty (try $($try + 1)); restoring the window and retrying"
+                Start-Sleep -Milliseconds 800
+              }
               $shotNames.Add("$n-$curSize")
             }
             Set-Content -Path (Join-Path $ShotDir "$n.done") -Value "ok"
@@ -360,6 +369,15 @@ try {
           $proj = Join-Path $Work "proj-$name"; New-ScratchProject $proj
           $r = Invoke-EditorRun -Name $name -Tests "theme:$($theme.v),session" -Project $proj -Home2 (Join-Path $Work "home-$name") -Exe $Exe `
                  -Scale $(if ($scale -eq "1") { "" } else { $scale }) -Size $size -ShotDir (Join-Path $Out "shots\$name") -TimeoutSec 900
+          if (-not $r.ok -and $r.why.Count -eq 1 -and $r.why[0] -like "missing captures:*") {
+            # The session itself passed; only captures were lost (window minimized or not composed). One repeat, then it counts.
+            Say "  $name -> $($r.why[0]); repeating the run once"
+            Remove-Item -Recurse -Force $proj -ErrorAction SilentlyContinue; Remove-Item -Recurse -Force (Join-Path $Work "home-$name") -ErrorAction SilentlyContinue
+            New-ScratchProject $proj
+            $r = Invoke-EditorRun -Name $name -Tests "theme:$($theme.v),session" -Project $proj -Home2 (Join-Path $Work "home-$name") -Exe $Exe `
+                   -Scale $(if ($scale -eq "1") { "" } else { $scale }) -Size $size -ShotDir (Join-Path $Out "shots\$name") -TimeoutSec 900
+            $r.repeated = $true
+          }
           $runs += $r
           if (-not $r.ok) { Fail "matrix" "$name`: $($r.why -join '; ')" }
           elseif ($r.shotsRequested -lt 20) { Fail "matrix" "$name`: only $($r.shotsRequested) captures requested" }

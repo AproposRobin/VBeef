@@ -616,7 +616,7 @@ namespace VisualBeef.Tests
 				ClassInfo sp = scope .();
 				ClassModel.Analyze(d3.Unit, FindType(d3, "SP"), p.Service, sp);
 				Check(sp.Problems.Count >= 1 && sp.Problems[0].Contains("struct"), "a struct deriving from a class is reported");
-				// A static class may derive from a static class (UMP's OS resolvers); a plain class may not.
+				// A static class may derive from a static class (platform resolvers); a plain class may not.
 				SourceDocument d4 = scope .();
 				d4.LoadFromText("namespace Game\n{\n\tstatic class Resolver\n\t{\n\t}\n\tstatic class TickResolver : Resolver\n\t{\n\t}\n\tclass Plain : Resolver\n\t{\n\t}\n}\n", "Static.bf");
 				p.Add("Static.bf", d4.Text);
@@ -993,24 +993,58 @@ namespace VisualBeef.Tests
 
 		// ------------------------------------------------------------------ templates
 
-		const String cUMPBase =
+		/// A host library's base class and the entry class a host template writes from it: the shape a
+		/// project made from a template starts with (Initialize / Tick / Shutdown graphs).
+		const String cToolBase =
 			"""
 			using System;
 
-			namespace UMPSDK
+			namespace HostKit
 			{
-				public struct FUMPModIdentity
+				public struct ToolIdentity
 				{
 				}
 
-				public abstract class UMPMod
+				public struct Level
 				{
-					public abstract FUMPModIdentity Info();
+				}
+
+				public abstract class ToolBase
+				{
+					public abstract ToolIdentity Info();
 					public virtual Result<void> Initialize() => .Ok;
-					public virtual void OnEngineReady() {}
-					public virtual void OnWorldReady(UWorld* World) {}
+					public virtual void OnReady() {}
+					public virtual void OnLevelReady(Level* level) {}
 					public virtual void Tick(float DeltaSeconds) {}
 					public virtual void Shutdown() {}
+				}
+			}
+
+			""";
+
+		const String cToolMain =
+			"""
+			using System;
+			using HostKit;
+
+			namespace MyTool
+			{
+				class ToolMain : ToolBase
+				{
+					public override ToolIdentity Info() => .();
+
+					public override Result<void> Initialize()
+					{
+						return .Ok;
+					}
+
+					public override void Tick(float DeltaSeconds)
+					{
+					}
+
+					public override void Shutdown()
+					{
+					}
 				}
 			}
 
@@ -1250,23 +1284,21 @@ namespace VisualBeef.Tests
 
 		static void TestTemplates()
 		{
-			Console.WriteLine("new-type templates and the UMP mod");
+			Console.WriteLine("new-type templates and a host template's entry class");
 			Project p = scope .();
-			p.Add("UMPMod.bf", cUMPBase);
-			String text = scope .();
-			TypeTemplates.MakeUMPMod("MyMod", "ModMain", "my.mod", "My Mod", "1.0.0", text);
+			p.Add("ToolBase.bf", cToolBase);
 			SourceDocument doc = scope .();
-			doc.LoadFromText(text, "MyMod.bf");
+			doc.LoadFromText(cToolMain, "ToolMain.bf");
 			p.Update(doc);
-			Check(doc.FindMethod("ModMain.Tick(float)") != null && doc.FindMethod("ModMain.Initialize()") != null && doc.FindMethod("ModMain.Shutdown()") != null, "UMP mod: Initialize / Tick / Shutdown graphs");
-			Check(doc.FindMethod("ModMain.Tick(float)").Graphable, "Tick is a graph (the visual Event Tick)");
+			Check(doc.FindMethod("ToolMain.Tick(float)") != null && doc.FindMethod("ToolMain.Initialize()") != null && doc.FindMethod("ToolMain.Shutdown()") != null, "entry class: Initialize / Tick / Shutdown graphs");
+			Check(doc.FindMethod("ToolMain.Tick(float)").Graphable, "Tick is a graph (the visual per-frame event)");
 			ClassInfo info = scope .();
-			ClassModel.Analyze(doc.Unit, FindType(doc, "ModMain"), p.Service, info);
-			Check(info.BaseClass == "UMPMod" && info.Missing.IsEmpty && info.Problems.IsEmpty, "UMP mod: nothing missing (Info implemented)");
-			Check(HasNames(info.Overridable, "OnEngineReady, OnWorldReady"), "Override dropdown offers OnEngineReady / OnWorldReady");
+			ClassModel.Analyze(doc.Unit, FindType(doc, "ToolMain"), p.Service, info);
+			Check(info.BaseClass == "ToolBase" && info.Missing.IsEmpty && info.Problems.IsEmpty, "entry class: nothing missing (Info implemented)");
+			Check(HasNames(info.Overridable, "OnReady, OnLevelReady"), "Override dropdown offers OnReady / OnLevelReady");
 			String key = scope .();
-			doc.AddOverride(FindType(doc, "ModMain"), info.FindOverridable("OnWorldReady(UWorld*)"), true, key);
-			Check(key == "ModMain.OnWorldReady(UWorld*)" && doc.Text.Contains("\t\tpublic override void OnWorldReady(UWorld* World)\n\t\t{\n\t\t\tbase.OnWorldReady(World);\n\t\t}\n"), "OnWorldReady override with its parent call");
+			doc.AddOverride(FindType(doc, "ToolMain"), info.FindOverridable("OnLevelReady(Level*)"), true, key);
+			Check(key == "ToolMain.OnLevelReady(Level*)" && doc.Text.Contains("\t\tpublic override void OnLevelReady(Level* level)\n\t\t{\n\t\t\tbase.OnLevelReady(level);\n\t\t}\n"), "OnLevelReady override with its parent call");
 
 			String cls = scope .();
 			TypeTemplates.Make("class", "Game", "Turret", "", "Actor, IDamageable", "", cls);

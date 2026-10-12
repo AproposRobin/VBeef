@@ -20,7 +20,7 @@ namespace VisualBeef.Catalog
 	{
 		public InheritedKind Kind;
 		public String Name = new .() ~ delete _;
-		/// The type that declares it ("UMPMod", "IDamageable").
+		/// The type that declares it ("ToolBase", "IDamageable").
 		public String OwnerType = new .() ~ delete _;
 		/// Method return type, property / indexer type.
 		public String ReturnType = new .() ~ delete _;
@@ -301,7 +301,7 @@ namespace VisualBeef.Catalog
 					info.Problems.Add(new String(scope $"{type.Name} is a struct and can only derive from a struct; {b} is a {bk}."));
 				else if ((h.Rec.TypeFlags & TypeRec.cSealed) != 0)
 					info.Problems.Add(new String(scope $"{b} is sealed: {type.Name} cannot derive from it."));
-				// Beef lets a static class derive from a static class (UMP's resolvers do), not anything else.
+				// Beef lets a static class derive from a static class (platform resolvers do), not anything else.
 				else if ((h.Rec.TypeFlags & TypeRec.cStatic) != 0 && !type.IsStatic && !ProjectIndex.HasWord(type.Modifiers, "static"))
 					info.Problems.Add(new String(scope $"{b} is a static class: {type.Name} cannot derive from it."));
 				info.BaseClass.Set(b);
@@ -852,7 +852,7 @@ namespace VisualBeef.Catalog
 		}
 	}
 
-	/// New-type templates (Project Browser > Add and the UMP visual mod).
+	/// New-type templates (Project Browser > Add, Type Settings).
 	static class TypeTemplates
 	{
 		/// A file with one type: `kind` class / struct / interface / enum; `baseList` the text after
@@ -882,54 +882,6 @@ namespace VisualBeef.Catalog
 				default:
 				}
 			}
-			outText.Append("\t}\n}\n");
-		}
-
-		/// The UMP mod entry point VisualBeef opens as a visual mod (production audit 8.2): the
-		/// same shape as UMP's code template (`src/Mods/ModTemplate.bf`), with block bodies so
-		/// every override is a graph. `className` is normally "ModMain".
-		///
-		/// This is the source of truth for a visual mod's `src\ModMain.bf` (docs/UMP-Integration.md):
-		/// UnrealUMP's launcher writes the same bytes (`ModTemplate.AppendVisualModSource`, pinned by its
-		/// `--selftest-template`), and `--new-ump-mod` writes it through here. Change both together.
-		/// The id, name and version are written as escaped string literals.
-		public static void MakeUMPMod(StringView ns, StringView className, StringView modId, StringView modName, StringView version, String outText)
-		{
-			void Str(StringView s)
-			{
-				outText.Append('"');
-				for (let c in s.RawChars)
-				{
-					if (c == '"' || c == '\\')
-						outText.Append('\\');
-					outText.Append(c);
-				}
-				outText.Append('"');
-			}
-
-			outText.Append("using System;\nusing UMPDebug;\nusing UMPSDK;\nusing UnrealUMP.Unreal;\n\n");
-			outText.AppendF("namespace {}\n{{\n", ns);
-			outText.Append("\t[AlwaysInclude, StaticInitAfter(typeof(UMPModHost))]\n");
-			outText.AppendF("\tstatic class {}Entry\n\t{{\n", className);
-			outText.AppendF("\t\tstatic this() => UMPModHost.Register(new {}());\n\t}}\n\n", className);
-			outText.AppendF("\tclass {} : UMPMod\n\t{{\n", className);
-			outText.Append("\t\tpublic override FUMPModIdentity Info() => .(");
-			Str(modId);
-			outText.Append(", ");
-			Str(modName);
-			outText.Append(", ");
-			Str(version);
-			outText.Append("); // must match ModConfig.json\n\n");
-			outText.Append("\t\t/// Once, at the phase in ModConfig.json, on the runtime worker thread. Return .Err to refuse loading.\n");
-			outText.Append("\t\tpublic override Result<void> Initialize()\n\t\t{\n");
-			outText.Append("\t\t\tLog(.Info, ");
-			Str(scope $"{modName} loaded");
-			outText.Append(");\n");
-			outText.Append("\t\t\treturn .Ok;\n\t\t}\n\n");
-			outText.Append("\t\t/// Every frame on the game thread, after the engine's tick; engine calls are safe here.\n");
-			outText.Append("\t\tpublic override void Tick(float DeltaSeconds)\n\t\t{\n\t\t}\n\n");
-			outText.Append("\t\t/// Once at process teardown; remove hooks here.\n");
-			outText.Append("\t\tpublic override void Shutdown()\n\t\t{\n\t\t}\n");
 			outText.Append("\t}\n}\n");
 		}
 	}

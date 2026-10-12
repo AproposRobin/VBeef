@@ -23,8 +23,9 @@ namespace VisualBeef.Editor
 		/// Seconds between recovery-journal writes of unsaved documents (0 = off). The journal
 		/// is restored after a crash ("Recover unsaved changes?" on the next start).
 		public static int32 RecoverySeconds = 30;
-		/// Compile configuration when a project has no choice of its own: 0 = automatic (Release
-		/// for UMP mods, else the Beef IDE's last configuration, else Debug), 1 = Debug, 2 = Release.
+		/// Compile configuration when a project has no choice of its own: 0 = automatic (the
+		/// `configuration` of its .vbproject, else the Beef IDE's last configuration, else Debug),
+		/// 1 = Debug, 2 = Release.
 		public static int32 DefaultConfig = 0;
 
 		/// The pre-JSON preferences file (read once for migration).
@@ -319,7 +320,7 @@ namespace VisualBeef.Editor
 								BuildRunner.ResolveExe(mBeefBuildPath, resolved);
 								bool ok = File.Exists(resolved);
 								PropertyGrid.Value(ok ? scope $"{Icon.Ok}  yes" : scope $"{Icon.Error}  not found", ok ? Look.Success : Look.Error);
-								PropertyGrid.Row("Default Configuration", "Compile configuration for projects you have not chosen one for. Automatic: Release for UMP mods (ModConfig.json beside BeefSpace.toml), else the Beef IDE's last configuration (BeefSpace_User.toml), else Debug. The toolbar's configuration menu overrides it per project.");
+								PropertyGrid.Row("Default Configuration", "Compile configuration for projects you have not chosen one for. Automatic: the configuration the project's .vbproject names (a project made from a template), else the Beef IDE's last configuration (BeefSpace_User.toml), else Debug. The toolbar's configuration menu overrides it per project.");
 								StringView[3] cfgs = .("Automatic", "Debug", "Release");
 								if (PropertyGrid.Combo("##defcfg", ref Prefs.DefaultConfig, cfgs))
 									changed = true;

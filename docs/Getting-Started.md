@@ -49,7 +49,7 @@ a licence file is missing.
 ### Blank (alpha) builds
 
 A blank build is just the application, marked **alpha** (`VisualBeefInfo.Channel`; `--version` prints
-`VisualBeef <version>-alpha (UMP contract 1)`, the window title starts `VisualBeef alpha`, and `VERSION.txt` reads
+`VisualBeef <version>-alpha (host contract 1)`, the window title starts `VisualBeef alpha`, and `VERSION.txt` reads
 `<version>-alpha`). It carries no `docs\`, README or samples, only the licence texts that must travel with the binaries.
 Windows: `scripts\package.ps1 -Minimal` writes `dist\VisualBeef-minimal\` and `dist\VisualBeef-<version>-alpha-win64.zip`
 (+ `.sha256`): `VisualBeefEditor.exe`, `vbhost.dll`, `assets\`, `VERSION.txt`, `LICENSE`, `NOTICE`, `THIRD_PARTY.md`,
@@ -70,7 +70,8 @@ VisualBeefEditor.exe --version                        print the version (also --
 ```
 
 Exit codes are 0 (ok), 1 (the window or a file could not be created) and 2 (bad command line).
-`--new-ump-mod` writes a new UMP mod's entry class (see [UMP-Integration.md](UMP-Integration.md)).
+`--new-from-template <template folder> <destination>` writes a new project from a template folder and
+opens it (see [Host-Integration.md](Host-Integration.md)).
 
 Use **File > Open Project Folder...** (native folder picker) and choose the folder that holds your
 Beef projects. Every `.bf` file under it is indexed (`build`, `recovery` and dot-folders are
@@ -78,7 +79,7 @@ skipped). Use **File > Open Project (Read-only)...** to look at someone else's c
 risking a write; the status bar shows `[LOCKED read-only]` in that mode.
 
 Large folders open at once: indexing runs in the background with a progress bar in the status
-bar, and generated game SDKs inside the folder are loaded as cached libraries. Settings, the
+bar, and generated libraries inside the folder are loaded as cached libraries. Settings, the
 dock layout and logs live in `%LOCALAPPDATA%\VisualBeef`, whatever folder you start the exe from.
 
 ## Make a class
@@ -94,9 +95,9 @@ New structs, enums, interfaces, plain files, folders and whole projects (`BeefPr
 in `BeefSpace.toml`) come from the same menu.
 
 The New Class dialog can also set a parent: **Derived from** lists the project's classes and the
-libraries' (corlib, the UMP SDK...), **Interfaces** adds interfaces, and **Implement missing
+libraries' (corlib, a node library...), **Interfaces** adds interfaces, and **Implement missing
 members** writes a stub (a graph) for every abstract or interface member the class has to provide.
-**Template > UMP Mod** makes a mod entry point, `ModMain : UMPMod`, whose `Tick` is your Tick override.
+**Template > Node Library** makes a static class whose functions and variables are global.
 
 ## Type settings, overrides and interfaces
 
@@ -136,8 +137,8 @@ Press **F7** (or the toolbar **Compile**). The editor saves your modified files,
 the nearest `BeefSpace.toml`. The toolbar badge shows the state (yellow `?` not compiled, spinning
 blue compiling, green good, yellow warnings, red errors). Errors land on the node whose code they
 come from (red border and banner; warnings in yellow), in **Problems**, and in the **Output Log**;
-click one to jump to it. The dropdown next to **Compile** picks Debug or Release (Release by
-default for UMP mods).
+click one to jump to it. The dropdown next to **Compile** picks Debug or Release (the default
+can come from the project's `.vbproject`, for a project made from a template).
 
 ## Read the Beef it wrote
 

@@ -7,8 +7,8 @@
   `DeleteDictionaryAndKeys!(X)` and the other `Delete*!` macros free X itself on the heap: in a Release build that is a
   heap corruption (0xc0000374), not a compile error. Use `ClearAndDeleteItems!(X)` (items only) for a scope container.
 
-  This shipped in UnrealUMP: UMPRuntime's data-folder lookup (FindDataRootWithLaunchFile) ran DeleteContainerAndItems! on a
-  scope List, and every game launched from an installed or --data-dir launcher died 1-4 s after start. VisualBeef had the
+  This shipped in another project of the same owner: a data-folder lookup ran DeleteContainerAndItems! on a scope List,
+  and every program it started died 1-4 s after start. VisualBeef had the
   same shape in two editor menus (NodeMenu.bf and PropertiesPanel.bf, scope lists of enum cases and flow-macro names);
   both now use ClearAndDeleteItems!. The lint runs in both repos: VisualBeef scripts/package.ps1 calls it before BeefBuild.
 

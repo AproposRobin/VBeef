@@ -1,5 +1,5 @@
 // Copyright 2026 AproposRobin. Licensed under the Apache License, Version 2.0 (LICENSE at the repository root).
-// The trust rules follow UniversalUMP's launcher updater (src/Update/ReleaseTrust.bf, same owner, same licence).
+// The trust rules follow an updater by the same owner (Update/ReleaseTrust.bf, same licence).
 
 using System;
 using System.Collections;

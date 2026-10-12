@@ -11,8 +11,8 @@ How VisualBeef edits the *type level* of Beef code: the declaration of a class, 
 interface (parent, interfaces, modifiers, attributes, generics), its members (functions,
 properties, indexers, constructors, fields), overriding and implementing inherited members, the
 **Base** (`base`) node, renames that update every reference in the project, and new types with a
-parent from the start. This answers the production audit's owner gap 2
-(with 6.3, 6.8, 6.9, and the UMP template of 8.2).
+parent from the start. This is stream C of the Production audit
+(owner gap 2, 6.3, 6.8, 6.9, and the entry-class template of 8.2).
 
 The owner's words: "classes/structs should have actual options and inheritance like normal and we
 should be able to do things like use interfaces."
@@ -24,7 +24,7 @@ Where it lives:
 | `Syntax/Ast.bf`, `Syntax/Parser.bf` | Declaration spans on `Member`; property / indexer accessors parsed as methods |
 | `Document/TypeDecl.bf` | `Mods` (modifier words), `AttrList` (attribute lists), `TypeDeclInfo` (what Type Settings shows) |
 | `Document/ClassEdits.bf` | The splice APIs on `SourceDocument` (one undo step each) |
-| `Catalog/ClassModel.bf` | `ClassModel` (base / interfaces, Override list, missing members, stubs, pickers, the Entry check), `TypeTemplates` (new types, the UMP mod) |
+| `Catalog/ClassModel.bf` | `ClassModel` (base / interfaces, Override list, missing members, stubs, pickers, the Entry check), `TypeTemplates` (new types) |
 | `Document/Rename.bf` | `RenameService`: the project-wide reference finder |
 | `Graph/*` | `NodeKind.Base` ("Parent"), `Graph.DeclModifiers`, the override check in `GraphValidator` |
 | Editor `TypeSettings.bf` | Type Settings, function / variable options, Override dropdown, attribute lists, pickers, rename preview, multi-file undo groups, Add Property / Indexer, the Create dialog options |
@@ -248,22 +248,19 @@ public this(float speed, String name)
 * Limits: the child class's create constructor does not chain to the parent's: a parent without a parameterless
   constructor needs `: base(...)`, which makes the constructor custom.
 
-## New types and the UMP mod
+## New types and projects from templates
 
 `TypeTemplates.Make(kind, ns, name, modifiers, baseList, members, out)` writes a new type file
 (`class Turret : Actor, IDamageable`); a new class has no members at all (its constructor and destructor
 are the dimmed Outline rows, written when opened), a struct gets one `int Value;`. The Create dialog adds stubs for what the parent and the interfaces require
 (abstract and interface members) when **Implement missing members** is on.
 
-`TypeTemplates.MakeUMPMod(ns, className, modId, modName, version, out)` is the UMP mod entry point
-(production audit 8.2; UnrealUMP binds its "visual mod" kind to it): the `[AlwaysInclude]` entry
-class that registers the mod, and `class ModMain : UMPMod` with `Info()`, and `Initialize`, `Tick`,
-`Shutdown` overrides as block bodies, so each one is a graph and `Tick` is the visual **Tick override**.
-The file also has `using UnrealUMP.Unreal;` (the game SDK's namespace) and writes the id, name and
-version as escaped string literals. It is the source of truth for a visual mod's `src\ModMain.bf`:
-UMP's launcher writes the same bytes, and `--new-ump-mod` writes it from the command line
-
-The Override dropdown then offers `OnEngineReady` and `OnWorldReady`.
+A project that starts from a host tool's entry class (a class derived from the host's base class, with
+`Initialize`, `Tick` and `Shutdown` overrides as block bodies) gets it from the host's template folder, not
+from VisualBeef: File > New Project > **From template folder...** or `--new-from-template` copies the
+template's files ([Host-Integration.md](Host-Integration.md)). Each block-bodied override opens as a graph,
+`Tick` is the visual **Tick override**, and the Override dropdown offers the base class's other virtual
+functions. `VisualBeefTests classes` checks this shape on a stand-in base class (`ToolBase`, `ToolMain`).
 
 ## Ownership and initial values
 
@@ -341,9 +338,9 @@ byte, then flipped to another legal choice and back to the same bytes:
 | Corpus | Members | Custom | Top Custom forms |
 |---|---|---|---|
 | corlib (`BeefLibs/corlib/src`) | 2,061 | 29 (2 convertible; 53 before Owned for the run / Disposed with it, 24 now read as Disposed with it) | `= new T[](...) ~ delete _` 9, `~ { ... }` 4, `~ X(..) delete _` 3 |
-| UMP `src` | 997 | 3 | `= Stopwatch.StartNew() ~ delete _`, `~ ClearAndDeleteItems!(_)`, `~ { ... }` |
-| UMP `UMPRuntime/src` | 376 | 9 (45 before: 36 static `= new .(...)` members now read as Owned for the run) | `= new .(...)` on instance members of `ModLoader` with no delete 9 |
-| UMP `UnrealSDKCore/src` | 707 | 0 | |
+| a mod platform's launcher `src` | 997 | 3 | `= Stopwatch.StartNew() ~ delete _`, `~ ClearAndDeleteItems!(_)`, `~ { ... }` |
+| its runtime `src` | 376 | 9 (45 before: 36 static `= new .(...)` members now read as Owned for the run) | `= new .(...)` on instance members of `ModLoader` with no delete 9 |
+| its SDK core `src` | 707 | 0 | |
 | ClockWork | 133 | 0 | |
 
 ### In the editor
@@ -416,7 +413,7 @@ byte, then flipped to another legal choice and back to the same bytes:
   (directly when nothing else says its name, else with the rename preview); a Local Variable node
   read from the middle of a function keeps **Rename with Uses...**.
 * **Project Browser > Add > New Class / Struct / Interface / Enum**: a **Template** (Empty class, or
-  **UMP Mod (ModMain : UMPMod, Initialize / Tick / Shutdown)**), **Derived from** (the same picker:
+  **Node Library** (a static class)), **Derived from** (the same picker:
   project and library types), **Interfaces** (add / remove), **Implement missing members**; an enum
   gets an underlying type, an interface the interfaces it extends.
 

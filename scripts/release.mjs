@@ -4,7 +4,8 @@
 // The release side of the VisualBeef updater (docs/Releasing.md). Node 24, built-in crypto only (Ed25519).
 //
 //   node scripts/release.mjs keygen [--out <private-key-file>]
-//       New Ed25519 key pair. Default <out>: %USERPROFILE%\.ump\vb-release-signing.key (the public key goes next to it
+//       New Ed25519 key pair. Default <out>: VB_RELEASE_KEY, else %USERPROFILE%\.visualbeef\vb-release-signing.key (the
+//       public key goes next to it
 //       as <out>.pub). Refuses to overwrite a key and refuses a path inside the repository. Prints the public key to
 //       paste into VisualBeefCore/src/Update/ReleaseKeys.bf.
 //   node scripts/release.mjs public [--key <private-key-file>]
@@ -66,7 +67,8 @@ function args(list) {
 }
 
 function defaultKeyPath() {
-  return path.join(os.homedir(), ".ump", "vb-release-signing.key");
+  if (process.env.VB_RELEASE_KEY) return process.env.VB_RELEASE_KEY;
+  return path.join(os.homedir(), ".visualbeef", "vb-release-signing.key");
 }
 
 function insideRepo(file) {

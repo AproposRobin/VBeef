@@ -8,7 +8,7 @@ order: 20
 # Releasing and the updater
 
 VisualBeef updates itself from the GitHub Releases of the public repository
-(<https://github.com/AproposRobin/VBeef/releases>), the same way the UniversalUMP launcher does: every release carries a
+(<https://github.com/AproposRobin/VBeef/releases>), the same way the owner's launcher updater does: every release carries a
 signed descriptor, `release.json`, and the editor installs only what that descriptor names, after checking its
 Ed25519 signature, its sequence and each file's size and SHA-256. The user's side is in [Updating.md](Updating.md).
 
@@ -27,7 +27,7 @@ release page for everyone to read. `sign` prints a warning while no report exist
 | Piece | Where |
 |---|---|
 | Descriptor, canonical text, signature check, version order, platform choice | `VisualBeefCore/src/Update/ReleaseDescriptor.bf` |
-| Ed25519 + SHA-512 (pure Beef, from UniversalUMP's launcher, TweetNaCl port) | `VisualBeefCore/src/Update/Ed25519.bf` |
+| Ed25519 + SHA-512 (pure Beef, from an updater by the same owner, TweetNaCl port) | `VisualBeefCore/src/Update/Ed25519.bf` |
 | **The trusted public key(s)** | `VisualBeefCore/src/Update/ReleaseKeys.bf` (one constant) |
 | Check, download, verify, stage (worker thread) | `VisualBeefCore/src/Update/UpdateService.bf` |
 | HTTPS through the system's curl | `VisualBeefCore/src/Update/UpdateHttp.bf` |
@@ -43,7 +43,7 @@ release page for everyone to read. `sign` prints a warning while no report exist
 The private key never enters a repository or a CI secret; the owner keeps it offline and signs on their own machine.
 
 ```powershell
-# 1. Make the key pair. Default path: %USERPROFILE%\.ump\vb-release-signing.key (+ .pub). Refuses to overwrite.
+# 1. Make the key pair. Default path: VB_RELEASE_KEY, else %USERPROFILE%\.visualbeef\vb-release-signing.key (+ .pub). Refuses to overwrite.
 node scripts\release.mjs keygen
 #    or choose the place:
 node scripts\release.mjs keygen --out D:\keys\vb-release-signing.key
@@ -87,7 +87,7 @@ following releases with the new key, then remove the old key in a later release.
    ```powershell
    $env:Path = "$env:USERPROFILE\.local\node;$env:Path"
    node scripts\release.mjs sign --tag v0.2.0 --notes-file notes.md
-   #   --key <file>         another private key file (default %USERPROFILE%\.ump\vb-release-signing.key)
+   #   --key <file>         another private key file (default VB_RELEASE_KEY, else %USERPROFILE%\.visualbeef\vb-release-signing.key)
    #   --channel preview    a pre-release (only editors on the preview channel are offered it)
    #   --dir <folder>       sign local packages instead of downloading the draft's files
    #   --sequence <n>       a sequence by hand (default: one above the highest published)
@@ -192,8 +192,8 @@ Linux AppImage: the editor keeps a copy of the running file in `<data>/update/pr
 running one as `.<name>.new`, renames it over the running file (the running image stays mounted until it exits), records
 `installed.json`, starts it and closes. There is no health check on Linux.
 
-Never updated in place: development builds (no `VERSION.txt`), the copy bundled in UniversalUMP's `tools\VisualBeef`
-(the launcher replaces it), Linux tarball folders, and folders the user cannot write to.
+Never updated in place: development builds (no `VERSION.txt`), a copy a host tool installed with
+`"updates": "host"` in its `host-install.json` (the host replaces it, see [Host-Integration.md](Host-Integration.md)), Linux tarball folders, and folders the user cannot write to.
 
 ## Testing the release side
 

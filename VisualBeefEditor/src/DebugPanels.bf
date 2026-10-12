@@ -59,7 +59,7 @@ namespace VisualBeef.Editor
 				if (!IsDebugStopped)
 				{
 					Gui.igPushTextWrapPos(0);
-					Gui.TextDisabled(IsDebugging ? (mDebug.Attached ? "Attached: values show when the game stops at a breakpoint." : "Running: values show when the program stops.") : "Not debugging. Start Debugging (F5) and stop at a breakpoint.");
+					Gui.TextDisabled(IsDebugging ? (mDebug.Attached ? "Attached: values show when the process stops at a breakpoint." : "Running: values show when the program stops.") : "Not debugging. Start Debugging (F5) and stop at a breakpoint.");
 					Gui.igPopTextWrapPos();
 				}
 				else
@@ -134,7 +134,7 @@ namespace VisualBeef.Editor
 			if (Gui.Begin(Panels.CallStack, &ShowCallStack))
 			{
 				if (!IsDebugStopped)
-					Gui.TextDisabled(IsDebugging ? (mDebug.Attached ? "Attached: the game is running." : "Running.") : "Not debugging.");
+					Gui.TextDisabled(IsDebugging ? (mDebug.Attached ? "Attached: the process is running." : "Running.") : "Not debugging.");
 				else if (mDebug.Attached)
 				{
 					bool anyGame = false;
@@ -142,7 +142,7 @@ namespace VisualBeef.Editor
 						if (!f.HasSource)
 							anyGame = true;
 					if (anyGame)
-						Gui.Checkbox("Show game code frames", &mExpandGameFrames);
+						Gui.Checkbox("Show external code frames", &mExpandGameFrames);
 				}
 				if (IsDebugStopped && Gui.igBeginTable("##callstack", 2, TableFlags.RowBg | TableFlags.SizingStretchProp | TableFlags.Resizable, .(0, 0), 0))
 				{
@@ -163,7 +163,7 @@ namespace VisualBeef.Editor
 					Gui.igTableSetupColumn("Location", TableColumnFlags.WidthFixed, Math.Max(locW, 40 * Look.Scale), 0);
 					int32 show = -1;
 					// Attached to a game: each run of frames without source (the game's own code, the
-					// engine, system DLLs) is one dimmed "game code" row unless expanded.
+					// engine, system DLLs) is one dimmed "external code" row unless expanded.
 					bool collapse = mDebug.Attached && !mExpandGameFrames;
 					for (int fi = 0; fi < mDebug.Frames.Count; fi++)
 					{
@@ -179,14 +179,14 @@ namespace VisualBeef.Editor
 							Gui.igTableSetColumnIndex(0);
 							Gui.igPushStyleColor_U32(Col.Text, Look.ForegroundDim);
 							String row = scope .();
-							FitText(scope $"   {Icon.ChevronRight} game code ({run} frame{(run == 1) ? "" : "s"})", Math.Max(8 * Look.Scale, Gui.igGetContentRegionAvail().x), row);
+							FitText(scope $"   {Icon.ChevronRight} external code ({run} frame{(run == 1) ? "" : "s"})", Math.Max(8 * Look.Scale, Gui.igGetContentRegionAvail().x), row);
 							row.Append("###gamecode");
 							if (Gui.Selectable(row, false, (1 << 1) /* SpanAllColumns */))
 								mExpandGameFrames = true;
 							Gui.igPopStyleColor(1);
 							if (Gui.igIsItemHovered(0))
 							{
-								String tip = scope .("Code of the game, not of your mod (no source). Click to show each frame:");
+								String tip = scope .("Code of the program, not of this project (no source). Click to show each frame:");
 								for (int k < Math.Min(run, 8))
 									tip.AppendF("\n{}", mDebug.Frames[fi + k].Name);
 								if (run > 8)
@@ -236,10 +236,10 @@ namespace VisualBeef.Editor
 						Gui.igTableNextRow(0, 0);
 						Gui.igTableSetColumnIndex(0);
 						String row = scope .();
-						FitText(scope $"   {Icon.ChevronRight} game code (callers not shown: no symbols)", Math.Max(8 * Look.Scale, Gui.igGetContentRegionAvail().x), row);
+						FitText(scope $"   {Icon.ChevronRight} external code (callers not shown: no symbols)", Math.Max(8 * Look.Scale, Gui.igGetContentRegionAvail().x), row);
 						Gui.TextDisabled(row);
 						if (Gui.igIsItemHovered(0))
-							Gui.Tooltip(scope $"The rest of the stack is the game's own code. {System.IO.Path.GetFileName(mDebug.SkippedImage, .. scope .())} has no symbol file on this PC, so the debugger does not read it.");
+							Gui.Tooltip(scope $"The rest of the stack is the program's own code. {System.IO.Path.GetFileName(mDebug.SkippedImage, .. scope .())} has no symbol file on this PC, so the debugger does not read it.");
 					}
 					Gui.igEndTable();
 					if (show >= 0)
@@ -268,12 +268,12 @@ namespace VisualBeef.Editor
 				Gui.SameLine();
 				{
 					bool att = mDebug != null && mDebug.Attached;
-					StringView hint = att ? "Debugger messages for the attached game." : "What the program writes to its console (stdout and stderr).";
+					StringView hint = att ? "Debugger messages for the attached process." : "What the program writes to its console (stdout and stderr).";
 					String fit = scope .();
 					FitText(hint, Math.Max(8 * Look.Scale, Gui.igGetContentRegionAvail().x), fit);
 					Gui.TextDisabled(fit);
 					if (Gui.igIsItemHovered(0))
-						Gui.Tooltip(att ? "Attach, detach and the debugger's messages. What the game and its mods log is in the UMP runtime log." : hint);
+						Gui.Tooltip(att ? "Attach, detach and the debugger's messages. What the attached program logs goes to its own log." : hint);
 				}
 				Gui.igPushStyleColor_U32(Col.ChildBg, Look.Recessed);
 				if (Gui.igBeginChild_Str("##debugout", .(0, 0), ChildFlags.Borders, 0))

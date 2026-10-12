@@ -296,12 +296,12 @@ namespace VisualBeef.Editor
 		TextBuffer mNPName = new .(256) ~ delete _;
 		TextBuffer mNPLocation = new .(2048) ~ delete _;
 		int32 mNPType;
-		/// New Project > UMP Mod: the game SDK folder and what it resolved to.
-		TextBuffer mNPSdk = new .(2048) ~ delete _;
-		String mNPSdkSeen = new .() ~ delete _;
-		UmpSdkInfo mNPSdkInfo = new .() ~ delete _;
-		String mNPSdkError = new .() ~ delete _;
-		bool mNPSdkOk;
+		/// New Project > From template folder...: the folder, its template.json and the values of its variables.
+		TextBuffer mNPTemplate = new .(2048) ~ delete _;
+		String mNPTemplateSeen = new .() ~ delete _;
+		TemplateManifest mNPTemplateInfo ~ delete _;
+		String mNPTemplateError = new .() ~ delete _;
+		List<TextBuffer> mNPVarBufs = new .() ~ DeleteContainerAndItems!(_);
 		String mNPError = new .() ~ delete _;
 
 		const float cTreeWidth = 210;
@@ -1634,7 +1634,7 @@ namespace VisualBeef.Editor
 			ResetCreateTypeOptions();
 			mCBNewKind = kind;
 			if (kind == .Library)
-				mCBNewTemplate = 2;
+				mCBNewTemplate = 1;
 			mCBNewFolder.Set(folder);
 			StringView baseName;
 			switch (kind)
@@ -2589,7 +2589,9 @@ namespace VisualBeef.Editor
 			mOpenNewProject = true;
 		}
 
-		static StringView[4] sProjectTypes = .("Console Application", "Library", "Windows Application", "UMP Mod  (a game mod for the UMP launcher)");
+		static StringView[4] sProjectTypes = .("Console Application", "Library", "Windows Application", "From template folder...");
+		/// The New Project type that creates the project from a template folder (docs/Host-Integration.md).
+		const int32 cTemplateType = 3;
 		static StringView[3] sTargetTypes = .("BeefConsoleApplication", "BeefLib", "BeefGUIApplication");
 
 		/// The BeefSpace.toml a project at `location` belongs to (nearest at or above it, not
@@ -2915,51 +2917,114 @@ namespace VisualBeef.Editor
 				SetStatus(scope $"Created project {name} and {(created ? "created" : "registered it in")} {ws}");
 		}
 
-		/// New Project > UMP Mod: the Game SDK row (a folder chooser) and what it found.
-		void DrawNewModSdkRow()
+		/// New Project > From template folder...: the Template folder row (a folder chooser), what the
+		/// template is, and one row per variable it declares.
+		void DrawNewTemplateRows()
 		{
-			Gui.Text("Game SDK");
+			Gui.Text("Template folder");
 			Gui.igSetNextItemWidth(370 * Look.Scale);
-			Gui.igInputText("##npsdk", mNPSdk.Ptr, (.)mNPSdk.Capacity, 0, null, null);
+			Gui.igInputText("##nptemplate", mNPTemplate.Ptr, (.)mNPTemplate.Capacity, 0, null, null);
 			Gui.SameLine();
-			if (Gui.Button("Browse...##sdk", .(82 * Look.Scale, 0)))
+			if (Gui.Button("Browse...##template", .(82 * Look.Scale, 0)))
 			{
 				char8[4096] buf = default;
-				int32 r = Host.vbh_native_dialog(1, scope String(mNPSdk.View), &buf, 4096);
+				int32 r = Host.vbh_native_dialog(1, scope String(mNPTemplate.View), &buf, 4096);
 				if (r == 1)
-					mNPSdk.Set(StringView(&buf));
+					mNPTemplate.Set(StringView(&buf));
 				else if (r < 0)
-					SetStatus("No native folder picker here: type the SDK folder path");
+					SetStatus("No native folder picker here: type the template folder path");
 			}
-			ResolveNewModSdk();
-			if (mNPSdkOk)
-				Gui.TextDisabled(scope $"{mNPSdkInfo.ProjectName} (game {mNPSdkInfo.GameId}); UMP libraries in {mNPSdkInfo.UmpRoot}");
+			ResolveNewTemplate();
+			float wrap = 460 * Look.Scale;
+			Gui.igPushTextWrapPos(Gui.igGetCursorPosX() + wrap);
+			if (mNPTemplateInfo == null)
+				Gui.TextDisabled("A folder with a template.json, from the tool or library that provides project templates.");
 			else
-				Gui.TextDisabled("The SDK UMP generated for the game: <UMP launcher folder>\\sdk\\<game>\\<Game>SDK.");
+			{
+				Gui.TextDisabled(mNPTemplateInfo.Description.IsEmpty ? scope $"{mNPTemplateInfo.Name}" : scope $"{mNPTemplateInfo.Name}: {mNPTemplateInfo.Description}");
+				for (let v in mNPTemplateInfo.Variables)
+				{
+					if (@v.Index >= mNPVarBufs.Count)
+						break;
+					Gui.Text(v.Label);
+					Gui.igSetNextItemWidth(460 * Look.Scale);
+					let buf = mNPVarBufs[@v.Index];
+					Gui.igInputText(scope $"##npvar{@v.Index}", buf.Ptr, (.)buf.Capacity, 0, null, null);
+				}
+			}
+			Gui.igPopTextWrapPos();
 		}
 
-		/// Resolves the Game SDK field when it changed (UmpModProject.ResolveSdk).
-		void ResolveNewModSdk()
+		/// Loads the Template folder's template.json when the field changed.
+		void ResolveNewTemplate()
 		{
-			if (mNPSdk.View == mNPSdkSeen)
+			if (mNPTemplate.View == mNPTemplateSeen)
 				return;
-			mNPSdkSeen.Set(mNPSdk.View);
-			mNPSdkError.Clear();
-			mNPSdkOk = !mNPSdkSeen.IsEmpty && UmpModProject.ResolveSdk(mNPSdkSeen, mNPSdkInfo, mNPSdkError);
-			if (mNPSdkSeen.IsEmpty)
-				mNPSdkError.Set("Choose the game's SDK folder: the one UMP generated for the game (<UMP launcher folder>\\sdk\\<game>\\<Game>SDK).");
+			mNPTemplateSeen.Set(mNPTemplate.View);
+			mNPTemplateError.Clear();
+			DeleteAndNullify!(mNPTemplateInfo);
+			ClearAndDeleteItems!(mNPVarBufs);
+			String dir = scope .(mNPTemplateSeen);
+			dir.Trim();
+			if (dir.IsEmpty)
+			{
+				mNPTemplateError.Set("Choose a template folder (it holds a template.json).");
+				return;
+			}
+			let t = new TemplateManifest();
+			if (!t.Load(dir, mNPTemplateError))
+			{
+				delete t;
+				return;
+			}
+			mNPTemplateInfo = t;
+			// The fields start with the defaults, built-ins (@@Slug@@ ...) resolved for the name typed so far.
+			Dictionary<String, String> vars = scope .();
+			defer ProjectKind.FreeVariables(vars);
+			String err = scope .();
+			String name = scope .(mNPName.View);
+			if (name.IsEmpty)
+				name.Set("NewProject");
+			ProjectKind.MakeVariables(t, name, name, null, vars, err);
+			for (let v in t.Variables)
+			{
+				TextBuffer buf = new .(512);
+				if (vars.TryGetValue(v.Key, let value))
+					buf.Set(value);
+				else
+					buf.Set(v.Default);
+				mNPVarBufs.Add(buf);
+			}
 		}
 
-		/// File > New Project > UMP Mod: writes the mod (UmpModProject) and opens its folder as the project.
-		public bool CreateModProject(StringView nameIn, StringView locationIn, UmpSdkInfo sdk)
+		/// File > New Project > From template folder...: writes the project (ProjectKind) into
+		/// `<location>\<Identifier(name)>` and opens that folder as the project.
+		public bool CreateTemplateProject(StringView nameIn, StringView locationIn)
 		{
+			ResolveNewTemplate();
+			if (mNPTemplateInfo == null)
+			{
+				SetStatus(mNPTemplateError);
+				return false;
+			}
 			String name = scope .(nameIn);
 			name.Trim();
 			String location = scope .(locationIn);
 			TrimSeparators(location);
+			String folder = scope .();
+			ProjectKind.Identifier(name, folder);
 			String projDir = scope .();
+			JoinPath(location, folder, projDir);
+			List<(String key, String value)> overrides = scope .();
+			defer { for (let o in overrides) { delete o.key; delete o.value; } }
+			for (let v in mNPTemplateInfo.Variables)
+				if (@v.Index < mNPVarBufs.Count)
+					overrides.Add((new String(v.Key), new String(mNPVarBufs[@v.Index].View)));
+			List<String> created = scope .();
+			defer { ClearAndDeleteItems!(created); }
+			String main = scope .();
 			String err = scope .();
-			if (!UmpModProject.Write(location, name, "0.1.0", "", "", sdk, projDir, err))
+			if (!ProjectKind.CreateFromTemplate(mNPTemplateInfo.Dir, projDir, name, overrides, .Refuse, created, main, err))
 			{
 				SetStatus(err);
 				return false;
@@ -2968,13 +3033,33 @@ namespace VisualBeef.Editor
 			ScanProject();
 			SaveSettings();
 			UpdateTitle();
-			String srcDir = scope .();
-			JoinPath(projDir, "src", srcDir);
-			String main = scope .();
-			JoinPath(srcDir, "ModMain.bf", main);
-			OpenFile(main, false);
-			SetStatus(scope $"Created the UMP mod {name} in {projDir}");
+			if (!main.IsEmpty && File.Exists(main))
+				OpenFile(main, false);
+			SetStatus(scope $"Created {name} from the template {mNPTemplateInfo.Name} in {projDir} ({created.Count} files)");
 			return true;
+		}
+
+		/// "Creates <path>" in grey, the path cut at its start ("...\proj\HelloTool") so a long location
+		/// keeps the new folder's name and does not widen the dialog past the window; the whole path is
+		/// the tooltip.
+		void CreatesLine(StringView path)
+		{
+			String line = scope $"Creates {path}";
+			float maxW = 460 * Look.Scale;
+			if (Gui.CalcTextSize(line).x > maxW)
+			{
+				var tail = path;
+				while (tail.Length > 1)
+				{
+					tail.RemoveFromStart(1);
+					line.Set(scope $"Creates ...{tail}");
+					if (Gui.CalcTextSize(line).x <= maxW)
+						break;
+				}
+			}
+			Gui.TextDisabled(line);
+			if (line.Length != path.Length + 8 && Gui.igIsItemHovered(0))
+				Gui.Tooltip(path);
 		}
 
 		void DrawNewProjectPopup()
@@ -3019,36 +3104,34 @@ namespace VisualBeef.Editor
 				else if (r < 0)
 					SetStatus("No native folder picker here: type the location path");
 			}
-			if (mNPType == 3)
-				DrawNewModSdkRow();
+			if (mNPType == cTemplateType)
+				DrawNewTemplateRows();
 			String name = scope .(mNPName.View);
 			name.Trim();
 			String location = scope .(mNPLocation.View);
 			location.Trim();
 			TrimSeparators(location);
 			String err = scope .();
-			// A UMP mod's name is its display name ("Hello Mod"): the folder and id are made from it.
-			bool valid = (mNPType == 3) ? Directory.Exists(location) : ValidateNewProject(name, location, err);
-			if (!valid && mNPType == 3)
+			// From a template the name is a display name ("Hello Tool"): the folder is made from it.
+			bool valid = (mNPType == cTemplateType) ? Directory.Exists(location) : ValidateNewProject(name, location, err);
+			if (!valid && mNPType == cTemplateType)
 				err.Set("The location folder doesn't exist.");
-			if (valid && mNPType == 3)
+			if (valid && mNPType == cTemplateType)
 			{
 				String folder = scope .();
-				UmpModProject.FolderName(name, folder);
-				if (!mNPSdkOk)
+				ProjectKind.Identifier(name, folder);
+				if (mNPTemplateInfo == null)
 				{
 					valid = false;
-					err.Set(mNPSdkError.IsEmpty ? "Choose the game's SDK folder." : mNPSdkError);
+					err.Set(mNPTemplateError.IsEmpty ? "Choose a template folder." : mNPTemplateError);
 				}
 				else if (folder.IsEmpty)
 				{
 					valid = false;
-					err.Set("Give the mod a name with letters or digits.");
+					err.Set("Give the project a name with letters or digits.");
 				}
 				else
 				{
-					String id = scope .();
-					UmpModProject.Slug(name, id);
 					String projDir = scope .();
 					JoinPath(location, folder, projDir);
 					if (Directory.Exists(projDir))
@@ -3058,10 +3141,19 @@ namespace VisualBeef.Editor
 					}
 					else
 					{
-						Gui.TextDisabled(scope $"Creates {projDir}");
-						Gui.TextDisabled(scope $"    mod id {id}, game {mNPSdkInfo.GameId}, version 0.1.0, needs runtime ABI {mNPSdkInfo.RuntimeAbi}");
-						Gui.TextDisabled("    BeefSpace.toml, BeefProj.toml, ModConfig.json, src/ModMain.bf");
-						Gui.TextDisabled("The new mod folder is opened as the project.");
+						CreatesLine(projDir);
+						String files = scope .();
+						for (let f in mNPTemplateInfo.Files)
+						{
+							if (@f.Index >= 5)
+							{
+								files.AppendF(" and {} more", mNPTemplateInfo.Files.Count - 5);
+								break;
+							}
+							files.AppendF("{}{}", files.IsEmpty ? "" : ", ", f.To);
+						}
+						Gui.TextDisabled(scope $"    {files}");
+						Gui.TextDisabled("The new folder is opened as the project.");
 					}
 				}
 			}
@@ -3071,7 +3163,7 @@ namespace VisualBeef.Editor
 				FindWorkspaceFor(location, ws);
 				String projDir = scope .();
 				JoinPath(location, name, projDir);
-				Gui.TextDisabled(scope $"Creates {projDir}");
+				CreatesLine(projDir);
 				Gui.TextDisabled("    BeefProj.toml and src/Program.bf");
 				if (ws.IsEmpty)
 				{
@@ -3096,8 +3188,8 @@ namespace VisualBeef.Editor
 			if (go && valid)
 			{
 				Gui.igCloseCurrentPopup();
-				if (mNPType == 3)
-					CreateModProject(name, location, mNPSdkInfo);
+				if (mNPType == cTemplateType)
+					CreateTemplateProject(name, location);
 				else
 					CreateProject(name, mNPType, location);
 			}

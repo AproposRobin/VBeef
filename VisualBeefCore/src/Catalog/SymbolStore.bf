@@ -111,7 +111,7 @@ namespace VisualBeef.Catalog
 	class SymbolStore
 	{
 		public const uint32 cMagic = 0x58494256; // "VBIX"
-		public const uint32 cVersion = 4;
+		public const uint32 cVersion = 5;
 
 		/// "Project", "corlib", "ScreechSDK"...
 		public String Name = new .() ~ delete _;

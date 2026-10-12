@@ -159,7 +159,7 @@ namespace VisualBeef.Catalog
 		}
 
 		/// Loads the libraries, up to four at a time (each on its own thread: a cold start parses
-		/// two big game SDKs side by side instead of one after the other). Order is kept.
+		/// two big generated libraries side by side instead of one after the other). Order is kept.
 		void LoadLibraries(List<LibraryRef> libs)
 		{
 			SymbolStore[] stores = scope .[libs.Count];
