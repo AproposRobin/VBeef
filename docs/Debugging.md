@@ -101,11 +101,11 @@ a game started by a host tool. VisualBeef cannot start that program itself, so i
    keeps running. Closing VisualBeef while attached detaches too, and so does VisualBeef ending in any
    other way: attaching never kills the process.
 
-While attached the status bar is **red**: `Attached to Game.exe (14852) - running`, or
-`- paused at ToolMain.Tick: F5 Continue, Shift+F5 Detach` while it is stopped. A paused process
+While attached the status bar is **red**: `Attached to Program.exe (14852) - running`, or
+`Attached to Program.exe (14852) - paused at Program.Main: F5 Continue, Shift+F5 Detach` while it is stopped. A paused process
 stays paused until you continue or detach.
 
-![Stopped in a project's Tick inside a running program](images/debug-attached.png)
+![Stopped in a project's Main inside a running program](images/debug-attached.png)
 
 * **Call Stack**: your project's frames (and those of any other module with symbols) are normal rows;
   runs of frames without source (the program's own code) are one dimmed **external code** row. Tick

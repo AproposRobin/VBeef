@@ -9,7 +9,7 @@ order: 25
 
 Newest first. Dates are commit dates; commit ids refer to the development history before the public repository was created.
 
-## Unreleased: generic host contract (VisualBeef no longer names UMP)
+## 0.2.3-alpha: generic host contract (VisualBeef no longer names UMP)
 
 VisualBeef was bound to one host, UMP (UnrealUMP / Universal Unreal Mod Platform). It now has one
 generic contract any host tool uses (docs/Host-Integration.md, replacing docs/UMP-Integration.md),
