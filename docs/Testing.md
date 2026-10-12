@@ -478,6 +478,32 @@ folders (`files=166 methods=1424 failures=0`).
 * `graph <file>`: prints each method's graph signature (nodes, pins, links).
 * `bench <file>`: load and one-commit timings for a big file.
 
+## Release smoke
+
+`scripts/release-smoke.ps1 -Zip <path> | -Tag <vX.Y.Z[-channel]> [-Out <report folder>]` is the regression pass on the **exact
+artifact that ships** ([Releasing.md](Releasing.md#the-rule-no-release-without-a-smoke-pass)). It needs a desktop session
+(real windows, PrintWindow captures) and BeefBuild; it runs one editor at a time at BelowNormal, uses a scratch folder under
+`%TEMP%`, and stops only the processes it started (plus editors started by the update helper inside its scratch folder).
+It never touches an installed editor.
+
+| Phase | What runs | Fails on |
+|---|---|---|
+| `verify` | `-Tag`: the full win64 zip, `.sha256` and `release.json` from `AproposRobin/VBeef` via `gh`; hash and `gh attestation verify`. Unpacks into a scratch install folder. | hash mismatch, no attestation, missing `VisualBeefEditor.exe` / `vbhost.dll` / `LICENSE` / `VERSION.txt` / `docs`, no BeefBuild |
+| `version` | `VisualBeefEditor.exe --version` | non-zero exit, output without the `VERSION.txt` version |
+| `matrix` | `VB_SELFTEST=theme:<n>,session` on the packaged exe: Dark and Darker x 1280x800 and 1920x1080 x 100% and 125% (`VB_UI_SCALE`), eight runs, each on a fresh data folder and scratch project; every `shot:` is captured with `PrintWindow` into `<Out>\shots\<run>\` | a run that does not end `done failures=0`, any `[ASSERT]` or `[SELFTEST] FAIL` line, a crash report in the data folder, a requested capture that is missing or tiny, fewer than 20 captures |
+| `fresh` | empty data folder: (a) no project (`nodoc`); (b) a scratch project: `session` (compiles the sample with BeefBuild), then `open:` a function, the Node menu (`menu`), Editor Preferences > Updates (`prefs:5`), and `update-check` (Help > Check for Updates) | as above, and an update answer that is not "up to date" or "<next version> is available" (never "not set up"; no network is a failure unless `-AllowOffline`) |
+| `update` | `VB_SELFTEST=update-stage:<dir>` with a staged copy of the same package as a newer version: expects `update complete`, the new `VERSION.txt`, `installed.json` and the new editor running; then a staged copy whose program exits at once: expects `previous copy restored`, the old `VERSION.txt`, no `installed.json` for the failed version and the old editor running again | an end state not reached within 180 s |
+| `soak` | the editor on a scratch project for 60 s (sampled every 2 s), then a close message | exit before the end, a window that stops responding, no clean exit (code 0) within 30 s, `[ASSERT]`, a crash report |
+
+File > Open's native dialog cannot be scripted; the first-start run opens the project from the command line and a function
+through `open:` (the call the Project Browser makes). The captures are for a person to look at
+([Verifying the UI](#verifying-the-ui)); the pass only proves they exist.
+
+Output: `<Out>\smoke-<first 12 hex of the zip's sha256>.json` (the report `release.mjs publish` reads: `passed`, `complete`,
+`zip.sha256`, one entry per phase with the results of each run) and `smoke-<...>.md` (the summary), plus the session logs and
+`update-*.update.log`. Default `<Out>` is `build\smoke`. Exit code 0 = passed, 1 = failed. `-Only matrix,soak` runs a subset
+for development; the report is then `complete=false` and `publish` does not accept it.
+
 ## How to add a case
 
 * **A generated-code case** (`CompileTests.bf`): add a `Mutate...(Graph g)` function that edits

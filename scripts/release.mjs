@@ -13,11 +13,16 @@
 //                                 [--sequence <n>] [--version <v>] [--notes-file <file>] [--out <release.json>]
 //       Builds release.json from the packaged files and signs it. Without --dir the files are downloaded from the
 //       (draft) GitHub release of <tag> into a scratch folder. The version defaults to the one in CommandLine.bf
-//       (<Version>-<Channel>); the sequence to one above the highest sequence already published.
+//       (<Version>-<Channel>); the sequence to one above the highest sequence already published. Warns when there is
+//       no passed smoke report for the full win64 zip yet.
 //   node scripts/release.mjs publish --tag <tag> [--file <release.json>] [--create --dir <folder>]
+//                                    [--smoke-report <file> | --force-unsmoked "<reason>"]
 //       Checks release.json (signature against ReleaseKeys.bf, tag, the release's file sizes), uploads it to the
 //       release of <tag>, and publishes the release (draft off; pre-release on for the preview channel, off and
 //       marked latest for stable). --create makes the release first and uploads the packages from <folder>.
+//       REFUSES without a passed, complete release smoke report (scripts/release-smoke.ps1) for the SHA-256 of the
+//       full win64 zip: build/smoke/smoke-<first 12 hex>.json, or the file given with --smoke-report. The documented
+//       escape is --force-unsmoked "<reason>": it publishes anyway and writes the reason into the release notes.
 //   node scripts/release.mjs verify <release.json> [--dir <folder>] [--keys <base64;...>]
 //       Checks a descriptor's signature (default keys: ReleaseKeys.bf) and, with --dir, the files' sizes and hashes.
 //   node scripts/release.mjs vectors
@@ -208,6 +213,29 @@ function highestPublishedSequence(exceptTag) {
   return highest;
 }
 
+/** The SHA-256 of the full win64 zip, the artifact the release smoke pass runs on (null when there is none). */
+export function smokeTarget(assets) {
+  const a = assets.find((x) => x.platform === "win64");
+  return a ? { name: a.name, sha256: a.sha256 } : null;
+}
+
+/** Looks for the smoke report of a zip: build/smoke/smoke-<sha12>.json, or an explicit file. */
+export function smokeStatus(target, explicit) {
+  if (!target) return { ok: false, why: "the release has no full win64 zip to smoke-test" };
+  const file = explicit ? path.resolve(explicit) : path.join(repoRoot, "build", "smoke", `smoke-${target.sha256.slice(0, 12)}.json`);
+  if (!existsSync(file)) return { ok: false, file, why: `no smoke report for ${target.name} (${target.sha256.slice(0, 12)}); run scripts/release-smoke.ps1 on it` };
+  let r;
+  try {
+    r = JSON.parse(readFileSync(file, "utf8").replace(/^﻿/, ""));
+  } catch (e) {
+    return { ok: false, file, why: `cannot read the smoke report ${file}: ${e.message}` };
+  }
+  if (!r.zip || String(r.zip.sha256).toLowerCase() !== target.sha256) return { ok: false, file, why: `${file} is a report for another file (${r.zip && r.zip.sha256}), not ${target.name} (${target.sha256})` };
+  if (r.complete !== true) return { ok: false, file, why: `${file} is a partial run (complete=false)` };
+  if (r.passed !== true) return { ok: false, file, why: `${file}: the smoke pass FAILED (${(r.failures || []).length} failure(s))` };
+  return { ok: true, file, report: r };
+}
+
 function cmdKeygen(o) {
   const out = path.resolve(o.out || defaultKeyPath());
   if (insideRepo(out)) fail(`refusing to write a private key inside the repository (${out})`);
@@ -271,6 +299,11 @@ function cmdSign(o) {
       notes,
     }, key);
     if (!verifyDescriptor(descriptor, [pub])) fail("the new signature does not verify (internal error)");
+    const smoke = smokeStatus(smokeTarget(assets), null);
+    if (!smoke.ok) {
+      console.error(`release: WARNING: ${smoke.why}`);
+      console.error("release: 'publish' will refuse until a passed smoke report exists (docs/Releasing.md), unless --force-unsmoked is used.");
+    }
     const out = path.resolve(o.out || "release.json");
     writeFileSync(out, `${JSON.stringify(descriptor, null, 2)}\n`);
     console.log(`Wrote ${out}: VisualBeef ${version}, channel ${channel}, sequence ${sequence}, ${assets.length} files:`);
@@ -316,6 +349,23 @@ function cmdPublish(o) {
   const keys = compiledKeys();
   if (keys.length === 0 && !o.force) fail("ReleaseKeys.bf trusts no key: editors built from this tree would refuse every release (--force publishes anyway)");
   if (keys.length > 0 && !verifyDescriptor(d, keys)) fail(`${file}: the signature does not verify against ReleaseKeys.bf`);
+  // The owner's rule: nothing is published without a passed smoke pass on the exact zip that ships.
+  const smoke = smokeStatus(smokeTarget(d.assets), o["smoke-report"]);
+  let unsmokedNote = "";
+  if (smoke.ok) {
+    console.log(`Smoke report OK: ${smoke.file} (${smoke.report.zip.name} ${smoke.report.zip.sha256.slice(0, 12)}, ${smoke.report.finishedAt})`);
+  } else if (o["force-unsmoked"] !== undefined) {
+    const reason = String(o["force-unsmoked"]).trim();
+    if (reason.length < 8) fail("--force-unsmoked needs a real reason (at least 8 characters)");
+    unsmokedNote = `
+
+---
+Published without the release smoke pass (${smoke.why}). Reason: ${reason}`;
+    console.error(`release: WARNING: publishing unsmoked: ${smoke.why}. The reason goes into the release notes.`);
+  } else {
+    fail(`refusing to publish: ${smoke.why}. Run scripts/release-smoke.ps1 -Tag ${o.tag} (a passed report for the zip's SHA-256 under build/smoke/, or --smoke-report <file>), or --force-unsmoked "<reason>" (written into the release notes).`);
+  }
+  if (unsmokedNote) d.notes = `${d.notes || `VisualBeef ${d.version}`}${unsmokedNote}`;
   if (o.create) {
     if (!o.dir) fail("--create needs --dir <folder with the packages>");
     const files = d.assets.map((a) => path.join(o.dir, a.name));
@@ -336,7 +386,8 @@ function cmdPublish(o) {
   const tmp = mkdtempSync(path.join(os.tmpdir(), "vb-release-up-"));
   try {
     const named = path.join(tmp, "release.json");
-    writeFileSync(named, readFileSync(file));
+    writeFileSync(named, unsmokedNote ? `${JSON.stringify(d, null, 2)}
+` : readFileSync(file)); // notes are not signed
     ghRun(["release", "upload", o.tag, named, "--repo", ghRepo, "--clobber"]);
   } finally {
     rmSync(tmp, { recursive: true, force: true });

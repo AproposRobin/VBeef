@@ -97,6 +97,10 @@ unpacked one.
 `actionlint` (pinned release, checked by sha256) is the check for the workflow files:
 `actionlint .github/workflows/windows.yml .github/workflows/linux.yml`.
 
+## Release smoke (local gate)
+
+`scripts\release-smoke.ps1` is a local gate, not a workflow: it drives the packaged editor's real windows, so it needs a desktop session and runs on the owner's machine before `release.mjs publish` ([Testing.md](Testing.md#release-smoke), [Releasing.md](Releasing.md)).
+
 ## Beef canary
 
 `.github/workflows/beef-canary.yml` builds and tests VisualBeef on the newest Beef builds once a week (Mondays 06:17 UTC,

@@ -786,6 +786,9 @@ namespace VisualBeef.Editor
 					pl.Visible = true;
 					pl.RowY = startY + @p.Index * rowH;
 					pl.LabelText = compact ? "" : StringView(p.Label);
+					// A Switch on an enum keeps its cases as `.Name` for the generated code; the pin shows the plain name.
+					if (!compact && node.Kind == .Switch && p.Kind == .Exec && pl.LabelText.Length > 1 && pl.LabelText[0] == '.')
+						pl.LabelText = pl.LabelText.Substring(1);
 					pl.LabelW = pl.LabelText.IsEmpty ? 0 : Gui.CalcTextSize(pl.LabelText).x;
 					rightMax = Math.Max(rightMax, 24 + pl.LabelW + 10);
 					AddPin(pl);

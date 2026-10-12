@@ -12,6 +12,18 @@ VisualBeef updates itself from the GitHub Releases of the public repository
 signed descriptor, `release.json`, and the editor installs only what that descriptor names, after checking its
 Ed25519 signature, its sequence and each file's size and SHA-256. The user's side is in [Updating.md](Updating.md).
 
+## The rule: no release without a smoke pass
+
+**Nothing is published without a verified stable build and a regression pass on the exact artifact that ships**
+(owner, 2026-10-12). The pass is `scripts/release-smoke.ps1`: it takes the full win64 zip of the release, checks it,
+unpacks it into a scratch folder and drives the packaged `VisualBeefEditor.exe` through the end-to-end session matrix,
+a fresh-settings first start, the update end to end and a soak ([Testing.md](Testing.md#release-smoke) lists
+every step). It writes `build/smoke/smoke-<first 12 hex of the zip's sha256>.json`, and `release.mjs publish` refuses
+without a passed, complete report for the SHA-256 of the zip named in `release.json`. A report for another file, a
+failed one and a partial one (`-Only`) do not count. The one escape is
+`publish --force-unsmoked "<reason>"`: it publishes anyway and appends the reason to the release notes, so it is on the
+release page for everyone to read. `sign` prints a warning while no report exists.
+
 | Piece | Where |
 |---|---|
 | Descriptor, canonical text, signature check, version order, platform choice | `VisualBeefCore/src/Update/ReleaseDescriptor.bf` |
@@ -23,6 +35,7 @@ Ed25519 signature, its sequence and each file's size and SHA-256. The user's sid
 | Small JSON reader | `VisualBeefCore/src/Update/UpdateJson.bf` |
 | Notice line, Help > Check for Updates, Preferences > Updates | `VisualBeefEditor/src/Updates.bf` |
 | Release tooling (keygen, sign, publish, verify) | `scripts/release.mjs` (Node 24, built-in crypto only) |
+| The smoke pass that `publish` requires | `scripts/release-smoke.ps1`, [Testing.md](Testing.md#release-smoke) |
 | Tests | `VisualBeefTests update` (and `update -net` by hand), [Testing.md](Testing.md#update) |
 
 ## The signing key (once)
@@ -58,7 +71,18 @@ following releases with the new key, then remove the old key in a later release.
 2. Tag the commit `v<major>.<minor>.<patch>` and push the tag. The Windows workflow builds and tests, packages the full and
    the minimal zip, attests them and puts them with their `.sha256` files on **one draft pre-release** for the tag. The
    Linux workflow does the same for the tarball and the AppImage, on the same draft. Nothing is public yet.
-3. When both workflows are green, sign on the owner's machine (PowerShell, from the repository root; `gh` logged in):
+3. **Smoke the exact zip.** On the owner's machine, in a desktop session (the editor opens real windows; leave the
+   keyboard and mouse alone for about ten minutes), from the repository root:
+
+   ```powershell
+   powershell -File scripts\release-smoke.ps1 -Tag v0.2.0
+   ```
+
+   It downloads the full win64 zip and its `.sha256` from the draft, checks the hash and `gh attestation verify`, and runs
+   the pass. Exit 0 and `RESULT: PASSED` mean `build\smoke\smoke-<sha12>.json` now exists. Exit 1: read the Markdown
+   summary beside it, fix the cause, make a new build, and smoke that (a changed zip has another SHA-256, so the old report
+   no longer counts). Never weaken the pass to get a release out.
+4. When both workflows are green and the smoke pass is green, sign on the owner's machine (PowerShell, from the repository root; `gh` logged in):
 
    ```powershell
    $env:Path = "$env:USERPROFILE\.local\node;$env:Path"
@@ -72,14 +96,15 @@ following releases with the new key, then remove the old key in a later release.
    `sign` downloads the draft's packages, hashes them (and checks each against its `.sha256`), picks the next sequence
    (one above the highest `release.json` already published), and writes `release.json`. It refuses a key that is not in
    `ReleaseKeys.bf` (the editors would refuse the descriptor) unless `--force`.
-4. Check it, then publish:
+5. Check it, then publish:
 
    ```powershell
    node scripts\release.mjs verify release.json
    node scripts\release.mjs publish --tag v0.2.0
    ```
 
-   `publish` verifies the signature against `ReleaseKeys.bf`, checks that every named file is on the release with the
+   `publish` first demands the smoke report for the zip's SHA-256 (`--smoke-report <file>` for one that is elsewhere;
+   `--force-unsmoked "<reason>"` is the documented escape), then verifies the signature against `ReleaseKeys.bf`, checks that every named file is on the release with the
    signed size, uploads `release.json`, and publishes the release: stable = not a pre-release and marked latest (that is
    what `releases/latest/download/release.json` serves); preview = stays a pre-release. Without CI (packages built
    locally): `publish --tag v0.2.0 --create --dir dist` creates the draft and uploads the packages first.
@@ -173,6 +198,7 @@ Never updated in place: development builds (no `VERSION.txt`), the copy bundled 
 ## Testing the release side
 
 * `VisualBeefTests update` (CI, Windows and Linux): see [Testing.md](Testing.md#update).
+* `scripts\release-smoke.ps1` runs the end to end below, the session matrix and the rest on the shipped zip itself.
 * `VisualBeefTests update -net` (by hand, needs the network): a real check of both channels against the public
   repository through curl, the ETag cache, a download through GitHub's redirect with progress, the size cap.
 * End to end on Windows: package (`scripts\package.ps1 -Minimal -Out <scratch>\install`), unzip a second copy, change its
@@ -182,3 +208,15 @@ Never updated in place: development builds (no `VERSION.txt`), the copy bundled 
   ends with `previous copy restored` and the old version runs again.
 * `node scripts/release.mjs vectors` prints the descriptor signed with the fixed TEST seed that the `update` suite
   carries; regenerate the suite's constant if the canonical text ever changes.
+
+## Smoke results
+
+Each published release gets one line here when its smoke pass has run.
+
+* **v0.2.0-alpha** (`VisualBeef-0.2.0-win64.zip`, sha256 `c85e70a44e49235da683d88b37f75404b5a1e71af91815b6f5d76fc9c242a7f8`),
+  smoked 2026-10-11 after publication: **PASSED**, 401 s. Hash and `gh attestation verify` OK; `--version` 0.2.0-alpha;
+  the session matrix (Dark and Darker, 1280x800 and 1920x1080, 100% and 125%) eight runs `done failures=0`, no `[ASSERT]`,
+  25 captures each; fresh-settings start with and without a project `done failures=0`, Check for Updates answered "up to date
+  (newest release: 0.2.0-alpha)" so the release key is compiled in; the update end to end installed 0.2.1-alpha
+  (`update complete`, `installed.json` sequence 2) and rolled back a program that exits at once (`previous copy restored`);
+  60 s soak with no unresponsive sample and exit code 0. The report was produced by `scripts/release-smoke.ps1 -Tag v0.2.0-alpha`.
