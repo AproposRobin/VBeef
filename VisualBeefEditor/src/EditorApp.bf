@@ -911,25 +911,38 @@ namespace VisualBeef.Editor
 				mFocusCodeField = true;
 		}
 
-		public void DropMember(GraphTab tab, int32 index, ImVec2 pos)
+		/// A `VB_MEMBER` payload dropped on the Sheet at `pos` (grid), over pin `pinId` (0: none).
+		/// A variable on a pin is wired to it (DropVariableOnPin); elsewhere Ctrl places a Get, Alt
+		/// a Set, and a plain drop asks (a Node menu row places what it says).
+		public void DropMember(GraphTab tab, int32 index, ImVec2 pos, int32 pinId = 0)
 		{
-			if (index < 0 || index >= mMembers.Count)
+			let m = DraggedRef(index);
+			if (m == null)
 				return;
 			let mg = CurrentMethod;
 			if (mg == null)
 				return;
-			let m = mMembers[index];
+			if (m.MemberKind == .Variable && pinId != 0)
+			{
+				DropVariableOnPin(tab, mg, m.Name, m.Type, pinId);
+				return;
+			}
+			bool asSet = Gui.IsAltDown;
 			// UX: like UE, Ctrl+drop = Get, Alt+drop = Set, a plain drop asks (Get / Set menu).
 			if (m.MemberKind == .Variable && !Gui.IsCtrlDown && !Gui.IsAltDown)
 			{
-				mGraphPanel.ShowVariableDropMenu(m.Name, m.Type, pos);
-				return;
+				if (index != cMenuDragIndex)
+				{
+					mGraphPanel.ShowVariableDropMenu(m.Name, m.Type, pos);
+					return;
+				}
+				asSet = mMenuDragIsSet;
 			}
 			BeginEdit();
 			Node n;
 			if (m.MemberKind == .Variable)
 			{
-				if (Gui.IsAltDown)
+				if (asSet)
 					n = NodeFactory.Set(mg.Graph, m.Name, m.Type);
 				else
 					n = NodeFactory.Get(mg.Graph, m.Name, m.Type);
@@ -1395,8 +1408,14 @@ namespace VisualBeef.Editor
 		// ------------------------------------------------------------------ compile
 
 		/// `configOverride` ("Debug" for Start Debugging) replaces the project's configuration.
-		public void Compile(StringView configOverride = default)
+		/// When nothing BeefBuild reads changed since the last successful compile of that
+		/// configuration and its output is unchanged, BeefBuild is not run (BuildInputs);
+		/// `force` (Build > Force Compile) always runs it. `lowerPriority`: BeefBuild runs at
+		/// BelowNormal (the build before debugging).
+		public void Compile(StringView configOverride = default, bool force = false, bool lowerPriority = false)
 		{
+			let callWatch = scope System.Diagnostics.Stopwatch(true);
+			defer { CompileCallMs = callWatch.Elapsed.TotalMilliseconds; }
 			if (Doc.FilePath.IsEmpty && mProjectRoot.IsEmpty)
 			{
 				SetStatus("Open a project first");
@@ -1424,22 +1443,42 @@ namespace VisualBeef.Editor
 				config.Set(configOverride);
 				reason.Set("for debugging");
 			}
-			mBuildHash = CompileRecord.HashWorkspace(ws);
-			delete mBuild;
-			mBuild = new BuildRunner();
+			// What the last successful compile was built from: with the same inputs BeefBuild
+			// would only build the same output again. Its messages (warnings) are shown again; a
+			// record from an earlier session is used only when it had no messages to show.
+			CompileInputs skipIf = null;
+			List<Diagnostic> carried = null;
+			if (!force)
+			{
+				bool sameRun = mBuild != null && !mBuild.Running && mBuild.Succeeded && !mBuild.StartFailed && mBuild.Config == config && ProjectIndex.SamePath(mBuild.Workspace, ws);
+				LoadCompileRecord(ws);
+				bool cleanRecord = mCompRec != null && mCompRec.Ok && mCompRec.Errors == 0 && mCompRec.Warnings == 0 && mCompRec.Config == config;
+				if (sameRun || (mBuild == null && cleanRecord))
+				{
+					skipIf = CompileInputs.Decode(Settings.ProjectValue(ws, "compileInputs"));
+					if (sameRun)
+						carried = mBuild.Messages;
+				}
+			}
+			let build = new BuildRunner();
+			build.LowerPriority = lowerPriority;
 			for (let d in mDocs)
 				d.BuildVersion = d.Version;
-			if (mBuild.Start(mBeefBuildPath, ws, config) case .Err)
+			if (build.Start(mBeefBuildPath, ws, config, skipIf, carried) case .Err)
 			{
 				SetStatus(scope $"Could not run BeefBuild at '{mBeefBuildPath}' (set it in Edit > Editor Preferences)");
-				delete mBuild;
-				mBuild = null;
+				delete build;
 				return;
 			}
+			delete mBuild;
+			mBuild = build;
 			mSelectResultsTab = true;
 			mBuildLogged = 0;
+			CompileMaxFrameMs = 0;
+			CompileFrames = 0;
+			mCompileTailFrames = 6;
+			mBuildCommandLogged = false;
 			Notify.Log(.Info, "Build", scope $"Compiling {ws} ({config}: {reason})");
-			Notify.Log(.Info, "Build", scope $"> {mBuild.CommandLine}");
 			SetStatus(scope $"Compiling {ws} ({config})...");
 		}
 
@@ -1495,6 +1534,7 @@ namespace VisualBeef.Editor
 		public void Frame()
 		{
 			mFrame++;
+			TrackFrameTime();
 			ShellBeginFrame();
 			if (mMono == null)
 				mMono = Host.vbh_get_mono_font();
@@ -1550,8 +1590,11 @@ namespace VisualBeef.Editor
 				}
 			}
 
-			if (mBuild != null && mBuild.Update())
+			MapPendingDiagnostics();
+			if (mBuild != null && mBuild.Update() && !OnBuildStartFailed())
 			{
+				let finishWatch = scope System.Diagnostics.Stopwatch(true);
+				defer { CompileFinishMs = finishWatch.Elapsed.TotalMilliseconds; }
 				int errors = 0;
 				int warnings = 0;
 				for (let m in mBuild.Messages)
@@ -1564,13 +1607,8 @@ namespace VisualBeef.Editor
 				mStatus.Set(mBuild.Succeeded ? "Compile succeeded" : "Compile failed");
 				mStatusTime = Gui.igGetTime();
 				MapDiagnostics();
-				{
-					String finishedWs = scope .();
-					CurrentWorkspace(finishedWs);
-					if (!finishedWs.IsEmpty)
-						StoreCompileRecord(finishedWs, mBuild.Succeeded, mBuild.Config, errors, warnings);
-					InvalidateCompileHash();
-				}
+				StoreCompileRecord(mBuild.Workspace, mBuild.Succeeded, mBuild.Config, errors, warnings);
+				InvalidateCompileHash();
 				OnBuildFinished(errors, warnings);
 				OnBuildFinishedForDebug();
 			}
@@ -1598,6 +1636,7 @@ namespace VisualBeef.Editor
 			if (mShowDemo)
 				Gui.igShowDemoWindow(&mShowDemo);
 			DebugShortcuts();
+			DrawDragGhost();
 			ShellEndFrame();
 			if (mCommitPending)
 				DoCommit();
@@ -1661,7 +1700,7 @@ namespace VisualBeef.Editor
 			if (ctrl && Gui.IsKeyPressed(Key.O, false))
 				OpenFileBrowser();
 			if (Gui.IsKeyPressed(578 /* F7 */, false))
-				Compile();
+				Compile(default, ctrl);
 			if (Gui.IsKeyPressed(572 /* F1 */, false))
 				OpenDocumentation();
 			// UE: Ctrl+B browses to the asset, Ctrl+Shift+F finds in all Blueprints.
@@ -2955,8 +2994,13 @@ namespace VisualBeef.Editor
 				Gui.igSetNextItemWidth(360 * Look.Scale);
 				Gui.igInputText("##vname", mNameBuf.Ptr, (.)mNameBuf.Capacity, 0, null, null);
 				Gui.Text("Type");
-				Gui.igSetNextItemWidth(360 * Look.Scale);
-				Gui.igInputText("##vtype", mTypeBuf.Ptr, (.)mTypeBuf.Capacity, 0, null, null);
+				{
+					// The type picker (basic types first, then the project's and the libraries' types, and
+					// the containers); a type it does not list is typed into its search box and taken from there.
+					String picked = scope .(mTypeBuf.View);
+					if (TypeButton("##vtype", picked, 360 * Look.Scale, .Member, FindType(mAddTargetType)))
+						mTypeBuf.Set(picked);
+				}
 				var varTyped = mTypeBuf.View;
 				varTyped.Trim();
 				MemberInit varInit = scope .();
@@ -2983,23 +3027,27 @@ namespace VisualBeef.Editor
 				}
 				if (!varTyped.IsEmpty && !mNameBuf.View.IsEmpty)
 				{
+					// The line Create writes (SourceDocument.FieldDeclarationText), following the picked type.
 					String preview = scope .();
-					preview.AppendF("public {}{} {}", addStatic ? "static " : "", varType, mNameBuf.View);
-					varInit.Emit(preview);
-					preview.Append(';');
+					String tail = scope .();
+					varInit.Emit(tail);
+					SourceDocument.FieldDeclarationText(varType, mNameBuf.View, tail, addStatic, preview);
+					SelfTestAddVarPreview.Set(preview);
 					Gui.igDummy(.(0, 2 * Look.Scale));
 					InitCodeText(preview, 360 * Look.Scale);
 				}
 				bool varOk = TypeErrorText(varTyped, .Member, FindType(mAddTargetType));
 				Gui.igBeginDisabled(!varOk);
-				bool createVar = Gui.Button("Create", .(120 * Look.Scale, 0));
+				bool createVar = Gui.Button("Create", .(120 * Look.Scale, 0)) || (SelfTestAddVarCreate && varOk);
+				SelfTestAddVarCreate = false;
 				Gui.igEndDisabled();
 				if (createVar)
 				{
 					let type = FindType(mAddTargetType);
 					if (type != null && !mNameBuf.View.IsEmpty)
 					{
-						AddVariableChecked(Doc, type, varType, mNameBuf.View, varInit, mAddSetOnCreate && !addStatic, addStatic);
+						if (AddVariableChecked(Doc, type, varType, mNameBuf.View, varInit, mAddSetOnCreate && !addStatic, addStatic))
+							mLastVarType.Set(varTyped); // the next Add Variable starts with this type
 						UpdateTitle();
 					}
 					Gui.igCloseCurrentPopup();

@@ -56,13 +56,17 @@ namespace VisualBeef.Editor
 				open = !open;
 			}
 			Gui.SameLine(0, 2);
-			Gui.igPushStyleColor_U32(Col.Button, Look.Header);
-			Gui.igPushStyleColor_U32(Col.ButtonHovered, Look.Primary);
-			Gui.igPushStyleColor_U32(Col.Border, Gui.Color(0, 0, 0, 0));
-			if (Gui.Button(Icon.Plus, .(h, h)))
+			// The "+" is drawn by hand, centred on the glyph's measured size: a framed button put the icon font's
+			// glyph off-centre inside its highlight.
+			let bp = Gui.igGetCursorScreenPos();
+			bool addHit = Gui.igInvisibleButton("##add", .(h, h), ButtonFlags.MouseButtonLeft);
+			bool addHovered = Gui.igIsItemHovered(0);
+			Gui.ImDrawList_AddRectFilled(dl, bp, .(bp.x + h, bp.y + h), addHovered ? Look.Primary : Look.Header, 2 * Look.Scale, 0);
+			let gs = Gui.CalcTextSize(Icon.Plus);
+			Gui.DrawText(dl, .(bp.x + (h - gs.x) * 0.5f, bp.y + (h - gs.y) * 0.5f), Gui.Color(215, 215, 215), Icon.Plus);
+			if (addHit)
 				addClicked = true;
-			Gui.igPopStyleColor(3);
-			if (Gui.igIsItemHovered(0))
+			if (addHovered)
 				Gui.Tooltip(addTip);
 			Gui.PopID();
 			return open;
@@ -424,11 +428,11 @@ namespace VisualBeef.Editor
 					Gui.Tooltip(tip);
 				}
 				AddMemberRef(.Function, m.Name, m.TypeText, paramsText, type.Name, m.IsStatic);
-				if (Gui.igBeginDragDropSource(0))
+				if (Gui.igBeginDragDropSource(DragNative.SourceNoPreviewTooltip))
 				{
+					// The ghost (DragGhost.bf) follows the cursor.
 					int32 idx = (int32)mMembers.Count - 1;
 					Gui.igSetDragDropPayload("VB_MEMBER", &idx, sizeof(int32), 0);
-					Gui.Text(scope $"{Icon.Function}  Call {m.Name}");
 					Gui.igEndDragDropSource();
 				}
 				if (Gui.igBeginPopupContextItem())
@@ -458,11 +462,7 @@ namespace VisualBeef.Editor
 			bool varOpen = BPSection(secId, "VARIABLES", varCount, let addVar, "Add a variable");
 			if (addVar)
 			{
-				mAddTargetType.Set(type.Name);
-				mNameBuf.Set("mNewVar");
-				mTypeBuf.Set("int");
-				mParamsBuf.Set("");
-				mOpenAddVariable = true;
+				OpenAddVariable(type.Name, "mNewVar");
 			}
 			for (let m in type.Members)
 			{
@@ -511,6 +511,8 @@ namespace VisualBeef.Editor
 					mSelLocalActive = false;
 					mSelVarSigPending = true;
 				}
+				if (m.Name == SelfTestRowName)
+					SelfTestRowAt = cur + ImVec2(60 * Look.Scale, h * 0.5f);
 				// UE's variable pill in the type colour, and the type dimmed on the right.
 				let dl = Gui.igGetWindowDrawList();
 				// A type that does not fit a variable (`void x;`, `var x;`): red with the reason.
@@ -529,13 +531,13 @@ namespace VisualBeef.Editor
 					Gui.DrawText(dl, .(max.x - tw - 4 * Look.Scale, cur.y), Gui.Color(120, 120, 120), fit);
 				}
 				if (Gui.igIsItemHovered(0))
-					Gui.Tooltip(varBad ? varError : scope $"{m.Name} : {m.TypeText}{m.IsStatic ? "  (static)" : ""}\nDrag into the graph: Ctrl = Get, Alt = Set");
+					Gui.Tooltip(varBad ? varError : scope $"{m.Name} : {m.TypeText}{m.IsStatic ? "  (static)" : ""}\nDrag onto a pin to wire it, or onto the Sheet: Ctrl = Get, Alt = Set");
 				AddMemberRef(.Variable, m.Name, m.TypeText, "", type.Name, m.IsStatic);
-				if (Gui.igBeginDragDropSource(0))
+				if (Gui.igBeginDragDropSource(DragNative.SourceNoPreviewTooltip))
 				{
+					// The ghost (DragGhost.bf) follows the cursor; on a pin it says what the drop does.
 					int32 idx = (int32)mMembers.Count - 1;
 					Gui.igSetDragDropPayload("VB_MEMBER", &idx, sizeof(int32), 0);
-					Gui.Text(scope $"{Icon.Variable}  {m.Name}  (Ctrl: Get, Alt: Set, or choose on drop)");
 					Gui.igEndDragDropSource();
 				}
 				if (Gui.igBeginPopupContextItem())

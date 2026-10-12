@@ -19,6 +19,9 @@ namespace VisualBeef.Editor
 		BeefProjectFile mPS ~ delete _;
 		DateTime mPSTime;
 		String mPSName = new .() ~ delete _;
+		/// The Name field's text, and the "Rename folder too" box beside it.
+		String mPSNameEdit = new .() ~ delete _;
+		bool mPSRenameFolder;
 		String mPSConfig = new .("Debug.Win64") ~ delete _;
 		String mPSStartupObject = new .() ~ delete _;
 		String mPSNamespace = new .() ~ delete _;
@@ -42,6 +45,14 @@ namespace VisualBeef.Editor
 		public void OpenProjectSettings(StringView dir)
 		{
 			mSelProjectDir.Set(dir);
+			String folder = scope .();
+			Path.GetFileName(dir, folder);
+			String name = scope .();
+			let wp = mWorkspace?.FindDir(dir);
+			if (wp != null)
+				name.Set(wp.Name);
+			// "Rename folder too" starts on when the folder is named like the project.
+			mPSRenameFolder = !name.IsEmpty && StringView.Compare(folder, name, true) == 0 && wp.RelPath != ".";
 			mSelProjectActive = true;
 			mSelClassActive = false;
 			mSelVarActive = false;
@@ -69,6 +80,7 @@ namespace VisualBeef.Editor
 			}
 			mPSTime = WriteTimeOf(mPS.FilePath);
 			mPS.GetName(mPSName);
+			mPSNameEdit.Set(mWorkspace?.FindDir(mSelProjectDir)?.Name ?? mPSName);
 			mPS.Toml.GetString("Project", "StartupObject", mPSStartupObject);
 			mPS.Toml.GetString("Project", "DefaultNamespace", mPSNamespace);
 			LoadConfigFields();
@@ -183,6 +195,17 @@ namespace VisualBeef.Editor
 			return PropertyGrid.Multiline(id, value, h, ?, mMono);
 		}
 
+		/// The Name field was committed (Enter or focus lost): the rename runs after the frame (it rebuilds the tree),
+		/// and the field is read back from the files, so a refused name shows the old one again.
+		void CommitProjectName(StringView projName)
+		{
+			String nn = scope .(mPSNameEdit);
+			nn.Trim();
+			if (nn != projName || mPSRenameFolder)
+				QueueWsAction(.RenameProject, mSelProjectDir, projName, nn, mPSRenameFolder);
+			mPSReloadPending = true;
+		}
+
 		bool DrawProjectSettings()
 		{
 			if (mPSReloadPending && !Gui.igIsAnyItemActive())
@@ -215,8 +238,29 @@ namespace VisualBeef.Editor
 			{
 				if (PropertyGrid.Category("Project", true))
 				{
-					PropertyGrid.Row("Name", "The project's name ([Project] Name). Rename the project's folder in the Project Browser to rename it");
-					PropertyGrid.Value(projName);
+					PropertyGrid.Row("Name", "The project's name ([Project] Name, its entry in BeefSpace.toml, the startup project and the other projects' dependencies). Press Enter or leave the field to rename; the box renames the folder too");
+					{
+						String boxLabel = scope .("Rename folder too");
+						float boxW = Gui.CalcTextSize(boxLabel).x + Gui.igGetFrameHeight() + Gui.igGetStyle().ItemInnerSpacing.x + Gui.igGetStyle().ItemSpacing.x;
+						float avail = Gui.igGetContentRegionAvail().x;
+						bool beside = avail - boxW > 140 * Look.Scale;
+						Gui.igSetNextItemWidth(beside ? avail - boxW : -1);
+						if (PropertyGrid.Text("##psname", mPSNameEdit, ?, false, null, "project name"))
+							CommitProjectName(projName);
+						if (beside)
+							Gui.SameLine();
+						else
+						{
+							PropertyGrid.WideRow(); // a narrow panel: the box gets a line of its own, full width
+							Gui.igSetCursorPosX(Gui.igGetCursorPosX() + 6 * Look.Scale);
+						}
+						bool noFolder = wp != null && wp.RelPath == ".";
+						Gui.igBeginDisabled(noFolder);
+						Gui.Checkbox(boxLabel, &mPSRenameFolder);
+						Gui.igEndDisabled();
+						if (Gui.igIsItemHovered(1 << 10 /* AllowWhenDisabled */))
+							Gui.Tooltip(noFolder ? "This project is the workspace folder: its folder can't be renamed here" : "Also renames the project's folder to the new name (the paths in BeefSpace.toml and .vbproject follow)");
+					}
 					PropertyGrid.Row("File", "The project file the settings are written to");
 					PropertyGrid.Value(mPS.FilePath);
 					PropertyGrid.Row("Build kind", "What the project builds: TargetType (and BuildKind = \"DynamicLib\" in every configuration for a dynamic library, a DLL)");

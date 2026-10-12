@@ -146,6 +146,10 @@ namespace VisualBeef.Editor
 			case "mathexpr": finished = SelfTestMath();
 			case "workspace": finished = SelfTestWorkspace();
 			case "strings": finished = SelfTestStrings();
+			case "dragvars": finished = SelfTestDragVars();
+			case "dragvars-live": finished = SelfTestDragVarsLive();
+			case "compiletime": finished = SelfTestCompileTime();
+			case "compileshots": finished = SelfTestCompileShots();
 			case "adddialog-close": mSelfTestCloseDialog = true;
 			case "locals-open": mSelfTestLocalsOpen = true;
 			case "menu": SelfTestMenu(true);

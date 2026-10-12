@@ -28,13 +28,15 @@ namespace VisualBeef.Editor
 			RemoveDependency,
 			AddToWorkspace,
 			RemoveFromWorkspace,
-			AddExisting
+			AddExisting,
+			RenameProject
 		}
 		WsAction mWsAction;
 		bool mWsRescanPending;
 		String mWsActionPath = new .() ~ delete _;
 		String mWsActionName = new .() ~ delete _;
 		String mWsActionTarget = new .() ~ delete _;
+		bool mWsActionFlag;
 
 		// New Project in This Workspace
 		bool mOpenWsNew;
@@ -164,9 +166,10 @@ namespace VisualBeef.Editor
 				Notify.Log(.Info, "Project", c);
 		}
 
-		void QueueWsAction(WsAction action, StringView path, StringView name, StringView target = default)
+		void QueueWsAction(WsAction action, StringView path, StringView name, StringView target = default, bool flag = false)
 		{
 			mWsAction = action;
+			mWsActionFlag = flag;
 			mWsActionPath.Set(path);
 			mWsActionName.Set(name);
 			mWsActionTarget.Set(target);
@@ -211,6 +214,8 @@ namespace VisualBeef.Editor
 			Gui.Separator();
 			if (GlyphMenuItem(Icon.SlidersHorizontal, Look.Foreground, "Project Settings"))
 				QueueWsAction(.Settings, d.Path, name);
+			if (GlyphMenuItem(Icon.Pencil, Look.Foreground, "Rename Project..."))
+				StartRenameProject(d);
 			if (GlyphMenuItem(Icon.Play, StartupColor, "Set as Startup Project", "", !d.Startup))
 				QueueWsAction(.SetStartup, d.Path, name);
 			let cur = CurrentProject();
@@ -372,6 +377,7 @@ namespace VisualBeef.Editor
 			String path = scope .(mWsActionPath);
 			String name = scope .(mWsActionName);
 			String target = scope .(mWsActionTarget);
+			bool flag = mWsActionFlag;
 			switch (action)
 			{
 			case .Settings: OpenProjectSettings(path);
@@ -381,6 +387,7 @@ namespace VisualBeef.Editor
 			case .AddToWorkspace: AddExistingProjectAt(path);
 			case .RemoveFromWorkspace: RemoveProjectFromWorkspace(name);
 			case .AddExisting: StartAddExistingProject();
+			case .RenameProject: RenameProject(path, target, flag);
 			case .None:
 			}
 			FlushWorkspaceRescan();
@@ -520,6 +527,138 @@ namespace VisualBeef.Editor
 			}
 			SetStatus(scope $"Added project {name} to the workspace");
 			return true;
+		}
+
+		/// Project names, folder names: why `newName` can't be the name of the project in `dir` (currently
+		/// `oldName`), or true. The folder checks apply only with `renameFolder`.
+		public bool ValidateProjectRename(StringView dir, StringView oldName, StringView newName, bool renameFolder, String outError)
+		{
+			if (!WorkspaceFiles.ValidProjectName(newName, outError))
+				return false;
+			if (mWorkspace != null)
+				for (let p in mWorkspace.Projects)
+					if (p.Name == newName && !(p.HasPath && ProjectIndex.SamePath(p.Dir, dir)))
+					{
+						outError.Set(scope $"The workspace already has a project named '{newName}'.");
+						return false;
+					}
+			if (!renameFolder)
+				return true;
+			let wp = mWorkspace?.FindDir(dir);
+			if (wp != null && wp.RelPath == ".")
+			{
+				outError.Set("This project is the workspace folder itself: its folder can't be renamed here.");
+				return false;
+			}
+			if (!ValidateFileName(newName, outError))
+				return false;
+			String folder = scope .();
+			Path.GetFileName(dir, folder);
+			if (StringView.Compare(folder, newName, true) != 0)
+			{
+				String parent = scope .();
+				WorkspaceFiles.ParentDir(dir, parent);
+				if (EntryExists(parent, newName))
+				{
+					outError.Set(scope $"Something named '{newName}' already exists next to the project's folder.");
+					return false;
+				}
+			}
+			return true;
+		}
+
+		/// Project Properties > Name, and Rename Project...: the project in `dir` gets the name `newNameIn` in
+		/// BeefProj.toml, BeefSpace.toml (entry, startup project, Locked / Unlocked) and the dependencies of
+		/// the other projects; with `renameFolder` its folder is renamed too (the folder-rename path). Every
+		/// file changed is one `Project:` line in the Output Log. False (with the reason in the status bar)
+		/// when refused or when a file could not be written.
+		public bool RenameProject(StringView dirIn, StringView newNameIn, bool renameFolder)
+		{
+			if (!CheckWritable())
+				return false;
+			String dir = scope .(dirIn);
+			String newName = scope .(newNameIn);
+			newName.Trim();
+			let wp = mWorkspace?.FindDir(dir);
+			String oldName = scope .();
+			if (wp != null)
+				oldName.Set(wp.Name);
+			else
+			{
+				BeefProjectFile pf = scope .();
+				if (!pf.Load(dir))
+				{
+					SetStatus(scope $"Can't rename the project: {dir} has no BeefProj.toml", .Warning);
+					return false;
+				}
+				pf.GetName(oldName);
+			}
+			String folderName = scope .();
+			Path.GetFileName(dir, folderName);
+			bool folderMoves = renameFolder && folderName != newName;
+			if (newName == oldName && !folderMoves)
+				return true;
+			String err = scope .();
+			if (!ValidateProjectRename(dir, oldName, newName, renameFolder, err))
+			{
+				SetStatus(scope $"Can't rename project {oldName}: {err}", .Warning);
+				return false;
+			}
+			String ws = scope .();
+			WorkspaceFileOf(ws);
+			List<String> changes = scope .();
+			defer { ClearAndDeleteItems!(changes); }
+			if (WorkspaceFiles.RenameProject(ws, dir, oldName, newName, changes, err) case .Err)
+			{
+				ReportError(scope $"Could not rename project {oldName}: {err}");
+				return false;
+			}
+			LogWorkspaceChanges(changes);
+			AfterWorkspaceEdit();
+			bool folderDone = false;
+			if (folderMoves)
+			{
+				CBItem item = new .();
+				item.Kind = .Folder;
+				item.Name.Set(folderName);
+				item.Path.Set(dir);
+				CBItem.MakeKey(.Folder, dir, "", item.Key);
+				String parent = scope .();
+				WorkspaceFiles.ParentDir(dir, parent);
+				String newDir = scope .();
+				JoinPath(parent, newName, newDir);
+				RenameAsset(item, newName);
+				delete item;
+				folderDone = Directory.Exists(newDir) && (!Directory.Exists(dir) || ProjectIndex.SamePath(dir, newDir));
+				if (folderDone && mSelProjectActive && ProjectIndex.SamePath(mSelProjectDir, dir))
+					mSelProjectDir.Set(newDir);
+				if (!folderDone)
+				{
+					Notify.Log(.Warning, "Project", scope $"The project is renamed to {newName}, but its folder was not renamed");
+					SetStatus(scope $"Renamed project {oldName} to {newName}; the folder was not renamed");
+					mPSRenameFolder = false;
+					return false;
+				}
+			}
+			mPSRenameFolder = false;
+			SetStatus(scope $"Renamed project {oldName} to {newName}{(folderDone ? " (and its folder)" : "")}");
+			return true;
+		}
+
+		/// Rename Project... in a project row's menu: the rename dialog with the project's name.
+		void StartRenameProject(CBDir d)
+		{
+			CBItem item = new .();
+			item.Kind = .Folder;
+			item.Name.Set(d.Name);
+			item.Path.Set(d.Path);
+			CBItem.MakeKey(.Folder, d.Path, "", item.Key);
+			StartRename(item);
+			delete item;
+			mCBRenameProject = true;
+			mCBRenameProjectOld.Set(d.ProjectName);
+			mCBNameBuf.Set(d.ProjectName);
+			mCBRenameProjectFolder = StringView.Compare(d.Name, d.ProjectName, true) == 0 && mWorkspace?.FindDir(d.Path)?.RelPath != ".";
 		}
 
 		// ------------------------------------------------------------------ New Project in This Workspace

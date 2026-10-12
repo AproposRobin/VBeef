@@ -1794,6 +1794,102 @@ namespace VisualBeef.Document
 			batch.Put(path, before, text);
 		}
 
+		/// The name `oldName` of a project becomes `newName` in the workspace text `t` (read as `ws`): the key of its
+		/// `Projects` entry, `StartupProject`, the `Locked` / `Unlocked` lists, and the `Dependencies` entry of every
+		/// other project (their files go into `batch`; a project whose folder moved from `oldDir` to `newDir` is
+		/// read from its new place). Every change is noted.
+		static void RenameInSpace(StringView wsFile, TomlText t, BeefWorkspace ws, StringView oldName, StringView newName, StringView oldDir, StringView newDir, Batch batch, List<String> changes)
+		{
+			t.MapRenameKey("Projects", oldName, newName);
+			Note(changes, wsFile, scope $"project {oldName} renamed to {newName}");
+			if (ws.Startup == oldName)
+			{
+				t.SetString("Workspace", "StartupProject", newName);
+				Note(changes, wsFile, scope $"StartupProject = \"{newName}\"");
+			}
+			for (let listKey in StringView[?]("Locked", "Unlocked"))
+			{
+				List<String> items = scope .();
+				defer { ClearAndDeleteItems!(items); }
+				if (!t.GetStringArray("", listKey, items))
+					continue;
+				bool hit = false;
+				for (let it in items)
+					if (it == oldName)
+					{
+						it.Set(newName);
+						hit = true;
+					}
+				if (hit)
+				{
+					t.SetStringArray("", listKey, items);
+					Note(changes, wsFile, scope $"{listKey}: {oldName} -> {newName}");
+				}
+			}
+			// The other projects that depend on it.
+			for (let q in ws.Projects)
+			{
+				if (!q.HasPath || q.Name == oldName)
+					continue;
+				String qDir = scope .(q.Dir);
+				if (!oldDir.IsEmpty && (ProjectIndex.SamePath(qDir, oldDir) || IsUnder(qDir, oldDir)))
+				{
+					qDir.Set(newDir);
+					qDir.Append(StringView(q.Dir, oldDir.Length));
+				}
+				BeefProjectFile qf = scope .();
+				if (!qf.Load(qDir))
+					continue;
+				if (qf.Toml.MapRenameKey("Dependencies", oldName, newName))
+				{
+					Note(changes, qf.FilePath, scope $"dependency {oldName} -> {newName}");
+					batch.Put(qf.FilePath, qf.Original, qf.Toml.Text);
+				}
+			}
+		}
+
+		/// Renames the project `oldName` (the folder `projDir`) to `newName`: `[Project] Name` in its BeefProj.toml
+		/// and, when the workspace `wsFile` lists it, everything RenameInSpace changes. The folder is not touched.
+		/// All files are written or none (a `.bak` is kept of each).
+		public static Result<void> RenameProject(StringView wsFile, StringView projDir, StringView oldName, StringView newName, List<String> changes, String outError)
+		{
+			if (!ValidProjectName(newName, outError))
+				return .Err;
+			if (newName == oldName)
+				return .Ok;
+			BeefProjectFile pf = scope .();
+			if (!pf.Load(projDir))
+			{
+				outError.Set(scope $"{projDir} has no BeefProj.toml.");
+				return .Err;
+			}
+			Batch batch = scope .();
+			if (!wsFile.IsEmpty && File.Exists(wsFile))
+			{
+				TomlText t = scope .();
+				String before = scope .();
+				if (!LoadToml(wsFile, t, before, outError))
+					return .Err;
+				BeefWorkspace ws = scope .();
+				ParentDir(wsFile, ws.Dir);
+				ws.Read(t);
+				if (ws.Find(newName) != null)
+				{
+					outError.Set(scope $"The workspace already has a project named '{newName}'.");
+					return .Err;
+				}
+				if (ws.Find(oldName) != null)
+				{
+					RenameInSpace(wsFile, t, ws, oldName, newName, default, default, batch, changes);
+					batch.Put(wsFile, before, t.Text);
+				}
+			}
+			pf.Toml.SetString("Project", "Name", newName);
+			Note(changes, pf.FilePath, scope $"Name = \"{newName}\" (was \"{oldName}\")");
+			batch.Put(pf.FilePath, pf.Original, pf.Toml.Text);
+			return batch.Commit(outError);
+		}
+
 		/// After the folder `oldDir` was moved or renamed to `newDir`: the workspace paths of the projects in it
 		/// follow, and a renamed project folder renames its project when the project was named like its folder
 		/// (Name in BeefProj.toml, the workspace entry and startup project, the other projects' dependencies),
@@ -1864,54 +1960,7 @@ namespace VisualBeef.Document
 					batch.Put(pf.FilePath, pf.Original, pf.Toml.Text);
 				}
 				if (!newName.IsEmpty)
-				{
-					t.MapRenameKey("Projects", oldName, newName);
-					Note(changes, wsFile, scope $"project {oldName} renamed to {newName}");
-					if (ws.Startup == oldName)
-					{
-						t.SetString("Workspace", "StartupProject", newName);
-						Note(changes, wsFile, scope $"StartupProject = \"{newName}\"");
-					}
-					for (let listKey in StringView[?]("Locked", "Unlocked"))
-					{
-						List<String> items = scope .();
-						defer { ClearAndDeleteItems!(items); }
-						if (!t.GetStringArray("", listKey, items))
-							continue;
-						bool hit = false;
-						for (let it in items)
-							if (it == oldName)
-							{
-								it.Set(newName);
-								hit = true;
-							}
-						if (hit)
-						{
-							t.SetStringArray("", listKey, items);
-							Note(changes, wsFile, scope $"{listKey}: {oldName} -> {newName}");
-						}
-					}
-					// The other projects that depend on it.
-					for (let q in ws.Projects)
-					{
-						if (!q.HasPath || q.Name == oldName)
-							continue;
-						String qDir = scope .(q.Dir);
-						if (ProjectIndex.SamePath(qDir, oldDir) || IsUnder(qDir, oldDir))
-						{
-							qDir.Set(newDir);
-							qDir.Append(StringView(q.Dir, oldDir.Length));
-						}
-						BeefProjectFile qf = scope:: .();
-						if (!qf.Load(qDir))
-							continue;
-						if (qf.Toml.MapRenameKey("Dependencies", oldName, newName))
-						{
-							Note(changes, qf.FilePath, scope $"dependency {oldName} -> {newName}");
-							batch.Put(qf.FilePath, qf.Original, qf.Toml.Text);
-						}
-					}
-				}
+					RenameInSpace(wsFile, t, ws, oldName, newName, oldDir, newDir, batch, changes);
 				batch.Put(wsFile, before, t.Text);
 				String wsDir = scope .();
 				ParentDir(wsFile, wsDir);

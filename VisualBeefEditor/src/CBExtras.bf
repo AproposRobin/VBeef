@@ -127,7 +127,7 @@ namespace VisualBeef.Editor
 		/// Call right after a tile's item: makes it draggable, and folders accept drops.
 		void CBTileDragDrop(CBItem item)
 		{
-			if (Gui.igBeginDragDropSource(0))
+			if (Gui.igBeginDragDropSource(DragNative.SourceNoPreviewTooltip))
 			{
 				if (mCBDragItem == null || mCBDragItem.Key != item.Key)
 				{
@@ -136,8 +136,7 @@ namespace VisualBeef.Editor
 				}
 				int32 dummy = 1;
 				Gui.igSetDragDropPayload("VB_CBITEM", &dummy, sizeof(int32), 0);
-				Gui.Text(scope $"{Icon.Move}  Move {item.Name}");
-				Gui.TextDisabled("Drop on a folder (tile or tree)");
+				// The ghost (DragGhost.bf) follows the cursor with the asset's name and kind.
 				Gui.igEndDragDropSource();
 			}
 			if (item.Kind == .Folder)

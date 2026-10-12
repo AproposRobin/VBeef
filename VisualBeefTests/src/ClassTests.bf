@@ -1793,6 +1793,12 @@ namespace VisualBeef.Tests
 			sChecks += MathExprTests.Checks;
 			sFailures += MathExprTests.Failures;
 			sFailures += LocalsTests.Failures;
+			// Add Variable's type picker and preview line (docs/Classes-and-Members.md#in-the-editor).
+			DragVarTests.Checks = 0;
+			DragVarTests.Failures = 0;
+			DragVarTests.RunClasses();
+			sChecks += DragVarTests.Checks;
+			sFailures += DragVarTests.Failures;
 			Console.WriteLine("class checks: {}  failures: {}", sChecks, sFailures);
 			return sFailures;
 		}

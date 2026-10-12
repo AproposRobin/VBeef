@@ -88,6 +88,121 @@ namespace VisualBeef.Tests
 			return null;
 		}
 
+		/// Safety 24: Compile skips BeefBuild only when nothing it reads changed (docs/Getting-Started.md#compile).
+		static void BuildInputChecks()
+		{
+			String root = scope $"{cDir}/Inputs";
+			String ws = scope $"{root}/Ws";
+			String outside = scope $"{root}/Outside";
+			String beef = scope $"{root}/Beef";
+			for (let d in StringView[?](scope $"{ws}/App/src", scope $"{ws}/build/Debug_Win64/App", scope $"{outside}/src", scope $"{beef}/bin", scope $"{beef}/BeefLibs/corlib/src", scope $"{beef}/BeefLibs/Kit/src", scope $"{beef}/BeefLibs/Unused/src"))
+				Directory.CreateDirectory(d).IgnoreError();
+			Write(scope $"{ws}/BeefSpace.toml", "FileVersion = 1\n\n[Workspace]\nStartupProject = \"App\"\n\n[Projects]\nApp = {Path = \"App\"}\nOutside = {Path = \"../Outside\"}\n");
+			Write(scope $"{ws}/App/BeefProj.toml", "FileVersion = 1\nDependencies = {corlib = \"*\", Kit = \"*\", Outside = \"*\"}\n\n[Project]\nName = \"App\"\n");
+			Write(scope $"{ws}/App/src/Program.bf", cPlayer);
+			Write(scope $"{outside}/BeefProj.toml", "FileVersion = 1\n\n[Project]\nName = \"Outside\"\n");
+			Write(scope $"{outside}/src/Out.bf", "class Out {}\n");
+			String exe = scope $"{beef}/bin/BeefBuild.exe";
+			Write(exe, "not a program");
+			Write(scope $"{beef}/BeefLibs/corlib/src/Object.bf", "class Object {}\n");
+			Write(scope $"{beef}/BeefLibs/Kit/src/Kit.bf", "class Kit {}\n");
+			Write(scope $"{beef}/BeefLibs/Unused/src/Unused.bf", "class Unused {}\n");
+
+			List<String> folders = scope .();
+			defer { for (let f in folders) delete f; }
+			BuildInputs.Folders(ws, exe, folders);
+			bool hasOutside = false, hasCorlib = false, hasKit = false, hasUnused = false;
+			for (let f in folders)
+			{
+				String n = scope .(f);
+				n.Replace('\\', '/');
+				if (n.EndsWith("/Outside")) hasOutside = true;
+				if (n.EndsWith("/BeefLibs/corlib")) hasCorlib = true;
+				if (n.EndsWith("/BeefLibs/Kit")) hasKit = true;
+				if (n.EndsWith("/BeefLibs/Unused")) hasUnused = true;
+			}
+			Check(folders.Count == 4 && hasOutside && hasCorlib && hasKit && !hasUnused, scope $"the folders a compile reads: the workspace, a project outside it, corlib and the library a project names ({folders.Count})");
+
+			let f0 = BuildInputs.Fingerprint(ws, exe, "Debug", "Win64");
+			Check(f0 != 0 && f0 == BuildInputs.Fingerprint(ws, exe, "Debug", "Win64"), "the inputs fingerprint is taken and stable");
+			Check(BuildInputs.Fingerprint(ws, exe, "Release", "Win64") != f0, "another configuration is another fingerprint");
+			Write(scope $"{ws}/build/Debug_Win64/App/App.exe", "built");
+			Write(scope $"{ws}/build/Debug_Win64/App/App.obj", "built");
+			Check(BuildInputs.Fingerprint(ws, exe, "Debug", "Win64") == f0, "what BeefBuild writes into build does not count");
+			Write(scope $"{ws}/BeefSpace_Lock.toml", "FileVersion = 1\n");
+			let fLock = BuildInputs.Fingerprint(ws, exe, "Debug", "Win64");
+			Check(fLock != f0, "a new lock file counts");
+			System.Threading.Thread.Sleep(30);
+			Write(scope $"{ws}/BeefSpace_Lock.toml", "FileVersion = 1\n");
+			Check(BuildInputs.Fingerprint(ws, exe, "Debug", "Win64") == fLock, "the lock file BeefBuild rewrites counts by its content, not its time");
+			File.Delete(scope $"{ws}/BeefSpace_Lock.toml").IgnoreError();
+			Check(BuildInputs.Fingerprint(ws, exe, "Debug", "Win64") == f0, "back without the lock file: the first fingerprint");
+
+			Write(scope $"{ws}/App/src/Program.bf", scope $"{cPlayer}// edited\n");
+			let f1 = BuildInputs.Fingerprint(ws, exe, "Debug", "Win64");
+			Check(f1 != f0, "a changed source changes the fingerprint");
+			System.Threading.Thread.Sleep(30);
+			Write(scope $"{ws}/App/src/Program.bf", scope $"{cPlayer}// edited\n");
+			Check(BuildInputs.Fingerprint(ws, exe, "Debug", "Win64") != f1, "a source saved again (same text, new time) counts as changed: never a missed change");
+			let f2 = BuildInputs.Fingerprint(ws, exe, "Debug", "Win64");
+			Write(scope $"{outside}/src/Out.bf", "class Out { int x; }\n");
+			let f3 = BuildInputs.Fingerprint(ws, exe, "Debug", "Win64");
+			Check(f3 != f2, "a change in a project outside the workspace folder counts");
+			Write(scope $"{beef}/BeefLibs/Kit/src/Kit.bf", "class Kit { int y; }\n");
+			let f4 = BuildInputs.Fingerprint(ws, exe, "Debug", "Win64");
+			Check(f4 != f3, "a change in a library named by version counts");
+			Write(scope $"{beef}/BeefLibs/Unused/src/Unused.bf", "class Unused { int z; }\n");
+			Check(BuildInputs.Fingerprint(ws, exe, "Debug", "Win64") == f4, "a library no project names does not count");
+			Write(scope $"{ws}/App/src/New.bf", "class New {}\n");
+			let f5 = BuildInputs.Fingerprint(ws, exe, "Debug", "Win64");
+			Check(f5 != f4, "a new source file counts");
+			Write(exe, "another BeefBuild");
+			let f6 = BuildInputs.Fingerprint(ws, exe, "Debug", "Win64");
+			Check(f6 != f5, "another BeefBuild counts");
+			Check(BuildInputs.Fingerprint(scope $"{root}/NoSuchFolder", exe, "Debug", "Win64") == 0, "no workspace: no fingerprint (the compile always runs)");
+
+			// The record of the last successful compile and what Covers says.
+			String output = scope $"{ws}/build/Debug_Win64/App/App.exe";
+			CompileInputs rec = scope .();
+			rec.Config.Set("Debug");
+			rec.Inputs = f6;
+			rec.OutputPath.Set(output);
+			rec.OutputStamp = BuildInputs.FileStamp(output);
+			Check(rec.OutputStamp != 0 && BuildInputs.FileStamp(scope $"{ws}/build/none.exe") == 0, "the output's stamp is taken; a missing output has none");
+			String enc = scope .();
+			rec.Encode(enc);
+			let back = CompileInputs.Decode(enc);
+			Check(back != null && back.Config == "Debug" && back.Inputs == f6 && back.OutputPath == output && back.OutputStamp == rec.OutputStamp, "the record survives its text form");
+			delete back;
+			Check(CompileInputs.Decode("v1|Debug|zz|x|0") == null && CompileInputs.Decode("garbage") == null, "a damaged record is ignored");
+			Check(rec.Covers("Debug", f6), "same configuration, same inputs, output unchanged: up to date, BeefBuild is not run");
+			Check(!rec.Covers("Release", f6), "another configuration: BeefBuild runs");
+			Check(!rec.Covers("Debug", f5), "other inputs: BeefBuild runs");
+			Check(!rec.Covers("Debug", 0), "no fingerprint: BeefBuild runs");
+			System.Threading.Thread.Sleep(30);
+			Write(output, "built again elsewhere");
+			Check(!rec.Covers("Debug", f6), "the output changed or was replaced: BeefBuild runs");
+			File.Delete(output).IgnoreError();
+			Check(!rec.Covers("Debug", f6), "the output is gone: BeefBuild runs");
+
+			// The indicator's source hash: the same value as reading every file, read again only after a change.
+			List<String> files = scope .();
+			defer { for (let f in files) delete f; }
+			for (let p in StringView[?](scope $"{ws}/App/BeefProj.toml", scope $"{ws}/App/src/New.bf", scope $"{ws}/App/src/Program.bf", scope $"{ws}/BeefSpace.toml"))
+				files.Add(new String(p));
+			files.Sort(scope (a, b) => String.Compare(a, b, true));
+			let reads0 = CompileRecord.ContentReads;
+			let h0 = CompileRecord.HashWorkspace(ws);
+			Check(h0 == CompileRecord.HashFiles(ws, files), "the cached hash is the hash of the files' content (records from earlier versions still match)");
+			let h0b = CompileRecord.HashWorkspace(ws);
+			Check(h0b == h0 && CompileRecord.ContentReads == reads0 + 1, scope $"an unchanged workspace is not read again ({CompileRecord.ContentReads - reads0} reads for two hashes)");
+			Check(CompileRecord.CachedHash(ws, let cached, let known) && cached == h0 && known, "the listing alone gives the hash while nothing changed");
+			Write(scope $"{ws}/App/src/New.bf", "class New { int changed; }\n");
+			Check(!CompileRecord.CachedHash(ws, ?, let known2) && known2, "after a change the listing says: read again");
+			Check(CompileRecord.HashWorkspace(ws) != h0 && CompileRecord.ContentReads == reads0 + 2, "the change is read and seen");
+			Check(!CompileRecord.CachedHash(scope $"{root}/Outside", ?, let known3) && !known3, "a folder never hashed is not known");
+		}
+
 		public static int Run()
 		{
 			sFailures = 0;
@@ -1030,6 +1145,9 @@ namespace VisualBeef.Tests
 				delete merged;
 			}
 #endif
+
+			Console.WriteLine("Safety 24: what a compile reads (BuildInputs), the up-to-date record, the source hash cache");
+			BuildInputChecks();
 
 #if !BF_PLATFORM_WINDOWS
 			Console.WriteLine("Safety 19: Linux crash report writer (the report, not the signal)");

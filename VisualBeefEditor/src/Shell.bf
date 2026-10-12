@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.IO;
+using System.Threading;
 using ImGui;
 using VisualBeef.Graph;
 using VisualBeef.Document;
@@ -118,6 +119,10 @@ namespace VisualBeef.Editor
 			StreamBuildOutput();
 		}
 
+		/// The BeefBuild command line is logged once BeefBuild really starts (a compile that finds
+		/// nothing changed does not run it).
+		bool mBuildCommandLogged;
+
 		/// Streams BeefBuild's output into the Output Log as it arrives (category "Build").
 		void StreamBuildOutput()
 		{
@@ -125,6 +130,11 @@ namespace VisualBeef.Editor
 			{
 				mBuildLogged = 0;
 				return;
+			}
+			if (!mBuildCommandLogged && mBuild.ProcessId != 0)
+			{
+				mBuildCommandLogged = true;
+				Notify.Log(.Info, "Build", scope $"> {mBuild.CommandLine}");
 			}
 			while (mBuildLogged < mBuild.Output.Count)
 			{
@@ -157,10 +167,18 @@ namespace VisualBeef.Editor
 		void OnBuildFinished(int errors, int warnings)
 		{
 			StreamBuildOutput();
+			String took = scope .();
+			FormatSeconds(mBuild.BuildMs, took);
+			if (mBuild.UpToDate)
+				Notify.Log(.Info, "Build", scope $"Up to date ({mBuild.Config}): nothing changed since the last compile, so BeefBuild was not run. Build > Force Compile runs it anyway.");
+			else
+				Notify.Log(mBuild.Succeeded ? .Info : .Error, "Build", scope $"Compile {(mBuild.Succeeded ? "finished" : "failed")} in {took} ({mBuild.Config})");
 			if (mBuild.Succeeded)
 			{
 				if (warnings > 0)
 					Notify.Warn(scope $"Compile complete with {warnings} warning{(warnings == 1) ? "" : "s"}");
+				else if (mBuild.UpToDate)
+					Notify.Success("Compile complete: up to date");
 				else
 					Notify.Success("Compile complete");
 			}
@@ -169,6 +187,18 @@ namespace VisualBeef.Editor
 				Notify.Error(scope $"Compile failed: {errors} error{(errors == 1) ? "" : "s"}, {warnings} warning{(warnings == 1) ? "" : "s"}");
 				mFocusCompilerResults = true;
 			}
+		}
+
+		/// "0.4 s", "12 s", "1 min 5 s".
+		static void FormatSeconds(double ms, String outText)
+		{
+			let secs = ms / 1000.0;
+			if (secs < 10)
+				outText.AppendF("{:0.0} s", secs);
+			else if (secs < 60)
+				outText.AppendF("{} s", (int)secs);
+			else
+				outText.AppendF("{} min {} s", (int)secs / 60, (int)secs % 60);
 		}
 
 		/// Last thing every frame.
@@ -184,8 +214,9 @@ namespace VisualBeef.Editor
 		{
 			get
 			{
-				if (mBuild != null && mBuild.Running)
-					return true;
+				// A running compile is not a reason to draw every frame: the loop wakes about 30 times a
+				// second for its output and elapsed time (IdleTimeoutMs), and at once on input, so the
+				// editor does not take a processor core from BeefBuild.
 				if (Notify.Animating || mCommitPending || GraphTab.Animating)
 					return true;
 				// A dialog is queued but not open yet (conflict / error modals open next frame).
@@ -208,7 +239,7 @@ namespace VisualBeef.Editor
 		/// How long the idle loop may sleep: short while a text field is active (caret blink),
 		/// shorter while the background indexer runs (progress in the status bar, and the result
 		/// is taken within a tenth of a second).
-		public int32 IdleTimeoutMs => (IsDebugging && !IsDebugStopped) ? 30 : (mUpdates != null && mUpdates.Busy) ? 250 : (mNodeMenu != null && mNodeMenu.SearchPending) ? 20 : ((mIndexJob != null) ? 100 : (Gui.igIsAnyItemActive() ? 500 : 1000));
+		public int32 IdleTimeoutMs => (mBuild != null && mBuild.Running) ? 33 : (IsDebugging && !IsDebugStopped) ? 30 : (mUpdates != null && mUpdates.Busy) ? 250 : (mNodeMenu != null && mNodeMenu.SearchPending) ? 20 : ((mIndexJob != null) ? 100 : (Gui.igIsAnyItemActive() ? 500 : 1000));
 
 		// ---------------------------------------------------------------- compile state
 
@@ -219,8 +250,49 @@ namespace VisualBeef.Editor
 		uint64 mCompHash;
 		double mCompHashAt = -100;
 		bool mCompHashDirty = true;
-		/// The hash taken when the running compile started (after Save All).
-		uint64 mBuildHash;
+
+		// ---------------------------------------------------------------- compile timing
+
+		/// Start of the previous frame (Desktop.Now) and the length of the last whole frame.
+		double mFramePrevAt;
+		public double LastFrameMs;
+		/// The longest frame from pressing Compile until a few frames after it ended, without the
+		/// time inside Compile() (the UI must keep drawing while BeefBuild runs: the budget is 50 ms).
+		public double CompileMaxFrameMs;
+		/// Time spent inside Compile() itself (saving, starting BeefBuild) and in the frame that
+		/// took the result (messages on nodes, the compile record).
+		public double CompileCallMs;
+		public double CompileFinishMs;
+		public int CompileFrames;
+		public int CompileMaxFrameAt;
+		public bool CompileMaxFrameRunning;
+		/// Frames still watched after the compile ended (-1: not watching).
+		int mCompileTailFrames = -1;
+
+		void TrackFrameTime()
+		{
+			let now = Desktop.Now;
+			LastFrameMs = (mFramePrevAt > 0) ? Math.Max(0, now - mFramePrevAt - Desktop.IdleWaitSeconds) * 1000.0 : 0;
+			mFramePrevAt = now;
+			Desktop.IdleWaitSeconds = 0;
+			if (mCompileTailFrames < 0)
+				return;
+			CompileFrames++;
+			// The first frame holds Compile() itself, whose Save All flushes edited files to disk:
+			// that time is CompileCallMs, kept apart from what the compile costs the frames.
+			let ms = (CompileFrames == 1) ? Math.Max(0, LastFrameMs - CompileCallMs) : LastFrameMs;
+			if (ms > CompileMaxFrameMs)
+			{
+				CompileMaxFrameMs = ms;
+				CompileMaxFrameAt = CompileFrames;
+				CompileMaxFrameRunning = mBuild != null && mBuild.Running;
+			}
+			if (mBuild == null || !mBuild.Running)
+				mCompileTailFrames--;
+		}
+
+		/// The source hash being taken on a worker after files changed (GetCompileState).
+		SourceHashJob mCompHashJob ~ delete _;
 
 		/// Forget the cached source hash (after a save, a compile or a rescan).
 		void InvalidateCompileHash() { mCompHashDirty = true; }
@@ -245,7 +317,7 @@ namespace VisualBeef.Editor
 			rec.Ok = ok;
 			rec.Config.Set(config);
 			rec.Time = DateTime.UtcNow.Ticks;
-			rec.Hash = mBuildHash;
+			rec.Hash = mBuild.SourceHash;
 			rec.Errors = (int32)errors;
 			rec.Warnings = (int32)warnings;
 			delete mCompRec;
@@ -255,7 +327,46 @@ namespace VisualBeef.Editor
 			rec.Encode(enc);
 			Settings.Load();
 			Settings.Project(ws).Set("compile", Json.NewString(enc));
+			// What this compile was built from, so the next one can tell nothing changed. A
+			// compile that found nothing changed keeps the record it relied on.
+			if (ok && !mBuild.UpToDate)
+			{
+				CompileInputs inputs = scope .();
+				inputs.Config.Set(config);
+				inputs.Inputs = mBuild.Inputs;
+				VisualBeef.Debug.DebugTarget target = scope .();
+				String err = scope .();
+				if (target.ResolveOutput(ws, config, err, BuildRunner.Platform))
+				{
+					inputs.OutputPath.Set(target.TargetPath);
+					inputs.OutputStamp = BuildInputs.FileStamp(target.TargetPath);
+				}
+				String inputsText = scope .();
+				if (inputs.Inputs != 0 && inputs.OutputStamp != 0)
+				{
+					inputs.Encode(inputsText);
+					Settings.Project(ws).Set("compileInputs", Json.NewString(inputsText));
+				}
+				else
+					Settings.Project(ws).Remove("compileInputs");
+			}
+			else if (!ok)
+				Settings.Project(ws).Remove("compileInputs");
 			Settings.Save();
+		}
+
+		/// BeefBuild could not be started (the compile ended before it began): say so, drop it.
+		bool OnBuildStartFailed()
+		{
+			if (!mBuild.StartFailed)
+				return false;
+			SetStatus(scope $"{mBuild.StartError} (set it in Edit > Editor Preferences)", .Error);
+			Notify.Log(.Error, "Build", mBuild.StartError);
+			mDebugAfterBuild = false;
+			mCompileTailFrames = -1;
+			delete mBuild;
+			mBuild = null;
+			return true;
 		}
 
 		public CompileState GetCompileState()
@@ -276,12 +387,28 @@ namespace VisualBeef.Editor
 			if (!unsaved)
 			{
 				double now = Gui.igGetTime();
-				if (mCompHashDirty || now - mCompHashAt > 3)
+				if (mCompHashJob != null && mCompHashJob.IsDone)
 				{
-					mCompHash = CompileRecord.HashWorkspace(ws);
+					if (ProjectIndex.SamePath(mCompHashJob.Root, ws))
+						mCompHash = mCompHashJob.Hash;
+					DeleteAndNullify!(mCompHashJob);
+				}
+				if (mCompHashJob == null && (mCompHashDirty || now - mCompHashAt > 3))
+				{
 					mCompHashAt = now;
 					mCompHashDirty = false;
+					// Only the folder listing while nothing changed; the content of a changed
+					// workspace is read on a worker (the first look reads it here, once).
+					if (CompileRecord.CachedHash(ws, let cached, let known))
+						mCompHash = cached;
+					else if (!known)
+						mCompHash = CompileRecord.HashWorkspace(ws);
+					else
+						mCompHashJob = new SourceHashJob(ws);
 				}
+				// Saved changes still being read: needs compile until the hash says otherwise.
+				if (mCompHashJob != null)
+					return .Unknown;
 			}
 			String cfg = scope .();
 			ResolveCompileConfig(ws, cfg);
@@ -340,7 +467,13 @@ namespace VisualBeef.Editor
 			{
 			case .NotCompiled: outText.Append("Not compiled");
 			case .Unknown: outText.Append("Needs compile");
-			case .Compiling: outText.Append("Compiling...");
+			case .Compiling:
+				outText.Append("Compiling...");
+				if (mBuild != null)
+				{
+					outText.Append(' ');
+					FormatSeconds(mBuild.ElapsedMs, outText);
+				}
 			case .Good: outText.Append("Up to date");
 			case .Warnings: outText.Append("Up to date, with warnings");
 			case .Error:
@@ -679,6 +812,46 @@ namespace VisualBeef.Editor
 			{
 				mWindowTitle.Set(title);
 				Desktop.SetTitle(title);
+			}
+		}
+	}
+
+	/// CompileRecord.HashWorkspace on a worker thread (the indicator's hash after a save).
+	class SourceHashJob
+	{
+		public String Root = new .() ~ delete _;
+		public uint64 Hash;
+		Thread mThread ~ delete _;
+		Monitor mLock = new .() ~ delete _;
+		bool mDone;
+
+		public this(StringView root)
+		{
+			Root.Set(root);
+			mThread = new Thread(new () =>
+			{
+				let h = CompileRecord.HashWorkspace(Root);
+				using (mLock.Enter())
+				{
+					Hash = h;
+					mDone = true;
+				}
+			});
+			mThread.SetName("VisualBeef source hash");
+			mThread.Start(false);
+		}
+
+		public ~this()
+		{
+			mThread.Join();
+		}
+
+		public bool IsDone
+		{
+			get
+			{
+				using (mLock.Enter())
+					return mDone;
 			}
 		}
 	}

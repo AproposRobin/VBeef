@@ -296,6 +296,10 @@ namespace VisualBeef.Editor
 		TextBuffer mCBNameBuf = new .(256) ~ delete _;
 		bool mOpenCBRename;
 		CBItem mCBRenameItem ~ delete _;
+		/// The rename dialog renames a project (not just its folder): the project's current name, "Rename folder too".
+		bool mCBRenameProject;
+		bool mCBRenameProjectFolder;
+		String mCBRenameProjectOld = new .() ~ delete _;
 		bool mOpenCBDelete;
 		List<CBItem> mCBDeleteItems = new .() ~ DeleteContainerAndItems!(_);
 
@@ -1960,6 +1964,7 @@ namespace VisualBeef.Editor
 		{
 			delete mCBRenameItem;
 			mCBRenameItem = item.Clone();
+			mCBRenameProject = false;
 			if (item.Kind == .File)
 			{
 				String n = scope .(item.Name);
@@ -2544,10 +2549,17 @@ namespace VisualBeef.Editor
 				return;
 			}
 			let item = mCBRenameItem;
-			Gui.Text(scope $"Rename {AssetStyle.KindLabel(item.Kind)} '{item.IsType ? item.TypeName : item.Name}'");
+			if (mCBRenameProject)
+			{
+				Gui.TextColored(ProjectColor, scope $"{Icon.Package}  Rename project '{mCBRenameProjectOld}'");
+				Gui.TextDisabled("BeefProj.toml, BeefSpace.toml (startup project, Locked / Unlocked) and the");
+				Gui.TextDisabled("dependencies of the other projects follow.");
+			}
+			else
+				Gui.Text(scope $"Rename {AssetStyle.KindLabel(item.Kind)} '{item.IsType ? item.TypeName : item.Name}'");
 			if (item.IsType)
 				Gui.TextDisabled("The declaration is renamed; references in other code are not.");
-			if (item.Kind == .Folder)
+			if (item.Kind == .Folder && !mCBRenameProject)
 				DrawRenameProjectNote(item.Path);
 			if (Gui.igIsWindowAppearing() || mCBRefocus)
 				Gui.igSetKeyboardFocusHere(0);
@@ -2557,7 +2569,9 @@ namespace VisualBeef.Editor
 			String name = scope .(mCBNameBuf.View);
 			name.Trim();
 			String err = scope .();
-			bool valid = ValidateRename(item, name, err);
+			if (mCBRenameProject)
+				Gui.Checkbox("Rename folder too", &mCBRenameProjectFolder);
+			bool valid = mCBRenameProject ? ValidateProjectRename(item.Path, mCBRenameProjectOld, name, mCBRenameProjectFolder, err) : ValidateRename(item, name, err);
 			ErrorLine(err);
 			Gui.igBeginDisabled(!valid);
 			bool go = Gui.Button("Rename", .(120 * Look.Scale, 0)) || (enter && valid);
@@ -2572,7 +2586,13 @@ namespace VisualBeef.Editor
 				Gui.igCloseCurrentPopup();
 				let it = mCBRenameItem;
 				mCBRenameItem = null;
-				RenameAsset(it, name);
+				if (mCBRenameProject)
+				{
+					mCBRenameProject = false;
+					QueueWsAction(.RenameProject, it.Path, mCBRenameProjectOld, name, mCBRenameProjectFolder);
+				}
+				else
+					RenameAsset(it, name);
 				delete it;
 			}
 			Gui.EndPopup();

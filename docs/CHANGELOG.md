@@ -9,6 +9,96 @@ order: 25
 
 Newest first. Dates are commit dates; commit ids refer to the development history before the public repository was created.
 
+## 0.2.5-alpha: compile speed (2026-10-12)
+
+Measured with `VB_SELFTEST=compiletime` (the whole compile as the user waits for it; Debug editor on the
+development PC; numbers before -> after):
+
+| Project | First build | Nothing changed | One-line change | Longest frame |
+|---|---|---|---|---|
+| corlib + three workspace projects | 0.85 s -> 0.87 s | 0.87 s -> 0.03 s | 0.83 s -> 0.85 s | 62 -> 49 ms (first compile), 5 ms after |
+| ClockWorkEngine (copy) | 1.1 s -> 1.1 s | 1.1 s -> 0.04 s | 1.1 s -> 1.1 s | 49 -> 21 ms |
+| VisualBeef's own workspace (copy, 168 files) | 3.9 s -> 3.7 s | 3.8 s -> 0.07 s | 3.8 s -> 3.7 s | 101 -> 36 ms |
+| A visual mod (game SDK library, Release) | 9.7 s -> 8.8 s | 8.5 s -> 0.04 s | 9.3 s -> 9.7 s | 70 -> 30 ms |
+
+- **Up to date without BeefBuild**: BeefBuild keeps no state between runs, so a compile with nothing changed cost
+  as much as any other (7-8 s on a visual mod, almost all of it the game SDK checked again). Compile now takes a
+  fingerprint of what BeefBuild reads (`BuildInputs`: names, sizes and write times under the workspace folder,
+  project folders outside it, the BeefLibs libraries the projects name, BeefBuild and its compiler, the
+  configuration; `BeefSpace_Lock.toml` by content) and, when it equals the last successful compile's and that
+  compile's output file is unchanged (`CompileInputs`, `projects.<folder>.compileInputs` in settings.json), ends
+  at once as *Up to date* with the previous messages. **Build > Force Compile** (Ctrl+F7) always runs BeefBuild.
+  Start Debugging after a Debug compile no longer compiles again.
+- **No work in the frame that presses Compile**: the source hash for the indicator, the fingerprint and starting
+  BeefBuild moved to a worker thread (`BuildRunner.Prepare`). Compile() went from 49-65 ms to under 1 ms on the
+  VisualBeef workspace (plus Save All when files changed); the first compile of a session no longer stalls a frame
+  for 60-90 ms when the process starts.
+- **The indicator's source hash is read once**: `CompileRecord.HashWorkspace` keeps the last hash per folder with
+  the folder listing it came from and reads file content again only when a name, size or write time changed
+  (same hash value, records from earlier versions still match); after a save the content is read on a worker
+  (`SourceHashJob`) and the indicator says *Needs compile* meanwhile. Before, the editor read every source of the
+  workspace on the UI thread every 3 s and after every save and compile (40 ms on the VisualBeef workspace).
+- **Compiler messages in files that are not open** are mapped to their nodes a few files per frame
+  (`MapPendingDiagnostics`, about 8 ms a frame) instead of all in the frame that takes the result (50 ms with three
+  warnings in large files on the VisualBeef workspace).
+- **The editor stops drawing at full rate during a compile**: about 30 frames a second while BeefBuild runs (at
+  once on input) instead of every display refresh (240 a second on the development PC), so it does not take a
+  processor core from BeefBuild.
+- **Elapsed time**: Problems and the status bar show *Compiling... 2.1 s* while BeefBuild runs; the result line
+  and the Output Log say how long it took. The BeefBuild command line is logged when BeefBuild really starts.
+- Found while measuring, not changed: a one-line change still costs a full BeefBuild run (8.5-9.7 s on a visual
+  mod, 6.3 s of it the game SDK); only a compiler kept in memory between compiles would avoid that. Save All of a
+  changed file flushes it to disk (document safety) and took 14-290 ms on this PC; it stays on the UI thread.
+- Tests: `safety` group 24 (30 checks: the folders a compile reads, what changes the fingerprint and what does not,
+  the lock file by content, the up-to-date record and its output check, the hash cache reading unchanged
+  workspaces once); `VB_SELFTEST=compiletime` (timed first / up-to-date / forced / one-line compiles, no frame over
+  50 ms, no project file written by an up-to-date compile, the indicator after a save) and `compileshots`
+  (captures `ct-compiling`, `ct-done`, `ct-uptodate`, `ct-log`, `ct-buildmenu`).
+
+## 0.2.4-alpha: renaming a project (2026-10-12)
+
+- The **Name** row of Project Settings is now a text field (it was read only: the owner could not change a
+  project's name). Enter or leaving the field renames the project: `[Project] Name` in its `BeefProj.toml`, the
+  key of its entry in `BeefSpace.toml` (quoted when needed), `StartupProject`, the `Locked` / `Unlocked` lists and
+  the `Dependencies` entry of every other project (`WorkspaceFiles.RenameProject`, sharing `RenameInSpace` with the
+  folder-rename path, which now calls it). The Output Log gets one `Project:` line per file changed and the tree and
+  Properties refresh; each file keeps a `.bak` (no undo).
+- **Rename folder too** (beside the field, or on its own line in a narrow pane) renames the folder through the
+  existing folder-rename path; it starts on when the folder is named like the project. A project's right-click menu
+  has **Rename Project...** (the rename dialog, with the same box).
+- Refused with a status-bar message and nothing written: an empty name, another project's name, a name that is not
+  a project name; with the folder box on also a reserved or invalid folder name and a folder name already taken.
+- `workspace` suite: 28 new checks (107 in all) in the `project rename` group; the `workspace` editor self test
+  grew from 37 to 65 checks (the field's default, the commit, refusals, the dialog, dependents following a rename
+  with the folder) and captures `ws-name-first`, `ws-name-field`, `ws-name-renamed`, `ws-name-refused`,
+  `ws-rename-menu`, `ws-rename-project-dialog-first`, `ws-rename-project-dialog`, `ws-renamed-project`.
+## 0.2.4-alpha: variables dropped on pins, the drag ghost, a type picker in Add Variable (2026-10-12)
+- A variable dragged onto a pin becomes the node the pin needs, wired to it: a Get into an input, a Set fed
+  by an output and put in the flow after the pin's node (before the first statement using a value node's
+  output). Works for Outline > VARIABLES, LOCAL VARIABLES and the Node menu's variable rows, which can now be
+  dragged out of the menu (it closes as the drag starts). One undo step removes the node and its wires. A drop
+  the types refuse changes nothing and says why in the status bar (`Can't connect: ...`, the words of a
+  refused wire). Core: `VariableDrop` (`Fits`, `Place`, `SpliceSet`; the pin menu's Make variable now splices
+  its Set through `SpliceSet` too).
+- One drag ghost for every drag source (Outline rows, local variables, functions, Node menu rows, Project
+  Browser tiles): pin-colour dot, name, dim type, drawn on the foreground; over a pin a green ring and what the
+  drop does, or a red ring and the reason. ImGui's own drag tooltips are off.
+- Fixed while testing with real mouse input: a drop's pin is the one under the cursor on the frame before the
+  button came up (on the release frame the payload is no longer reported as dragged, so the pin was lost and
+  the Get / Set question came up instead), and a Node menu row's payload (`-2`) is no longer taken for "no drop".
+- Add Variable: **Type** is the type picker (basic types first, project and library types, the container
+  row); a type it does not list is typed into its search box. The dialog starts with the last type used
+  (`int` at first); the preview line follows the pick and is the line Create writes
+  (`SourceDocument.FieldDeclarationText`). The container row's split / join moved to the core
+  (`TypeRules.SplitContainer` / `JoinContainer`).
+- Tests: `edits` scenario 26 (25 checks: Get into an input, Set from an output after a statement and before
+  the statement using a value node, refusals with reasons, a wired input replaced, read-only, undo / redo one
+  step each); `classes` + 15 (the picker's container row, typed types, the preview equals the written line);
+  `VB_SELFTEST=dragvars` (21 checks, captures `dv-first`, `dv-accepted`, `dv-refused`, `dv-ghost`,
+  `dv-ghost-fn`, `dv-ghost-asset`, `dv-dropped`, `dv-set`, `dv-addvar-picker`, `dv-addvar-bool`) and
+  `dragvars-live` (9 checks: Outline row and Node menu row dragged with ImGui mouse input, captures
+  `dvlive-over-pin`, `dvlive-menu-over-pin`, `dvlive-after`).
+
 ## 0.2.4-alpha: Outline, LOCAL VARIABLES in a fixed place (2026-10-12)
 
 - The Outline's **LOCAL VARIABLES** section no longer follows the open function down the tree: it is one

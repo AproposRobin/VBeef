@@ -2812,6 +2812,16 @@ namespace VisualBeef.Document
 			return AddFieldWithTail(type, fieldType, name, tail, isStatic);
 		}
 
+		/// The declaration Add Variable writes (`public static List<int> mItems = new .() ~ delete _;`),
+		/// without indent or line end: `tail` is the initial value part (MemberInit.Emit). The Add
+		/// Variable dialog shows it as its preview line.
+		public static void FieldDeclarationText(StringView fieldType, StringView name, StringView tail, bool isStatic, String outText)
+		{
+			outText.AppendF("public {}{} {}", isStatic ? "static " : "", fieldType, name);
+			outText.Append(tail);
+			outText.Append(';');
+		}
+
 		bool AddFieldWithTail(Member type, StringView fieldType, StringView name, StringView tail, bool isStaticIn = false)
 		{
 			if (type.CloseBrace < 0)
@@ -2821,10 +2831,9 @@ namespace VisualBeef.Document
 			PushUndo();
 			String indent = scope .();
 			MemberIndent(type, indent);
-			String text = scope .();
-			text.AppendF("{}public {}{} {}", indent, (isStaticIn || type.IsNodeLibrary) ? "static " : "", fieldType, name);
-			text.Append(tail);
-			text.Append(";\n");
+			String text = scope .(indent);
+			FieldDeclarationText(fieldType, name, tail, isStaticIn || type.IsNodeLibrary, text);
+			text.Append('\n');
 
 			// Insert after the last field, or at the top of the type body.
 			int insertAt = FieldInsertPoint(type);

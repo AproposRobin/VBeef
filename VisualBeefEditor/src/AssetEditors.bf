@@ -633,11 +633,7 @@ namespace VisualBeef.Editor
 			if (!changed && GreenButton("+ Add Variable"))
 			{
 				Doc = doc;
-				mAddTargetType.Set(tab.TypeName);
-				mNameBuf.Set((tab.Asset == .Struct) ? "NewField" : "mNewVar");
-				mTypeBuf.Set("int");
-				mParamsBuf.Set("");
-				mOpenAddVariable = true;
+				OpenAddVariable(tab.TypeName, (tab.Asset == .Struct) ? "NewField" : "mNewVar");
 			}
 			if (changed)
 			{

@@ -259,13 +259,12 @@ namespace VisualBeef.Editor
 			}
 			mDebugWs.Set(ws);
 			mDebugAfterBuild = true;
-			Compile("Debug");
+			Compile("Debug", false, true);
 			if (mBuild == null || !mBuild.Running)
 			{
 				mDebugAfterBuild = false;
 				return;
 			}
-			LowPriority.Apply(mBuild.ProcessId);
 			Notify.Log(.Info, "Debug", "Start Debugging: compiling in Debug first");
 		}
 

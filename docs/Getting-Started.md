@@ -203,6 +203,24 @@ come from (red border and banner; warnings in yellow), in **Problems**, and in t
 click one to jump to it. The dropdown next to **Compile** picks Debug or Release (the default
 can come from the project's `.vbproject`, for a project made from a template).
 
+While BeefBuild runs, the editor keeps drawing and stays usable: **Problems** and the status bar show
+*Compiling...* with the time so far, BeefBuild's output streams into the **Output Log**, and the result
+line says how long it took (*Compile complete (Release, 8.5 s)*).
+
+**Nothing changed, nothing to wait for.** When none of the files BeefBuild reads changed since the last
+successful compile of the same configuration (the project's folders, projects outside it, the Beef libraries
+it uses, BeefBuild itself) and the program or library it built is still there unchanged, Compile does not run
+BeefBuild again: it reports *Up to date* at once and shows the previous compile's warnings again. Pressing
+**F7** twice, or **Start Debugging** right after a Debug compile, costs nothing. **Build > Force Compile**
+(**Ctrl+F7**) always runs BeefBuild, for example after you deleted a copy its post-build step made
+elsewhere.
+
+**Why a compile can still take seconds.** BeefBuild keeps nothing between runs: every compile checks every
+type of the project and of the libraries it uses again, even after a one-line change. The time grows with
+the size of those libraries; a project that uses a large generated library (a game's SDK of several tens of
+megabytes) needs several seconds for any change, while the same project without it compiles in under a
+second.
+
 ## Read the Beef it wrote
 
 * **Beef Source** tab (bottom dock): *Function* shows the live code of the open graph. *File* shows
@@ -232,6 +250,7 @@ Consolidated from [Editor-UI.md](Editor-UI.md), which is the authority.
 | Keys | Does |
 |---|---|
 | **F7** | Compile |
+| **Ctrl+F7** | Force Compile (runs BeefBuild even when nothing changed) |
 | **Ctrl+S** / **Ctrl+Shift+S** | Save / Save All |
 | **Ctrl+O** | Open file |
 | **Ctrl+B** | Browse to the current asset in the Project Browser |

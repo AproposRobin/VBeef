@@ -43,7 +43,7 @@ document tabs.
 | Panel | What it does |
 |---|---|
 | **Toolbar** | **Type Settings** (the class being edited, in Properties); **Compile** (F7) with a state badge (see [Compile status](#compile-status)): grey `?` not compiled, yellow `?` needs compile, spinning blue while compiling, green tick up to date, yellow triangle up to date with warnings, red cross errors. Next to it the **configuration dropdown** (`Debug` / `Release`, see [Compile configuration](#compile-configuration-and-problems)). **Save** (dot when the file is unsaved), **Save All**, **Browse** (Ctrl+B: show the asset in the Project Browser), **Find** (Ctrl+Shift+F), **Arrange** (layered auto-arrange), **Align** (menu), minimap and snap toggles, **Editor Preferences**. The open asset's name sits on the right. |
-| **Outline** | Search box, the class header (kind icon, kind on the right), a **Type Settings** row (and a red *N problems* row when the class misses members), **FUNCTIONS** and **VARIABLES** category bars with a count and a **+** button. FUNCTIONS has an **Override (N)** dropdown; its **+** offers Function, Override, Constructor, Static Constructor, Destructor, Property, Indexer. Functions show their parameters dimmed, overrides a red event icon, constructors / destructors their kind; variables show a type-coloured pill and their type, properties and indexers their `get` / `set` graphs. Click to open / select, drag into the graph (Ctrl = Get, Alt = Set), right-click to rename (every reference, with a preview), change type or delete. One **LOCAL VARIABLES** section (count, **+**) sits in a fixed place directly below VARIABLES and never moves along with a function: its rows are the local variables of the function whose Sheet is in front, in declaration order with the same pill and dim type, and they refresh when another function's Sheet comes to the front, when a local is added, renamed or deleted and on undo / redo; **+** adds a local to that function (hotkey **L** on a Sheet does the same). With no Sheet open the section shows a dim *Open a function to see its locals* row. For a row: click selects (Properties shows it), double-click or F2 in the context menu edits the name in place, drag places a Get / Set, the context menu has Rename, Move Up / Down and Delete. See [Classes-and-Members.md](Classes-and-Members.md). |
+| **Outline** | Search box, the class header (kind icon, kind on the right), a **Type Settings** row (and a red *N problems* row when the class misses members), **FUNCTIONS** and **VARIABLES** category bars with a count and a **+** button. FUNCTIONS has an **Override (N)** dropdown; its **+** offers Function, Override, Constructor, Static Constructor, Destructor, Property, Indexer. Functions show their parameters dimmed, overrides a red event icon, constructors / destructors their kind; variables show a type-coloured pill and their type, properties and indexers their `get` / `set` graphs. Click to open / select, drag into the graph (onto a pin: wired to it; onto the Sheet: Ctrl = Get, Alt = Set; see [Dragging onto pins](#dragging-onto-pins)), right-click to rename (every reference, with a preview), change type or delete. One **LOCAL VARIABLES** section (count, **+**) sits in a fixed place directly below VARIABLES and never moves along with a function: its rows are the local variables of the function whose Sheet is in front, in declaration order with the same pill and dim type, and they refresh when another function's Sheet comes to the front, when a local is added, renamed or deleted and on undo / redo; **+** adds a local to that function (hotkey **L** on a Sheet does the same). With no Sheet open the section shows a dim *Open a function to see its locals* row. For a row: click selects (Properties shows it), double-click or F2 in the context menu edits the name in place, drag places a Get / Set (onto a pin: wired to it), the context menu has Rename, Move Up / Down and Delete. See [Classes-and-Members.md](Classes-and-Members.md). |
 | **Properties** | A two-column property grid (name / value) with collapsible category bars. Node: kind-specific fields, then **Inputs** with a widget per pin type (checkbox for bool, numeric drag for int / float literals, enum combo for project enums, text otherwise), **Connected Inputs**, **Comment**, **Source**. Call nodes: a **Call** category (static / member / unresolved, "Receiver is", each out variable's spelling, the node's error or warning). Function: **Graph** (name, access, static, inheritance virtual / override / abstract / new, mut, *Overrides*, **Add Override**), **Attributes**, **Inputs** (one row per parameter: name + **Passing** chooser (value / out / ref / in, only what Beef takes for that row: a parameter with a default value is passed by value) + type picker + remove, **Add Input**), **Outputs** (the **Return Value** type picker, then one row per further output: name, type picker, move up / down, remove, **Add Output**; each further output is an `out` parameter, and the read-only Beef header is shown under the rows). Local variable (selected in the Outline): **Variable Name**, **Variable Type**, **Ownership** for class types (Reference, or **Made for this call** with its Arguments / Initial Text), **Initial Value** (the member variable controls), the declaration line, **Delete Local Variable**. A Local Variable node read from the middle of a function shows **Move to Local Variables** with a note (see [Classes-and-Members.md](Classes-and-Members.md#local-variables)). The **Add Function** dialog uses the same controls: Name, a Return Type picker and Inputs rows (name, Passing, type picker, remove, Add Input); no parameter text is typed. Variable: name, type picker, access, storage (static / const / readonly), default value, get / set graphs, owner, attributes, delete. **Type Settings** (the type itself selected): problems, name, kind, parent class, namespace, interfaces, Implement Missing Members, Override, modifiers, attributes, generics, enum values, add constructors / destructor. Renames (class, function, variable, parameter, local) rename every reference in the project after a **Rename References** preview. Several nodes: the selection list and alignment buttons. |
 | **Project Browser** | Folder tree + tiles. **Filters** (asset kinds, Unsaved, Changed in the last 24 hours) with removable chips. **Drag a tile onto a folder** (tile or tree) to move it. Double-click opens, F2 renames, Del deletes. |
 | **Output Log** | Every editor message and BeefBuild's output as it streams (including the exact BeefBuild command line); GraphValidator's errors and warnings (category `Graph`) after each edit and when a graph is first shown. Search, severity toggles (Messages / Warnings / Errors / Verbose), category filter, **Copy** (visible lines) and **Clear**. Compiler messages with a location: double-click to open the node. Every line is also written to the session log file (see [Logs, crashes, recovery](#logs-crash-reports-recovery-settings)). |
@@ -70,7 +70,7 @@ the Problems panel uses the same colours.
 | Not compiled | grey | "Not compiled" | There is no record of a compile for this workspace |
 | Up to date | green check | "Up to date" (triangle, "Up to date, with warnings") | The sources match the last successful compile |
 | Needs compile | yellow `?` | "Needs compile" | Any unsaved edit, a saved change, or another configuration since the last compile |
-| Compiling | blue | "Compiling..." | BeefBuild is running |
+| Compiling | blue | "Compiling... 2.1 s" (the time so far) | BeefBuild is running |
 | Failed | red cross | "Compile failed (N errors)" | The last compile failed and the sources are unchanged since |
 
 After each compile the editor stores, per workspace, a record in `settings.json`
@@ -78,8 +78,10 @@ After each compile the editor stores, per workspace, a record in `settings.json`
 hash of every `.bf` and project `.toml` file under the workspace folder (`build/` and dot folders
 skipped; relative names count). On the next start the same hash is taken and compared, so a project
 that was compiled and not touched opens green, and one changed outside the editor opens yellow. The
-hash is retaken after a save and at most every three seconds otherwise. A damaged record is ignored.
-The logic is `CompileRecord` (Core, tested by `safety` group 17).
+hash is checked after a save and at most every three seconds otherwise; while the folder listing (names,
+sizes, write times) is unchanged the files are not read again, and after a change they are read on a
+background thread (the badge says *Needs compile* until it is done). A damaged record is ignored.
+The logic is `CompileRecord` (Core, tested by `safety` groups 17 and 24).
 
 ## Start page
 
@@ -136,12 +138,12 @@ Docked at the bottom (**Ctrl+Space** also opens it as a drawer).
 ### Projects and Project Settings
 
 Right-click a project row (or its folder tile): **Project Settings** (in Properties, on the right),
-**Set as Startup Project**, **Add as Dependency of <current project>** / **Remove as Dependency of ...**
+**Rename Project...**, **Set as Startup Project**, **Add as Dependency of <current project>** / **Remove as Dependency of ...**
 (the current project is the open file's, else the startup project), **Remove from Workspace** (the
 files stay), then **Rename Project Folder...**, **New Folder...**, **Delete...** and the create items.
 Folder rows start their menu with **Rename...**, **New Folder...** and **Delete...**.
 
-Project Settings: Name, File, **Build kind** (Console application = `BeefConsoleApplication`,
+Project Settings: **Name** (a text field: Enter or leaving it renames the project, see below), File, **Build kind** (Console application = `BeefConsoleApplication`,
 Windows application = `BeefGUIApplication`, Library = `BeefLib`, Dynamic library = `BeefLib`
 with `BuildKind = "DynamicLib"` in every configuration, Debug and Release Win64 at least), Startup object,
 Namespace (`DefaultNamespace`), Startup project; **Dependencies** (corlib and the workspace's projects as
@@ -153,6 +155,22 @@ Post-build (`PreBuildCmds` / `PostBuildCmds`, one per line), Output folder and O
 A field is written when you leave it; the Output Log has one `Project:` line per change
 (`Core/BeefProj.toml: [Configs.Debug.Win64] PostBuildCmds = [...]`). A file changed outside VisualBeef
 is read again.
+
+**Renaming a project** (the Name field in Project Settings, or **Rename Project...** in the project's menu, which
+opens the rename dialog with the project's name) writes the new name to `[Project] Name` in the project's
+`BeefProj.toml`, to the key of its entry in `BeefSpace.toml` (quoted when the name needs it, for example one
+with a dot), to `StartupProject` when it was the startup project, to the `Locked` and `Unlocked` lists, and to
+the `Dependencies` of every other project that uses it; the Output Log has one `Project:` line per file
+changed, and the tree and the Properties pane refresh. The writes keep a `.bak` of each file as other
+project-file edits do (there is no undo). **Rename folder too** (beside the field when the pane is wide
+enough, else on its own line; in the dialog under the name) also renames the project's folder the way F2 does,
+so `BeefSpace.toml`'s path, open files and `.vbproject`'s `main` and relative `libraries` follow; it starts on
+when the folder is named like the project, and is off for the project that is the workspace folder itself.
+A name is refused, with a message in the status bar and nothing written, when it is empty, is another
+project's name, or is not a project name (letters, digits, `_`, `-` and `.`, not starting with a digit,
+a dot or a dash); with the folder box on, a name a folder cannot have (reserved on Windows, forbidden
+characters) or one that a neighbouring folder already has is refused too. `.vbproject` carries no project
+name, so only its paths move, and only with the folder.
 
 Renaming a project's folder (F2, Rename Project Folder..., or dragging it into another folder) updates
 `BeefSpace.toml` (the path; the name, the startup project and `Locked` / `Unlocked` when the project was
@@ -261,7 +279,21 @@ its libraries are indexed on a worker thread (`IndexJob`):
 
 **Compile** builds the workspace (`BeefSpace.toml`) of the current file with
 `BeefBuild -workspace="<dir>" -config=<Debug|Release> -platform=Win64`. The exact command is
-written to the Output Log before the build output.
+written to the Output Log before the build output, and the result line says how long it took.
+BeefBuild runs in the background: the editor keeps drawing (about 30 frames a second while nothing
+else moves) and nothing is read or parsed in the frame that pressed Compile.
+
+**Up to date.** BeefBuild keeps nothing between runs, so even with nothing changed it checks every type
+again (seconds, with a large library). Compile first takes a fingerprint of what BeefBuild reads
+(`BuildInputs`: names, sizes and write times of every file under the workspace folder and under project
+folders outside it, the BeefLibs libraries the projects name, BeefBuild and its compiler, the
+configuration; `build`, `recovery` and dot folders skipped; `BeefSpace_Lock.toml`, which BeefBuild
+rewrites, by its content). When it equals the fingerprint of the last successful compile of the same
+configuration and that compile's output file (the startup project's program or library) is unchanged,
+BeefBuild is not run: the compile ends at once as *Up to date (Release): nothing changed since the last
+compile*, with the previous compile's messages. The record is `projects.<folder>.compileInputs` in
+`settings.json`; one from an earlier session is used only when that compile had no warnings. **Build >
+Force Compile** (Ctrl+F7) always runs BeefBuild.
 
 The configuration is chosen with the dropdown next to **Compile** (or **Build >
 Configuration**) and remembered per workspace. Without a choice it is:
@@ -364,6 +396,7 @@ scope, so hovering never reports a conflicting ID. Search results show the same 
 | Keys | Does |
 |---|---|
 | **F7** | Compile |
+| **Ctrl+F7** | Force Compile (BeefBuild runs even when nothing changed) |
 | **F5** / **Shift+F5** | Start Debugging (compile in Debug, run) or Continue / Stop Debugging ([Debugging.md](Debugging.md)) |
 | **F9** | Toggle a breakpoint on the selected node(s) (or click the circle on a node's corner) |
 | **F10** / **F11** / **Shift+F11** | Step Over / Step Into / Step Out while stopped |
@@ -569,7 +602,7 @@ it as Beef text. Hovering it shows the whole value and what the badge means.
 - **Align** (toolbar menu, Graph > Alignment, Properties for multi-select, or the shortcuts).
   Undoable.
 - **Snap to Grid** (toolbar magnet / Preferences): dragged, placed (node menu, hotkeys,
-  drops from Outline) and aligned nodes land on the 16-unit grid.
+  drops from Outline, variables dropped on pins) and aligned nodes land on the 16-unit grid.
 - **Minimap** (toolbar, Window > Graph Minimap, M, or the small x on its corner; remembered in the
   settings): a fixed 180 x 120 px overview (scaled by the display scale, never by the zoom) in the
   bottom-right corner, semi-transparent and opaque under the pointer. Nodes are small rounded blocks in
@@ -587,6 +620,38 @@ it as Beef text. Hovering it shows the whole value and what the badge means.
 - **Home** (house button in the upper right of the canvas, or **Home**): eases to the entry node at zoom 1,
   or fits the whole graph when the Sheet has no entry node. **Fit all** (the button beside it) fits the
   whole graph; the **F** key (frame the selection, or everything with nothing selected) was already taken.
+
+## Dragging onto pins
+
+A variable dragged onto a pin becomes the node that pin needs, wired to it. This works for the
+type's variables (Outline > VARIABLES), the open function's local variables (LOCAL VARIABLES) and the
+variable rows of the **Node menu** (Get / Set rows under *Variables*, parameters and local variables
+included): press on the row and drag it out of the menu, which closes as the drag starts.
+
+| Dropped on | Placed |
+|---|---|
+| a data **input** | a **Get** of the variable, wired into the pin, to the left of the node (a wire already in the pin is replaced) |
+| a data **output** | a **Set** of the variable fed by the pin, put in the flow right after the pin's node (after its Body for a loop's Element / Counter); for a value node, right before the first statement that uses the value |
+| the empty Sheet | as before: Ctrl = Get, Alt = Set, a plain drop asks; a Node menu row places what it says (Get or Set) |
+
+The placed node is selected and kept clear of the nodes around it. **One undo step** removes the node and
+its wires. A drop the types refuse (a `String` onto an `int` input, a `float` onto an `int` input, a flow
+pin, the Variable pin of a Set, a read-only Sheet) changes nothing and says why in the status bar, with the
+same words as a refused wire: `Can't connect: text to int needs parsing (Int.Parse)`. A value another
+overload of the call takes (an `int` onto `Console.WriteLine`'s text) is wired and the call switches
+overload, as a dragged wire does.
+
+**The ghost.** Whatever is dragged (an Outline row, a local variable, a function, a Node menu row, a
+Project Browser tile) is shown at the cursor by one ghost: the pin-colour dot, the name and the type,
+dimmed (a function shows `Name()` and its return type; a tile its kind and where it can go). Over a pin the
+pin gets a green ring and the ghost a second line saying what the drop does (`Get mCount into a`,
+`Set total from Return Value`); a pin that refuses the variable gets a red ring and the reason in red.
+
+Where it lives: `VariableDrop` (core: `Fits`, `Place`, `SpliceSet`), `EditorApp.DropMember` /
+`DropVariableOnPin` and the ghost (`DragGhost.bf`), `GraphPanel.DrawDragPinHighlight` / `PlaceBesidePin`, the
+drag sources in `Outline.bf`, `LocalsPanel.bf`, `NodeMenu.bf` (`DrawItem`) and `CBExtras.bf`. Tests:
+`VisualBeefTests edits` (scenario 26), `VB_SELFTEST=dragvars` and `dragvars-live` (a real drag through
+ImGui's mouse input) in [Testing.md](Testing.md#verifying-the-ui).
 
 ## Node Library
 

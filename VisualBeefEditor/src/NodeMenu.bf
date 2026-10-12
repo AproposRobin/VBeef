@@ -337,6 +337,10 @@ namespace VisualBeef.Editor
 		public List<NodeItem> Items = new .() ~ DeleteContainerAndItems!(_);
 		TextBuffer mSearch = new .(256) ~ delete _;
 		String mLastSearch = new .() ~ delete _;
+		/// Self test (dragvars-live): the Get row of this variable records where it was drawn (screen).
+		public String SelfTestRowFor = new .() ~ delete _;
+		public ImVec2 SelfTestRowAt;
+		public bool IsShown => mShown;
 		/// The search text changed and the list has not been filtered for it yet (debounce).
 		bool mSearchPending;
 		double mSearchChangedAt;
@@ -2034,6 +2038,19 @@ namespace VisualBeef.Editor
 			let rMin = Gui.igGetItemRectMin();
 			let rMax = Gui.igGetItemRectMax();
 			bool rowHovered = Gui.igIsItemHovered(0);
+			// A variable row can be dragged out onto a pin (or the Sheet): the menu closes and the
+			// variable follows the cursor like an Outline row (DragGhost.bf).
+			if (item.Kind == .GetVar && item.A == SelfTestRowFor)
+				SelfTestRowAt = .(rMin.x + 40 * Look.Scale, (rMin.y + rMax.y) * 0.5f);
+			if ((item.Kind == .GetVar || item.Kind == .SetVar) && Gui.igBeginDragDropSource(DragNative.SourceNoPreviewTooltip))
+			{
+				mApp.BeginMenuDrag(item.A, item.B, item.Kind == .SetVar);
+				int32 idx = EditorApp.cMenuDragIndex;
+				Gui.igSetDragDropPayload("VB_MEMBER", &idx, sizeof(int32), 0);
+				Gui.igEndDragDropSource();
+				CloseRequested = true;
+				rowHovered = false;
+			}
 			if (highlighted && mScrollToHighlight)
 			{
 				Gui.igSetScrollHereY(0.5f);

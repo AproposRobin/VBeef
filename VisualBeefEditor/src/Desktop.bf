@@ -171,6 +171,9 @@ namespace VisualBeef.Editor
 
 		public static bool PacingActive => IdlePacing && !IdleDisabledByEnv;
 
+		/// Seconds the loop slept waiting for input; frame timing subtracts it (a sleep is not a stall).
+		public static double IdleWaitSeconds;
+
 		/// Frame pacing for the main loop. Renders continuously while `busy` or for HoldSeconds
 		/// after the last input (see NoteActivity), otherwise sleeps until input arrives or
 		/// `idleTimeoutMs` passes (polling such as file watching still runs then).
@@ -184,7 +187,10 @@ namespace VisualBeef.Editor
 				return;
 			if (now - sLastWake < HoldSeconds)
 				return;
-			if (WaitForInput(idleTimeoutMs))
+			let waitFrom = Now;
+			let woken = WaitForInput(idleTimeoutMs);
+			IdleWaitSeconds += Now - waitFrom;
+			if (woken)
 				sLastWake = Now;
 		}
 

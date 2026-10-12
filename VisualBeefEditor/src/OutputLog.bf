@@ -238,10 +238,19 @@ namespace VisualBeef.Editor
 						Gui.TextDisabled("Not compiled yet. Press Compile (F7).");
 				}
 				else if (mBuild.Running)
-					Gui.TextColored(Look.AccentBlue, scope $"Compiling ({mBuild.Config})...");
+				{
+					String took = scope .();
+					FormatSeconds(mBuild.ElapsedMs, took);
+					Gui.TextColored(Look.AccentBlue, scope $"Compiling ({mBuild.Config})...  {took}");
+				}
 				else
 				{
-					Gui.Text(mBuild.Succeeded ? scope $"Compile complete ({mBuild.Config})" : scope $"Compile failed ({mBuild.Config})");
+					String took = scope .();
+					FormatSeconds(mBuild.BuildMs, took);
+					if (mBuild.UpToDate)
+						Gui.Text(scope $"Up to date ({mBuild.Config}): nothing changed since the last compile");
+					else
+						Gui.Text(mBuild.Succeeded ? scope $"Compile complete ({mBuild.Config}, {took})" : scope $"Compile failed ({mBuild.Config}, {took})");
 					Gui.SameLine();
 					Gui.TextDisabled(scope $"   {errors} error{(errors == 1) ? "" : "s"}, {warnings} warning{(warnings == 1) ? "" : "s"}");
 					if (state == .Unknown)

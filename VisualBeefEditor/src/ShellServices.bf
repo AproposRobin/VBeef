@@ -343,12 +343,30 @@ namespace VisualBeef.Editor
 			Gui.TextDisabled(scope $"Now: {cfg} ({reason})");
 		}
 
+		/// `VB_SELFTEST=compileshots`: the Build menu opens (and closes) by itself for a capture.
+		bool mSelfTestBuildMenu;
+		bool mSelfTestCloseBuildMenu;
+
 		void DrawBuildMenu()
 		{
+			if (mSelfTestBuildMenu)
+			{
+				mSelfTestBuildMenu = false;
+				Gui.OpenPopup("Build");
+			}
 			if (!Gui.BeginMenu("Build"))
 				return;
+			if (mSelfTestCloseBuildMenu)
+			{
+				mSelfTestCloseBuildMenu = false;
+				Gui.igCloseCurrentPopup();
+			}
 			if (Gui.MenuItem(scope $"{Icon.Compile}  Compile", "F7"))
 				Compile();
+			if (Gui.MenuItem(scope $"{Icon.Compile}  Force Compile", "Ctrl+F7"))
+				Compile(default, true);
+			if (Gui.igIsItemHovered(0))
+				Gui.Tooltip("Run BeefBuild even when nothing changed since the last compile\n(Compile skips it then: the output is already built)");
 			Gui.Separator();
 			Gui.TextDisabled("Configuration");
 			DrawConfigItems();
@@ -369,51 +387,89 @@ namespace VisualBeef.Editor
 
 		// ---------------------------------------------------------------- diagnostics on nodes
 
-		/// Maps every located compiler message to the method / node that owns its line. Files
-		/// that are not open are loaded just for the mapping.
+		/// Files whose compiler messages still wait for their node (MapDiagnostics).
+		List<String> mMapPending = new .() ~ DeleteContainerAndItems!(_);
+		int mMapOnNodes;
+
+		/// Maps every located compiler message to the method / node that owns its line. Messages
+		/// in open documents are mapped at once; a file that is not open has to be read and
+		/// parsed for it, so those files are mapped a few per frame (MapPendingDiagnostics) and
+		/// the frame that takes a compile's result stays short.
 		void MapDiagnostics()
 		{
+			ClearAndDeleteItems!(mMapPending);
+			mMapOnNodes = 0;
 			if (mBuild == null)
 				return;
-			Dictionary<String, SourceDocument> temp = scope .();
-			defer { for (let kv in temp) { delete kv.key; delete kv.value; } }
-			int onNodes = 0;
 			for (let d in mBuild.Messages)
 			{
-				if (!d.HasLocation || !File.Exists(d.Path))
+				if (!d.HasLocation)
 					continue;
-				var doc = FindDoc(d.Path);
-				bool isTemp = false;
-				if (doc == null)
+				let doc = FindDoc(d.Path);
+				if (doc != null)
 				{
-					String key = scope .(d.Path);
-					key.ToLower();
-					key.Replace('/', '\\');
-					if (!temp.TryGetValue(key, out doc))
+					if (DiagnosticMap.Locate(doc, d))
+						mMapOnNodes++;
+					continue;
+				}
+				bool queued = false;
+				for (let p in mMapPending)
+					if (ProjectIndex.SamePath(p, d.Path))
+						queued = true;
+				if (!queued)
+					mMapPending.Add(new String(d.Path));
+			}
+			if (mMapPending.IsEmpty && !mBuild.Messages.IsEmpty)
+				Notify.Log(.Verbose, "Build", scope $"{mBuild.Messages.Count} message(s), {mMapOnNodes} mapped to graph nodes");
+		}
+
+		/// Called every frame (from the frame after the result): maps the messages of files that
+		/// are not open, until about 8 ms are spent (at least one file per frame).
+		void MapPendingDiagnostics()
+		{
+			if (mMapPending.IsEmpty)
+				return;
+			if (mBuild == null || mBuild.Running)
+			{
+				ClearAndDeleteItems!(mMapPending);
+				return;
+			}
+			let watch = scope System.Diagnostics.Stopwatch(true);
+			while (!mMapPending.IsEmpty && (watch.Elapsed.TotalMilliseconds < 8))
+			{
+				let key = mMapPending.PopFront();
+				defer delete key;
+				SourceDocument doc = FindDoc(key);
+				bool isTemp = false;
+				if (doc == null && File.Exists(key))
+				{
+					doc = new SourceDocument();
+					if (doc.Load(key) case .Err)
 					{
-						doc = new SourceDocument();
-						if (doc.Load(d.Path) case .Err)
-						{
-							delete doc;
-							doc = null;
-						}
-						temp[new String(key)] = doc;
+						delete doc;
+						doc = null;
 					}
-					isTemp = true;
+					isTemp = doc != null;
 				}
 				if (doc == null)
 					continue;
-				if (DiagnosticMap.Locate(doc, d))
-					onNodes++;
-				if (isTemp)
+				defer { if (isTemp) delete doc; }
+				for (let d in mBuild.Messages)
 				{
-					// The temporary graph is deleted below: resolve again from the key later.
-					d.ResolvedSerial = 0;
-					d.NodeId = -1;
+					if (!d.HasLocation || !ProjectIndex.SamePath(d.Path, key))
+						continue;
+					if (DiagnosticMap.Locate(doc, d))
+						mMapOnNodes++;
+					if (isTemp)
+					{
+						// The temporary graph is deleted: resolve again from the key later.
+						d.ResolvedSerial = 0;
+						d.NodeId = -1;
+					}
 				}
 			}
-			if (!mBuild.Messages.IsEmpty)
-				Notify.Log(.Verbose, "Build", scope $"{mBuild.Messages.Count} message(s), {onNodes} mapped to graph nodes");
+			if (mMapPending.IsEmpty && !mBuild.Messages.IsEmpty)
+				Notify.Log(.Verbose, "Build", scope $"{mBuild.Messages.Count} message(s), {mMapOnNodes} mapped to graph nodes");
 		}
 
 		/// Compile errors and warnings of this graph, by node id (a node keeps its first message).

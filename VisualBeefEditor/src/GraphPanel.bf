@@ -356,8 +356,15 @@ namespace VisualBeef.Editor
 		/// "+ arg" / "- arg" clicked inside a node (positive = add, negative = remove); applied
 		/// after drawing so the node list isn't modified mid-iteration.
 		int32 mPendingArgNode;
-		/// A "VB_MEMBER" payload dropped on the canvas this frame (applied after drawing).
-		int32 mPendingDrop = -1;
+		/// A "VB_MEMBER" payload dropped on the canvas this frame (applied after drawing): an Outline
+		/// row's index, or EditorApp.cMenuDragIndex for a Node menu row.
+		int32 mPendingDrop;
+		bool mHasPendingDrop;
+		/// Drops the Sheet took (the dragvars-live self test checks the drop arrived).
+		public int DropsSeen;
+		/// The pin under the cursor when the drop arrived: the last frame's hover, the pin whose ring
+		/// the user saw (on the frame the button comes up the payload is no longer reported as dragged).
+		int32 mPendingDropPin;
 		ImVec2 mPendingDropPos;
 		/// Something called mApp.CommitCurrent() this frame: stop touching the graph.
 		bool mCommitted;
@@ -1009,7 +1016,7 @@ namespace VisualBeef.Editor
 			mApp.EnsureChecked(mg);
 			mCommitted = false;
 			mPendingArgNode = 0;
-			mPendingDrop = -1;
+			mHasPendingDrop = false;
 
 			if (graph.Serial != tab.LastGraphSerial)
 			{
@@ -1196,8 +1203,15 @@ namespace VisualBeef.Editor
 				L.Visible = Canvas.RectsOverlap(a - .(20, 20), b + .(20, 20), origin, origin + avail);
 			}
 
-			// ---- Hover
-			ComputeHover(tab, graph, mouse, mouseInCanvas && (canvasHovered || tab.Mode != .None));
+			// ---- Hover (also while a variable from the Outline or the Node menu is dragged over the Sheet)
+			bool memberDrag = mApp.ActiveDrag() != null;
+			ComputeHover(tab, graph, mouse, mouseInCanvas && (canvasHovered || tab.Mode != .None || (memberDrag && windowHovered)));
+			if (memberDrag && mApp.SelfTestDragPin != 0 && TryGetPin(mApp.SelfTestDragPin, let stPin))
+			{
+				// The dragvars self test shows a drag without the mouse: its pin is the one under the ghost.
+				mHoverPin = stPin.Pin.Id;
+				mApp.SelfTestDragOver(PinScreen(tab, stPin));
+			}
 
 			// ---- Draw
 			let dl = Gui.igGetWindowDrawList();
@@ -1236,10 +1250,10 @@ namespace VisualBeef.Editor
 			if (mCommitted)
 				return;
 
-			if (mPendingDrop >= 0)
+			if (mHasPendingDrop)
 			{
-				mApp.DropMember(tab, mPendingDrop, mPendingDropPos);
-				mPendingDrop = -1;
+				mHasPendingDrop = false;
+				mApp.DropMember(tab, mPendingDrop, mPendingDropPos, mPendingDropPin);
 				return;
 			}
 
@@ -1649,11 +1663,15 @@ namespace VisualBeef.Editor
 			uint32 header = (L.Error != null) ? Theme.ErrorHeader : L.Header;
 			if (L.Shape == .Normal)
 			{
-				// UE header: solid on the left, fading to transparent on the right.
+				// Header: solid on the left, fading into the body on the right. One rounded rect in the header colour
+				// first, then the fade laid over it from fully transparent to the body colour: two rects meeting at
+				// x = p0.x + r left a vertical seam at the left edge that shimmered while zooming.
 				float hh = L.HeaderH * z;
-				Gui.ImDrawList_AddRectFilled(dl, p0, .(p0.x + r, p0.y + hh), header, r, DrawFlags.RoundCornersTopLeft);
-				uint32 fade = Theme.WithAlpha(header, 20);
-				Gui.ImDrawList_AddRectFilledMultiColor(dl, .(p0.x + r, p0.y), .(p1.x - r, p0.y + hh), header, fade, fade, header);
+				Gui.ImDrawList_AddRectFilled(dl, p0, .(p1.x, p0.y + hh), header, r, DrawFlags.RoundCornersTop);
+				uint32 bodyClear = Theme.WithAlpha(Theme.NodeBody, 0);
+				uint32 bodyFade = Theme.WithAlpha(Theme.NodeBody, 235);
+				Gui.ImDrawList_AddRectFilledMultiColor(dl, .(p0.x + r, p0.y), .(p1.x - r, p0.y + hh), bodyClear, bodyFade, bodyFade, bodyClear);
+				Gui.ImDrawList_AddRectFilled(dl, .(p1.x - r, p0.y), .(p1.x, p0.y + hh), bodyFade, r, DrawFlags.RoundCornersTopRight);
 				Gui.ImDrawList_AddLine(dl, .(p0.x + 1, p0.y + hh), .(p1.x - 1, p0.y + hh), Gui.Color(0, 0, 0, 120), Math.Max(1, z));
 				// UE: a small kind icon left of the title.
 				float iconW = HeaderIconW(node);
@@ -2540,6 +2558,8 @@ namespace VisualBeef.Editor
 				Gui.ImDrawList_AddRectFilled(dl, a, b, Theme.MarqueeFill, 0, 0);
 				Gui.ImDrawList_AddRect(dl, a, b, Theme.MarqueeBorder, 0, 1, 0);
 			}
+			else if (tab.Mode == .None && mHoverPin != 0 && mApp.ActiveDrag() != null)
+				DrawDragPinHighlight(tab, graph, dl, mApp.ActiveDrag());
 			else if (tab.Mode == .None && mHoverPin != 0)
 			{
 				let p = graph.FindPin(mHoverPin);
@@ -3302,6 +3322,92 @@ namespace VisualBeef.Editor
 			}
 		}
 
+		/// A variable dragged over a pin: a green ring when a drop there is taken, the refusal colour
+		/// when not; the ghost's second line says what the drop does or why it is refused.
+		void DrawDragPinHighlight(GraphTab tab, Graph graph, ImDrawList* dl, MemberRef m)
+		{
+			if (m.MemberKind != .Variable)
+				return;
+			let p = graph.FindPin(mHoverPin);
+			if (p == null)
+				return;
+			if (!TryGetPin(p.Id, let pl))
+				return;
+			String why = scope .();
+			bool ok = VariableDrop.Fits(graph, p, m.Type, TypeService.Current, why);
+			float z = tab.Zoom;
+			let c = PinScreen(tab, pl);
+			uint32 col = ok ? Theme.Good : Theme.WireBad;
+			float r = Math.Max(7, 10 * z);
+			Gui.ImDrawList_AddCircleFilled(dl, c, r, Theme.WithAlpha(col, 70), 0);
+			Gui.ImDrawList_AddCircle(dl, c, r, col, 0, Math.Max(1.5f, 2 * z));
+			String hint = scope .();
+			StringView label = p.Label.IsEmpty ? (p.IsInput ? "the input" : "the output") : StringView(p.Label);
+			if (!ok)
+				hint.Append(why.IsEmpty ? "Those pins can't be connected." : scope $"Can't connect: {why}");
+			else if (p.IsInput)
+				hint.AppendF("Get {} into {}{}", m.Name, label, graph.IsLinked(p) ? " (replaces its wire)" : "");
+			else
+				hint.AppendF("Set {} from {}", m.Name, label);
+			mApp.SetGhostHint(hint, !ok);
+		}
+
+		/// Self test: where pin `pinId` was drawn last frame (screen), false when it was not.
+		public bool PinScreenPos(GraphTab tab, int32 pinId, out ImVec2 outPos)
+		{
+			outPos = default;
+			if (!TryGetPin(pinId, let pl))
+				return false;
+			outPos = PinScreen(tab, pl);
+			return true;
+		}
+
+		/// A node placed for a variable dropped on `pin` goes beside it: a Get to the left of the
+		/// input, a Set to the right of the output's node (snapped to the grid when snapping is on).
+		public void PlaceBesidePin(GraphTab tab, Graph graph, Node n, Pin pin)
+		{
+			let owner = pin.Owner;
+			// The new node's size before it is laid out: a Get is a pill with the name, a Set a small node.
+			float z = Math.Max(0.1f, tab.Zoom);
+			float nameW = Gui.CalcTextSize(n.Text.IsEmpty ? "value" : n.Text).x / z;
+			float w = (n.Kind == .Get) ? nameW + 60 : Math.Max(180, nameW + 120);
+			float h = (n.Kind == .Get) ? 32 : 96;
+			if (pin.IsInput)
+			{
+				float rowY = TryGetPin(pin.Id, let pl) ? pl.Off.y : 40;
+				n.X = Canvas.SnapIf(owner.X - w - 50);
+				n.Y = Canvas.SnapIf(owner.Y + rowY - h * 0.5f);
+			}
+			else
+			{
+				float ow = mLayById.TryGetValue(owner.Id, let L) ? L.W : 200;
+				n.X = Canvas.SnapIf(owner.X + ow + 60);
+				n.Y = Canvas.SnapIf(owner.Y);
+			}
+			// Not on top of another node: moved down until it is clear (a few steps at most).
+			for (int tries < 12)
+			{
+				bool hit = false;
+				for (let o in graph.Nodes)
+				{
+					// Sizes from the last frame's layout (nodes it did not lay out yet are skipped).
+					if (o == n)
+						continue;
+					if (!mLayById.TryGetValue(o.Id, let L))
+						continue;
+					if (n.X < o.X + L.W + 16 && n.X + w + 16 > o.X && n.Y < o.Y + L.H + 16 && n.Y + h + 16 > o.Y)
+					{
+						n.Y = Canvas.SnapIf(o.Y + L.H + 24);
+						hit = true;
+						break;
+					}
+				}
+				if (!hit)
+					break;
+			}
+			n.HasPos = true;
+		}
+
 		/// Called after a variable was dropped without Ctrl/Alt: offers Get / Set (UE).
 		public void ShowVariableDropMenu(StringView name, StringView type, ImVec2 gridPos)
 		{
@@ -3401,33 +3507,6 @@ namespace VisualBeef.Editor
 		{
 			let graph = mg.Graph;
 			let owner = pin.Owner;
-			// Where it runs: after an exec owner; for a pure owner, before the statement using it.
-			Node before = null;
-			if (!owner.IsExecNode)
-			{
-				List<Node> stack = scope .();
-				HashSet<Node> seen = scope .();
-				stack.Add(owner);
-				while (!stack.IsEmpty && before == null)
-				{
-					let cur = stack.PopBack();
-					if (!seen.Add(cur))
-						continue;
-					for (let l in graph.Links)
-					{
-						if (l.From.Owner != cur || l.From.Kind != .Data)
-							continue;
-						let user = l.To.Owner;
-						if (user.IsExecNode && user != graph.Entry && user.ExecIn != null && graph.IsLinked(user.ExecIn))
-						{
-							before = user;
-							break;
-						}
-						stack.Add(user);
-					}
-				}
-			}
-
 			let n = NodeFactory.Set(graph, name, type);
 			let value = n.FindInput("value");
 			if (value != null)
@@ -3436,21 +3515,10 @@ namespace VisualBeef.Editor
 			n.X = Canvas.Snap(owner.X + w + 60);
 			n.Y = Canvas.Snap(owner.Y);
 			n.HasPos = true;
-
-			if (owner.IsExecNode && owner.Then != null)
+			// Where it runs: after an exec owner; for a pure owner, before the statement using it.
+			let before = VariableDrop.SpliceSet(graph, n, pin);
+			if (before != null)
 			{
-				let after = ((pin.Name == "element" || pin.Name == "counter") && owner.FindOutput("body") != null) ? owner.FindOutput("body") : owner.Then;
-				let oldNext = graph.ExecTarget(after);
-				graph.Connect(after, n.ExecIn);
-				if (oldNext != null)
-					graph.Connect(n.Then, oldNext.ExecIn);
-			}
-			else if (before != null)
-			{
-				let inLink = graph.FindLinkTo(before.ExecIn);
-				let prev = inLink.From;
-				graph.Connect(prev, n.ExecIn);
-				graph.Connect(n.Then, before.ExecIn);
 				n.X = Canvas.Snap(before.X - 40);
 				n.Y = Canvas.Snap(before.Y - 140);
 			}
@@ -4277,7 +4345,11 @@ namespace VisualBeef.Editor
 				let payload = Gui.igAcceptDragDropPayload("VB_MEMBER", 0);
 				if (payload != null)
 				{
+					DropsSeen++;
+					// The pin the ring was on when the button came up (last frame's hover).
+					mPendingDropPin = mHoverPin;
 					mPendingDrop = *(int32*)payload.Data;
+					mHasPendingDrop = true;
 					mPendingDropPos = MouseGridPos(tab);
 				}
 				Gui.igEndDragDropTarget();

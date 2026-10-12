@@ -15,8 +15,20 @@ namespace VisualBeef.Editor
 		SpawnedProcess mProcess ~ delete _;
 		Thread mOutThread ~ delete _;
 		Thread mErrThread ~ delete _;
+		/// Takes the inputs' fingerprint and the source hash, then starts BeefBuild (or decides
+		/// that nothing changed), so the frame that pressed Compile does no file work.
+		Thread mPrepThread ~ delete _;
 		Monitor mMonitor = new .() ~ delete _;
 		List<String> mPending = new .() ~ DeleteContainerAndItems!(_);
+		String mExe = new .() ~ delete _;
+		String mArgs = new .() ~ delete _;
+		/// Set under mMonitor by the preparing thread when it is done (BeefBuild started, up to
+		/// date, or could not start).
+		bool mPrepared;
+		bool mCancelled;
+		/// The previous compile's messages, shown again when this one finds nothing changed.
+		List<Diagnostic> mCarried = new .() ~ DeleteContainerAndItems!(_);
+		CompileInputs mSkipIf ~ delete _;
 
 		public List<String> Output = new .() ~ DeleteContainerAndItems!(_);
 		public List<Diagnostic> Messages = new .() ~ DeleteContainerAndItems!(_);
@@ -28,11 +40,39 @@ namespace VisualBeef.Editor
 		public String Config = new .() ~ delete _;
 		/// The command as run (shown in the Output Log).
 		public String CommandLine = new .() ~ delete _;
+		/// BeefBuild runs at BelowNormal priority (the build before debugging).
+		public bool LowerPriority;
+		/// Fingerprint of the compile's inputs when it started (BuildInputs; 0: none taken).
+		public uint64 Inputs;
+		/// Content hash of the workspace sources when it started (the compile indicator).
+		public uint64 SourceHash;
+		/// Nothing changed since the last successful compile of this configuration: BeefBuild
+		/// was not run, the output is the one already built.
+		public bool UpToDate;
+		/// BeefBuild could not be started (StartError says why).
+		public bool StartFailed;
+		public String StartError = new .() ~ delete _;
 		/// Process id of the running BeefBuild (0 when none).
-		public int ProcessId => (mProcess != null) ? mProcess.ProcessId : 0;
+		public int ProcessId
+		{
+			get
+			{
+				using (mMonitor.Enter())
+					return (mProcess != null) ? mProcess.ProcessId : 0;
+			}
+		}
+		/// Runs from Start until the editor sees the compile end (the progress line's elapsed time).
+		Stopwatch mWatch = new .() ~ delete _;
+		/// Milliseconds the compile took (from Start until its end was seen; 0 before it ended).
+		public double BuildMs;
+		/// Milliseconds since Start (live while running, BuildMs after).
+		public double ElapsedMs => Running ? mWatch.Elapsed.TotalMilliseconds : BuildMs;
 
 		public ~this()
 		{
+			using (mMonitor.Enter())
+				mCancelled = true;
+			mPrepThread?.Join();
 			if (mProcess != null && !mProcess.HasExited)
 				mProcess.Kill();
 			mOutThread?.Join();
@@ -103,38 +143,100 @@ namespace VisualBeef.Editor
 #endif
 		}
 
-		public Result<void> Start(StringView beefBuildPath, StringView workspaceDir, StringView config = "")
+		/// The platform BeefBuild builds for (MakeArgs passes it on Windows; elsewhere BeefBuild's
+		/// default is the system's).
+#if BF_PLATFORM_WINDOWS
+		public const String Platform = "Win64";
+#else
+		public const String Platform = "Linux64";
+#endif
+
+		/// Starts a compile. The fingerprint, the source hash and BeefBuild itself start on a
+		/// worker thread; Update reports the end. `skipIf` (taken over): what the last successful
+		/// compile was built from; when the inputs are the same and its output is unchanged,
+		/// BeefBuild is not run and the compile ends at once as UpToDate with `carried` (copied)
+		/// as its messages. .Err only when BeefBuild is not there at all.
+		public Result<void> Start(StringView beefBuildPath, StringView workspaceDir, StringView config = "", CompileInputs skipIf = null, List<Diagnostic> carried = null)
 		{
 			Workspace.Set(workspaceDir);
 			Config.Set(config);
-			ProcessStartInfo psi = scope .();
-			String exe = scope .();
-			ResolveExe(beefBuildPath, exe);
-			psi.SetFileName(exe);
-			String args = scope .();
-			MakeArgs(workspaceDir, config, args);
+			mSkipIf = skipIf;
+			if (carried != null)
+				for (let m in carried)
+				{
+					let copy = new Diagnostic();
+					copy.Severity = m.Severity;
+					copy.Text.Set(m.Text);
+					copy.Path.Set(m.Path);
+					copy.Line = m.Line;
+					copy.Column = m.Column;
+					mCarried.Add(copy);
+				}
+			ResolveExe(beefBuildPath, mExe);
+			if (!File.Exists(mExe))
+			{
+				// A bare name that is not on PATH: let the start below report it.
+				if (mExe.Contains('/') || mExe.Contains('\\'))
+					return .Err;
+			}
+			MakeArgs(workspaceDir, config, mArgs);
 			CommandLine.Clear();
-			CommandLine.AppendF("\"{}\" {}", exe, args);
-			psi.SetArguments(args);
-			psi.SetWorkingDirectory(workspaceDir);
+			CommandLine.AppendF("\"{}\" {}", mExe, mArgs);
+			mWatch.Restart();
+			Running = true;
+			mPrepThread = new Thread(new => Prepare);
+			mPrepThread.SetName("VisualBeef compile");
+			mPrepThread.Start(false);
+			return .Ok;
+		}
+
+		/// Worker: fingerprint, source hash, then BeefBuild (or nothing when up to date).
+		void Prepare()
+		{
+			Inputs = BuildInputs.Fingerprint(Workspace, mExe, Config, Platform);
+			SourceHash = CompileRecord.HashWorkspace(Workspace);
+			bool upToDate = mSkipIf != null && mSkipIf.Covers(Config, Inputs);
+			using (mMonitor.Enter())
+			{
+				if (mCancelled || upToDate)
+				{
+					UpToDate = upToDate && !mCancelled;
+					mPrepared = true;
+					return;
+				}
+			}
+			// Started outside the lock: the frame loop drains output under it and must not wait.
+			ProcessStartInfo psi = scope .();
+			psi.SetFileName(mExe);
+			psi.SetArguments(mArgs);
+			psi.SetWorkingDirectory(Workspace);
 			psi.UseShellExecute = false;
 			psi.RedirectStandardOutput = true;
 			psi.RedirectStandardError = true;
 			psi.CreateNoWindow = true;
-
-			mProcess = new SpawnedProcess();
-			if (mProcess.Start(psi) case .Err)
+			let process = new SpawnedProcess();
+			if (process.Start(psi) case .Err)
 			{
-				delete mProcess;
-				mProcess = null;
-				return .Err;
+				delete process;
+				using (mMonitor.Enter())
+				{
+					StartFailed = true;
+					StartError.AppendF("Could not run BeefBuild at '{}'", mExe);
+					mPrepared = true;
+				}
+				return;
 			}
-			Running = true;
-			mOutThread = new Thread(new () => ReadThread(false));
-			mOutThread.Start(false);
-			mErrThread = new Thread(new () => ReadThread(true));
-			mErrThread.Start(false);
-			return .Ok;
+			if (LowerPriority)
+				VisualBeef.Debug.LowPriority.Apply(process.ProcessId);
+			using (mMonitor.Enter())
+			{
+				mProcess = process;
+				mOutThread = new Thread(new () => ReadThread(false));
+				mOutThread.Start(false);
+				mErrThread = new Thread(new () => ReadThread(true));
+				mErrThread.Start(false);
+				mPrepared = true;
+			}
 		}
 
 		void ReadThread(bool stdErr)
@@ -156,14 +258,33 @@ namespace VisualBeef.Editor
 		/// Call once per frame. Returns true when the build just finished.
 		public bool Update()
 		{
+			bool prepared;
 			using (mMonitor.Enter())
 			{
 				for (let line in mPending)
 					TakeLine(line);
 				mPending.Clear();
+				prepared = mPrepared;
 			}
-			if (Running && mProcess != null && mProcess.HasExited)
+			if (!Running || !prepared)
+				return false;
+			if (UpToDate || StartFailed)
 			{
+				mPrepThread.Join();
+				mWatch.Stop();
+				BuildMs = mWatch.Elapsed.TotalMilliseconds;
+				Running = false;
+				Succeeded = UpToDate;
+				if (UpToDate)
+				{
+					Messages.AddRange(mCarried);
+					mCarried.Clear();
+				}
+				return true;
+			}
+			if (mProcess != null && mProcess.HasExited)
+			{
+				mPrepThread.Join();
 				mOutThread.Join();
 				mErrThread.Join();
 				using (mMonitor.Enter())
@@ -172,6 +293,8 @@ namespace VisualBeef.Editor
 						TakeLine(line);
 					mPending.Clear();
 				}
+				mWatch.Stop();
+				BuildMs = mWatch.Elapsed.TotalMilliseconds;
 				Running = false;
 				Succeeded = mProcess.ExitCode == 0;
 				for (let m in Messages)

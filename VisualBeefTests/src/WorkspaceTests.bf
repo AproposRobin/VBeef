@@ -429,6 +429,107 @@ namespace VisualBeef.Tests
 			Changes(changes);
 		}
 
+		// ------------------------------------------------------------------ project rename
+
+		static void RenameTests()
+		{
+			Console.WriteLine("project rename");
+			String root = scope .();
+			Scratch("rename", root);
+			List<String> changes = scope .();
+			defer { ClearAndDeleteItems!(changes); }
+			String err = scope .();
+			String text = scope .();
+			Put(root, "BeefSpace.toml", "FileVersion = 1\nProjects = {Core = {Path = \"Core\"}, Tester = {Path = \"Tester\"}, Deep = {Path = \"libs/Deep\"}, Other = {Path = \"Other\"}}\nLocked = [\"Core\", \"Other\"]\nUnlocked = [\"Core\"]\n\n[Workspace]\nStartupProject = \"Core\"\n");
+			Put(root, "Core/BeefProj.toml", "FileVersion = 1\nDependencies = {corlib = \"*\"}\n\n[Project]\nName = \"Core\"\nTargetType = \"BeefLib\"\n");
+			Put(root, "Tester/BeefProj.toml", "FileVersion = 1\nDependencies = {corlib = \"*\", Core = \"*\"}\n\n[Project]\nName = \"Tester\"\n");
+			Put(root, "libs/Deep/BeefProj.toml", "FileVersion = 1\n[Dependencies]\nCore = \"*\"\n\n[Project]\nName = \"Deep\"\n");
+			Put(root, "Other/BeefProj.toml", "FileVersion = 1\n\n[Project]\nName = \"Other\"\n");
+			Put(root, ".vbproject", "{\n  \"vbproject\": 1,\n  \"main\": \"Core/src/Main.bf\",\n  \"libraries\": [\"Core/lib\"]\n}\n");
+			String ws = scope .();
+			PathOf(root, "BeefSpace.toml", ws);
+			String coreDir = scope .();
+			PathOf(root, "Core", coreDir);
+
+			// A name the workspace has, an empty one and a bad shape are refused, nothing is written.
+			Check(WorkspaceFiles.RenameProject(ws, coreDir, "Core", "Tester", changes, err) case .Err && err.Contains("already has a project"), scope $"a name another project has is refused ({err})");
+			err.Clear();
+			Check(WorkspaceFiles.RenameProject(ws, coreDir, "Core", "", changes, err) case .Err && !err.IsEmpty, scope $"an empty name is refused ({err})");
+			err.Clear();
+			Check(WorkspaceFiles.RenameProject(ws, coreDir, "Core", "9Lives", changes, err) case .Err, "a name starting with a digit is refused");
+			err.Clear();
+			Check(WorkspaceFiles.RenameProject(ws, coreDir, "Core", "Has Space", changes, err) case .Err, "a name with a space is refused");
+			Check(changes.IsEmpty && Read(root, "BeefSpace.toml", text).Contains("Core = {Path = \"Core\"}") && Read(root, "Core/BeefProj.toml", scope String()).Contains("Name = \"Core\""), "the refusals wrote nothing");
+
+			// Core -> Engine (the startup project, in both lists, depended on by Tester inline and Deep as a table).
+			err.Clear();
+			Check(WorkspaceFiles.RenameProject(ws, coreDir, "Core", "Engine", changes, err) case .Ok, scope $"Core renamed to Engine ({err})");
+			Read(root, "BeefSpace.toml", text);
+			Check(text.Contains("Engine = {Path = \"Core\"}") && !text.Contains("Core = {"), "the workspace entry is Engine and still points at the Core folder");
+			Check(text.Contains("StartupProject = \"Engine\""), "the startup project follows");
+			Check(text.Contains("Locked = [\"Engine\", \"Other\"]") && text.Contains("Unlocked = [\"Engine\"]"), "the Locked and Unlocked lists follow");
+			Check(Read(root, "Core/BeefProj.toml", text).Contains("Name = \"Engine\""), "Name in BeefProj.toml is Engine");
+			Check(Read(root, "Tester/BeefProj.toml", text).Contains("Dependencies = {corlib = \"*\", Engine = \"*\"}"), "Tester's dependency follows (inline form)");
+			Check(Read(root, "libs/Deep/BeefProj.toml", text).Contains("[Dependencies]\nEngine = \"*\"\n"), "Deep's dependency follows (table form)");
+			Check(Read(root, ".vbproject", text).Contains("\"main\": \"Core/src/Main.bf\""), ".vbproject keeps its paths (the folder did not move)");
+			int lines = 0;
+			for (let c in changes)
+				if (c.Contains("BeefSpace.toml") || c.Contains("BeefProj.toml"))
+					lines++;
+			Check(changes.Count >= 5 && lines == changes.Count, scope $"one log line per change, all in project files ({changes.Count})");
+			Changes(changes);
+			Check(File.Exists(scope $"{coreDir}{Path.DirectorySeparatorChar}BeefProj.toml.bak") && File.Exists(scope $"{root}{Path.DirectorySeparatorChar}BeefSpace.toml.bak"), "a .bak of each edited project file is kept");
+			BeefWorkspace model = scope .();
+			Check(model.Load(ws) && model.Find("Engine") != null && model.Find("Core") == null && model.Startup == "Engine", "the workspace reads back with Engine as the startup project");
+
+			// With the folder renamed too, the way the UI does it: the path follows and the name stays Engine.
+			ClearAndDeleteItems!(changes);
+			String engineDir = scope .();
+			PathOf(root, "Engine", engineDir);
+			Directory.Move(coreDir, engineDir).IgnoreError();
+			err.Clear();
+			Check(WorkspaceFiles.FolderMoved(ws, coreDir, engineDir, root, changes, err) case .Ok, scope $"the folder renamed to Engine ({err})");
+			Read(root, "BeefSpace.toml", text);
+			Check(text.Contains("Engine = {Path = \"Engine\"}") && Read(root, "Engine/BeefProj.toml", scope String()).Contains("Name = \"Engine\""), "folder renamed after the project: path Engine, name Engine, no second rename");
+			Check(Read(root, ".vbproject", text).Contains("\"main\": \"Engine/src/Main.bf\"") && text.Contains("\"Engine/lib\""), ".vbproject follows the folder");
+			Check(Read(root, "Tester/BeefProj.toml", text).Contains("Engine = \"*\"") && !text.Contains("Core"), "the dependency is not renamed twice");
+
+			// A name that needs quoting in the workspace (the folder stays: folder rename off).
+			ClearAndDeleteItems!(changes);
+			String testerDir = scope .();
+			PathOf(root, "Tester", testerDir);
+			err.Clear();
+			Check(WorkspaceFiles.RenameProject(ws, testerDir, "Tester", "My.Tester", changes, err) case .Ok && Read(root, "BeefSpace.toml", text).Contains("\"My.Tester\" = {Path = \"Tester\"}"), scope $"a name with a dot is written as a quoted key ({err})");
+			Check(Read(root, "Tester/BeefProj.toml", text).Contains("Name = \"My.Tester\"") && Directory.Exists(testerDir), "its BeefProj.toml Name is My.Tester and its folder is still Tester");
+			Check(model.Load(ws) && model.Find("My.Tester") != null && model.Find("Tester") == null, "the workspace reads the quoted name back");
+
+			// Table-form [Projects] and a project whose BeefProj.toml has no Name.
+			String root2 = scope .();
+			Scratch("rename2", root2);
+			Put(root2, "BeefSpace.toml", "FileVersion = 1\n\n[Projects]\nApp = {Path = \"App\"}\nLib = {Path = \"Lib\"}\n\n[Workspace]\nStartupProject = \"App\"\n");
+			Put(root2, "App/BeefProj.toml", "FileVersion = 1\nDependencies = {corlib = \"*\", Lib = \"*\"}\n");
+			Put(root2, "Lib/BeefProj.toml", "FileVersion = 1\n\n[Project]\nTargetType = \"BeefLib\"\n");
+			String ws2 = scope .();
+			PathOf(root2, "BeefSpace.toml", ws2);
+			String libDir = scope .();
+			PathOf(root2, "Lib", libDir);
+			ClearAndDeleteItems!(changes);
+			err.Clear();
+			Check(WorkspaceFiles.RenameProject(ws2, libDir, "Lib", "Toolkit", changes, err) case .Ok, scope $"table-form workspace: Lib renamed ({err})");
+			Read(root2, "BeefSpace.toml", text);
+			Check(text.Contains("Toolkit = {Path = \"Lib\"}") && text.Contains("StartupProject = \"App\""), "table-form entry renamed, startup project untouched");
+			Check(Read(root2, "App/BeefProj.toml", text).Contains("Toolkit = \"*\"") && Read(root2, "Lib/BeefProj.toml", text).Contains("Name = \"Toolkit\""), "App depends on Toolkit; Lib's file gained Name = Toolkit");
+
+			// The same name again does nothing; read-only mode writes nothing.
+			ClearAndDeleteItems!(changes);
+			Check(WorkspaceFiles.RenameProject(ws2, libDir, "Toolkit", "Toolkit", changes, err) case .Ok && changes.IsEmpty, "renaming to the same name changes nothing");
+			FileSafety.ReadOnlyProject = true;
+			String beforeText = scope .();
+			Read(root2, "BeefSpace.toml", beforeText);
+			Check(WorkspaceFiles.RenameProject(ws2, libDir, "Toolkit", "Again", changes, err) case .Err && Read(root2, "BeefSpace.toml", text) == beforeText, "read-only mode: refused, nothing written");
+			FileSafety.ReadOnlyProject = false;
+		}
+
 		// ------------------------------------------------------------------ BeefBuild
 
 		static int RunProcess(StringView exe, StringView args, StringView workDir, String outText)
@@ -510,6 +611,7 @@ namespace VisualBeef.Tests
 			WorkspaceEditTests();
 			SettingsTests();
 			FolderTests();
+			RenameTests();
 			for (let a in args)
 				if (a == "-build")
 					BuildTests();

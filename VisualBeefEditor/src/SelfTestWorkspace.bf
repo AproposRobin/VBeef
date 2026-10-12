@@ -217,13 +217,108 @@ namespace VisualBeef.Editor
 				mCBReveal = true;
 				WsShotNext("ws-renamed");
 			case 16:
+				// The Name row of Project Settings is a text field with "Rename folder too" beside it.
+				OpenProjectSettings(tester);
+				mCBFolder.Set(mProjectRoot);
+				mCBReveal = true;
+				SelfTestCheck(mSelProjectActive && mPSNameEdit == "Tester" && mPSRenameFolder, "workspace 12: Project Settings of Tester: the Name field holds 'Tester' and 'Rename folder too' starts on (the folder is named like the project)");
+				SelfTestPanel("properties");
+				WsShotNext("ws-name-first", 0);
+			case 17:
+				WsShotNext("ws-name-field");
+			case 18:
+				// The field committed with the folder box off: name only.
+				mPSNameEdit.Set("Runner");
+				mPSRenameFolder = false;
+				CommitProjectName("Tester");
+				ProcessWorkspaceRequest();
+				FlushWorkspaceRescan();
+				WsRead("BeefSpace.toml", text);
+				SelfTestCheck(mErrors.Count == mWsErrors && text.Contains("Runner = {Path = \"Tester\"}") && !text.Contains("Tester ="), "workspace 12: Tester renamed to Runner in BeefSpace.toml, its path kept");
+				SelfTestCheck(text.Contains("StartupProject = \"Runner\""), "workspace 12: the startup project follows");
+				SelfTestCheck(WsRead("Tester/BeefProj.toml", text).Contains("Name = \"Runner\"") && Directory.Exists(tester), "workspace 12: BeefProj.toml Name is Runner; the folder is still Tester");
+				SelfTestCheck(FindCBDir(tester)?.ProjectName == "Runner" && FindCBDir(tester).Startup, "workspace 12: the tree row reads Runner (startup)");
+				ReloadProjectSettings();
+				SelfTestCheck(mPSNameEdit == "Runner" && mSelProjectActive, "workspace 12: Properties shows Runner");
+				SelfTestCheck(mStatus.Contains("Renamed project Tester to Runner"), scope $"workspace 12: the status bar says so ({mStatus})");
+				mCBFolder.Set(mProjectRoot);
+				mCBReveal = true;
+				WsShotNext("ws-name-renamed");
+			case 19:
+				// Refusals: a name another project has, empty, a bad shape, a reserved folder name with the folder box on.
+				String before = scope .();
+				WsRead("BeefSpace.toml", before);
+				String beforeTester = scope .();
+				WsRead("Tester/BeefProj.toml", beforeTester);
+				SelfTestCheck(!RenameProject(tester, "Engine", false) && mStatus.Contains("already has a project named 'Engine'"), scope $"workspace 13: a name another project has is refused ({mStatus})");
+				SelfTestCheck(!RenameProject(tester, "", false) && mStatus.Contains("Enter a name"), scope $"workspace 13: an empty name is refused ({mStatus})");
+				SelfTestCheck(!RenameProject(tester, "two words", false) && mStatus.Contains("can't be used"), scope $"workspace 13: a bad shape is refused ({mStatus})");
+				SelfTestCheck(!RenameProject(tester, "CON", true) && mStatus.Contains("reserved"), scope $"workspace 13: a reserved folder name is refused with the folder box on ({mStatus})");
+				SelfTestCheck(WsRead("BeefSpace.toml", text) == before && WsRead("Tester/BeefProj.toml", text) == beforeTester && mErrors.Count == mWsErrors, "workspace 13: the refusals wrote nothing and opened no error dialog");
+				SetStatus("Can't rename project Runner: The workspace already has a project named 'Engine'.", .Warning);
+				WsShotNext("ws-name-refused");
+			case 20:
+				mSelfTestTreeMenu.Set(tester);
+				WsShotNext("ws-rename-menu");
+			case 21:
+				mSelfTestCloseMenus = true;
+				mWsWait = 2;
+			case 22:
+				// Rename Project... in the row's menu: the rename dialog with the project's name and the folder box.
+				let d = FindCBDir(tester);
+				SelfTestCheck(d != null && d.ProjectName == "Runner", "workspace 14: the Runner row is there");
+				StartRenameProject(d);
+				SelfTestCheck(mCBRenameProject && mCBNameBuf.View == "Runner" && !mCBRenameProjectFolder, "workspace 14: Rename Project... fills the dialog with 'Runner'; the folder box is off (folder Tester)");
+				mCBNameBuf.Set("Player");
+				mCBRenameProjectFolder = true;
+				WsShotNext("ws-rename-project-dialog-first", 0);
+			case 23:
+				WsShotNext("ws-rename-project-dialog");
+			case 24:
+				// OK in the dialog: what it queues, run as the frame does.
+				SelfTestCheck(mCBRenameProject, "workspace 14: the dialog is the project rename");
+				let it = mCBRenameItem;
+				mCBRenameItem = null;
+				mCBRenameProject = false;
+				QueueWsAction(.RenameProject, it.Path, mCBRenameProjectOld, "Player", mCBRenameProjectFolder);
+				delete it;
+				ProcessWorkspaceRequest();
+				String player = scope .();
+				WsPath("Player", player);
+				WsRead("BeefSpace.toml", text);
+				SelfTestCheck(mErrors.Count == mWsErrors && Directory.Exists(player) && !Directory.Exists(tester), "workspace 14: the project renamed to Player with its folder");
+				SelfTestCheck(text.Contains("Player = {Path = \"Player\"}") && text.Contains("StartupProject = \"Player\"") && !text.Contains("Runner"), "workspace 14: BeefSpace.toml lists Player at Player, the startup project follows");
+				SelfTestCheck(WsRead("Player/BeefProj.toml", text).Contains("Name = \"Player\""), "workspace 14: BeefProj.toml Name is Player");
+				String program = scope .();
+				WsPath("Player/src/Program.bf", program);
+				SelfTestCheck(FindDoc(program) != null, "workspace 14: the open document follows the folder");
+				SelfTestCheck(FindCBDir(player)?.ProjectName == "Player" && ProjectIndex.SamePath(mSelProjectDir, player), "workspace 14: the tree and Properties show Player");
+				OpenProjectSettings(player);
+				SelfTestCheck(mPSNameEdit == "Player", "workspace 14: Properties' Name field reads Player");
+				mCBFolder.Set(mProjectRoot);
+				mCBReveal = true;
+				WsShotNext("ws-renamed-project");
+			case 25:
+				// A project other projects depend on: Engine -> Motor (folder on): Player and Kit-free dependency lists follow.
+				String engine = scope .();
+				WsPath("Engine", engine);
+				SelfTestCheck(RenameProject(engine, "Motor", true), "workspace 15: Engine renamed to Motor with its folder");
+				FlushWorkspaceRescan();
+				String motor = scope .();
+				WsPath("Motor", motor);
+				WsRead("BeefSpace.toml", text);
+				SelfTestCheck(Directory.Exists(motor) && !Directory.Exists(engine) && text.Contains("Motor = {Path = \"Motor\"}") && !text.Contains("Engine"), "workspace 15: the folder and the BeefSpace.toml entry are Motor");
+				SelfTestCheck(WsRead("Player/BeefProj.toml", text).Contains("Motor = \"*\"") && !text.Contains("Engine"), "workspace 15: Player's dependency follows");
+				SelfTestCheck(WsRead("Motor/BeefProj.toml", text).Contains("Name = \"Motor\""), "workspace 15: BeefProj.toml Name is Motor");
+				SelfTestCheck(mErrors.Count == mWsErrors, "workspace 15: no error dialogs");
+			case 26:
 				String kit = scope .();
 				WsPath("Kit", kit);
 				ClearAndDeleteItems!(mCBDeleteItems);
 				mCBDeleteItems.Add(WsFolderItem(kit));
 				mOpenCBDelete = true;
 				WsShotNext("ws-delete-dialog");
-			case 17:
+			case 27:
 				ClearAndDeleteItems!(mCBDeleteItems); // Cancel: nothing deleted
 				String kit = scope .();
 				WsPath("Kit", kit);
@@ -234,14 +329,14 @@ namespace VisualBeef.Editor
 				// The edited workspace builds: Tester -> Engine -> Kit.
 				SaveAll();
 				Compile();
-			case 18:
+			case 28:
 				if (mBuild != null && mBuild.Running)
 				{
 					mWsStep--;
 					return false;
 				}
 				mWsWait = 5;
-			case 19:
+			case 29:
 				let st = GetCompileState();
 				SelfTestCheck(st == .Good || st == .Warnings, scope $"workspace 11: the edited workspace compiles ({st})");
 				SelfTestCheck(mErrors.Count == mWsErrors, scope $"workspace 11: no error dialogs ({mErrors.Count - mWsErrors})");

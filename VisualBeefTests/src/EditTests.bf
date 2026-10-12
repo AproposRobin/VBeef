@@ -1251,6 +1251,11 @@ namespace VisualBeef.Tests
 			OverloadTests.Failures = 0;
 			OverloadTests.RunEdits();
 			sFailures += OverloadTests.Failures;
+			// Variables dropped on pins (docs/Editor-UI.md#dragging-onto-pins).
+			DragVarTests.Checks = 0;
+			DragVarTests.Failures = 0;
+			DragVarTests.RunEdits();
+			sFailures += DragVarTests.Failures;
 
 			Console.WriteLine("edit failures: {}", sFailures);
 			return (sFailures == 0) ? 0 : 1;

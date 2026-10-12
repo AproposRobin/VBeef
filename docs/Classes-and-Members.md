@@ -356,8 +356,15 @@ byte, then flipped to another legal choice and back to the same bytes:
   still reads as another mode (`0`, `default`: `InitExpressionChoice`). What is typed must be one
   Beef expression (`MemberInit.CheckExpression`): otherwise the box is framed red, the reason is
   shown under it and nothing is written.
-* **Add Variable**: the same choices under the type, with defaults (class: Owned, made here;
-  interface: Reference; struct: Value; value types: None) and the declaration it will write.
+* **Add Variable**: Name, then **Type** as a picker (the same one as Properties > Variable Type): the
+  basic types first, then the project's and the libraries' types by kind, and a container row (Single /
+  Array / List / Nullable: `List<T>` with the picked type in the slot). A type the list does not have
+  (`Dictionary<String, int>`) is typed into the picker's search box and taken from its *Use "..."* row
+  when it fits a member variable (`void` and `var` are refused with the reason). The dialog starts with
+  the type the last Add Variable used (`int` at first). Then the same ownership choices under the type,
+  with defaults (class: Owned, made here; interface: Reference; struct: Value; value types: None), and the
+  declaration it will write (`public bool bRunning;`), which follows the pick and is exactly the line
+  Create writes (`SourceDocument.FieldDeclarationText`).
 * **Local variables** (Outline > LOCAL VARIABLES, selected): **Ownership** for class types and
   **Initial Value** with the same controls (see [Local variables](#local-variables)), with the
   declaration under them. A Local Variable node read from the middle of a function has the same
@@ -518,8 +525,11 @@ declarations at the top of its body, in order (`Graph.Locals`). They are not nod
   not move with the function; its rows follow the function whose Sheet is in front, and a dim
   *Open a function to see its locals* row shows when none is open) with a count and
   **+** (adds to that function), one row per local variable (type-coloured pill, name, the type dimmed). Click selects it
-  (Properties shows it), double-click edits the name in place, drag onto the Sheet places a Get
-  (Ctrl) or a Set (Alt) or asks, the context menu has Rename, Move Up / Down and Delete. **L** on
+  (Properties shows it), double-click edits the name in place, drag onto a pin wires a Get or a Set of it
+  to the pin (see [Editor-UI.md](Editor-UI.md#dragging-onto-pins)), drag onto the Sheet places a Get
+  (Ctrl) or a Set (Alt) or asks, the context menu has Rename, Move Up / Down and Delete. A local variable
+  is added with **+** or **L** as `int newLocal = 0;`; its type is then picked in Properties > Variable
+  Type (the same picker as Add Variable). **L** on
   the Sheet adds `int newLocal = 0;` and selects it with its name box focused.
 * **Properties** (one selected): Variable Name, Variable Type, **Ownership** for class types
   (**Reference**: holds an object made elsewhere, `= null` or an expression; **Made for this

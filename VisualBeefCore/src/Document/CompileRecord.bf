@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.IO;
+using System.Threading;
 
 namespace VisualBeef.Document
 {
@@ -75,7 +76,7 @@ namespace VisualBeef.Document
 			return rec.Ok ? .UpToDate : .Failed;
 		}
 
-		static void Collect(StringView dir, List<String> files, int depth)
+		static void Collect(StringView dir, List<String> files, int depth, ref uint64 stamp)
 		{
 			if (depth > 24)
 				return;
@@ -89,22 +90,87 @@ namespace VisualBeef.Document
 				{
 					if (name == "build" || name == "recovery" || name.StartsWith('.'))
 						continue;
-					Collect(path, files, depth + 1);
+					Collect(path, files, depth + 1, ref stamp);
 				}
 				else if (name.EndsWith(".bf", .OrdinalIgnoreCase) || name == "BeefSpace.toml" || name == "BeefProj.toml")
+				{
 					files.Add(new String(path));
+					// What the folder listing already knows: name, size, write time.
+					for (let c in path.RawChars)
+					{
+						stamp ^= (uint8)c;
+						stamp *= 1099511628211UL;
+					}
+					stamp ^= (uint64)e.GetFileSize();
+					stamp *= 1099511628211UL;
+					stamp ^= (uint64)e.GetLastWriteTimeUtc().Ticks;
+					stamp *= 1099511628211UL;
+				}
 			}
 		}
 
+		/// The last hash per workspace folder and the listing it was taken from: the content is
+		/// read again only when a name, size or write time changed (the indicator asks every few
+		/// seconds, a compile asks at its start; neither reads unchanged sources again).
+		static Dictionary<String, (uint64 stamp, uint64 hash)> sHashCache = new .() ~ DeleteDictionaryAndKeys!(_);
+		static Monitor sHashLock = new .() ~ delete _;
+		/// How many times the content was read (tests).
+		public static int ContentReads;
+
 		/// A hash of the content of every source and project file under the workspace folder
-		/// (names relative to it count, so a rename or a move changes it too).
+		/// (names relative to it count, so a rename or a move changes it too). Safe to call from
+		/// any thread.
+		/// The hash when the folder listing still matches the last one taken (no file is read).
+		/// `known`: a hash of this folder was taken before (false: the first look).
+		public static bool CachedHash(StringView root, out uint64 hash, out bool known)
+		{
+			hash = 0;
+			List<String> files = scope .();
+			defer { for (let f in files) delete f; }
+			uint64 stamp = 14695981039346656037UL;
+			Collect(root, files, 0, ref stamp);
+			stamp ^= (uint64)files.Count;
+			String key = scope .(root);
+			key.Replace('\\', '/');
+			key.ToLower();
+			using (sHashLock.Enter())
+			{
+				known = sHashCache.TryGetValue(key, let cached);
+				if (known && cached.stamp == stamp)
+				{
+					hash = cached.hash;
+					return true;
+				}
+			}
+			return false;
+		}
+
 		public static uint64 HashWorkspace(StringView root)
 		{
 			List<String> files = scope .();
-			Collect(root, files, 0);
 			defer { for (let f in files) delete f; }
+			uint64 stamp = 14695981039346656037UL;
+			Collect(root, files, 0, ref stamp);
+			stamp ^= (uint64)files.Count;
+			String key = scope .(root);
+			key.Replace('\\', '/');
+			key.ToLower();
+			using (sHashLock.Enter())
+			{
+				if (sHashCache.TryGetValue(key, let cached) && cached.stamp == stamp)
+					return cached.hash;
+			}
 			files.Sort(scope (a, b) => String.Compare(a, b, true));
-			return HashFiles(root, files);
+			let hash = HashFiles(root, files);
+			using (sHashLock.Enter())
+			{
+				ContentReads++;
+				if (sHashCache.TryGetValue(key, ?))
+					sHashCache[key] = (stamp, hash);
+				else
+					sHashCache[new String(key)] = (stamp, hash);
+			}
+			return hash;
 		}
 
 		public static uint64 HashFiles(StringView root, List<String> files)

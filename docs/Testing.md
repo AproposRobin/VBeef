@@ -67,14 +67,14 @@ Expected output on the tree this page was written against (2026-10-10, after the
 
 | Command | Expected last line | Time |
 |---|---|---|
-| `edits` | `total: edits ok, factory failures 0, flow failures 0` (edit scenarios 1-25 with 0 failures; 25 (2026-10-12) is the text pins, 34 checks of `OverloadTests.RunEdits`; factory 63 cases, flow 157 checks including the 75 call checks, the 7 Defer / Using body checks and the 3 local variable splice checks; the 7 Defer / Using body checks) | seconds |
+| `edits` | `total: edits ok, factory failures 0, flow failures 0` (edit scenarios 1-26 with 0 failures; 25 (2026-10-12) is the text pins, 34 checks of `OverloadTests.RunEdits`; 26 (2026-10-12) is variables dropped on pins, 25 checks of `DragVarTests.RunEdits`: a Get into an input, a Set from an output after the statement and before the statement using a value node, refusals with their reasons (text / float onto int, a flow pin, a Set's Variable pin, read-only), a wired input replaced, each one undo step; factory 63 cases, flow 157 checks including the 75 call checks, the 7 Defer / Using body checks and the 3 local variable splice checks; the 7 Defer / Using body checks) | seconds |
 | `flow` | `flow checks: 251  failures: 0` (251 includes the 48 Math Expression checks of `calls`; 203 before them includes 6 loop-header checks: a bound that mixes `&&` or `||` stays header text) (59 switch / macro checks + 13 counting For Loop checks + 75 call checks + 7 Defer / Using body checks + 3 `LocalsTests.RunFlow`: a Set spliced after a call, after the local variables) | < 1 s |
 | `calls` | `call checks: 126  failures: 0` (3 unread Result notes: Set keeps it, String.AppendF has none; + 48 `MathExprTests.RunNode`: pins of ten formulas, nine refusals, eleven result types, the node's pins following its text, the code with values in place and parenthesised, a call read twice kept in a variable, a Branch condition, an open input and an unknown type refused) | < 1 s |
 | `lifetime` | `lifetime checks: 126  failures: 0` (14 in "deleting Locals": a Local that later nodes use is not deleted, with the `scope` wording) | < 1 s |
 | `textforms` | `text form checks: 169  failures: 0` (+ 41 `OverloadTests.RunTextForms` and + 10 `#if` / `#endif` member edits (2026-10-12): overloads that follow the values; + 27 `MathExprTests.RunInit`: Initial Value > Expression on `int x = 0;` stays chosen, `a + b` written and read back after a reload, back to Number, refusals, a Local's value) | < 1 s |
-| `classes` | `class checks: 560  failures: 0` (29 `MathExprTests.RunRoundTrip` (2026-10-12): `#math` / `#orphanmath` records written, the nodes back on reload with wires, values, place and chosen type, identity and regenerated commits byte for byte, no side file or a changed formula reads as usual, undo after a text edit, + 53 `LocalsTests.RunClasses` (2026-10-12): local variables read, written, added / renamed / retyped / reordered / removed / moved, outputs on Return nodes and calls, a signature change keeps its function's key, variables made from a pin in one undo step, + 31 Node Library: kind change, static writing, validator, catalog categories, + 179 + 136 in the ownership and initial values group + 38 in set on create, + 19 from the 2026-10-11 passover, + 26 from the suspected-issues pass: typed primitives, a rename with a refused commit, constructor chains, code-point characters, + 12 from the newcomer pass: interface functions, usings, overload ties, + 10 Passing: the chooser's choices, out / ref / in written and read back, + 14 Return defaults per type and a fresh bool function written with `return false;`, + 3 Set labels: Variable on Set nodes, Receiver on calls, + 5 Construct needs a constructor: the error, the classes that need no choice, cleared by an input, a warning when read from code, + 5 a print read back: WriteLine(StringView line) with its Message pin, byte for byte, a wired int accepted and switching it to WriteLine(Object obj)) | < 1 s |
-| `safety` | `safety: failures=0` (22 groups on Windows, 179 `ok` lines; groups 21-23 (2026-10-12): graph edits not written, shared undo copies and the byte budget, side files kept) | seconds |
-| `vocabulary` | `vocabulary: source files=115 string literals=10887 docs=23 host-rule files=212 host-rule hits=0 hits=0 failures=0` | < 1 s |
+| `classes` | `class checks: 575  failures: 0` (15 `DragVarTests.RunClasses` (2026-10-12): Add Variable's type picker: the container row split and joined back, a typed `Dictionary<String, int>` taken and `void` / `var` refused, the preview line equal to the line Create writes; 29 `MathExprTests.RunRoundTrip` (2026-10-12): `#math` / `#orphanmath` records written, the nodes back on reload with wires, values, place and chosen type, identity and regenerated commits byte for byte, no side file or a changed formula reads as usual, undo after a text edit, + 53 `LocalsTests.RunClasses` (2026-10-12): local variables read, written, added / renamed / retyped / reordered / removed / moved, outputs on Return nodes and calls, a signature change keeps its function's key, variables made from a pin in one undo step, + 31 Node Library: kind change, static writing, validator, catalog categories, + 179 + 136 in the ownership and initial values group + 38 in set on create, + 19 from the 2026-10-11 passover, + 26 from the suspected-issues pass: typed primitives, a rename with a refused commit, constructor chains, code-point characters, + 12 from the newcomer pass: interface functions, usings, overload ties, + 10 Passing: the chooser's choices, out / ref / in written and read back, + 14 Return defaults per type and a fresh bool function written with `return false;`, + 3 Set labels: Variable on Set nodes, Receiver on calls, + 5 Construct needs a constructor: the error, the classes that need no choice, cleared by an input, a warning when read from code, + 5 a print read back: WriteLine(StringView line) with its Message pin, byte for byte, a wired int accepted and switching it to WriteLine(Object obj)) | < 1 s |
+| `safety` | `safety: failures=0` (23 groups on Windows, 209 `ok` lines; groups 21-23 (2026-10-12): graph edits not written, shared undo copies and the byte budget, side files kept; group 24 (2026-10-12, 30 checks): what a compile reads (`BuildInputs`), the up-to-date record (`CompileInputs`), the source hash read once per change) | seconds |
+| `vocabulary` | `vocabulary: source files=132 string literals=12194 docs=23 host-rule files=233 host-rule hits=0 hits=0 failures=0` | < 1 s |
 | `parser` | `parser checks: 305  failures: 0` (8 for a `using` without `;`; then the 32 declaration-form checks of `classes`; exit code covers both) | < 1 s |
 | `catalog` | `catalog checks: 257 passed, 0 failed` (23 of them the corlib overloads: Console / Debug Write and WriteLine, Message / Format / Values, an int dropped on the text pin) | under 1 s once the corlib cache exists |
 | `diagnostics` | `diagnostics checks: 49  failures: 0` | < 1 s |
@@ -83,8 +83,8 @@ Expected output on the tree this page was written against (2026-10-10, after the
 | `docs [folder]` | `docs checks: 54  failures: 0` (front matter, the Markdown subset, anchors, link resolution, search, and the real `audience: user` pages of the docs folder: they parse, are in front-matter order, every picture exists, every link leads somewhere; links to developer pages are counted, not failures) | < 1 s |
 | `update` | `update checks: 98  failures: 0` | < 1 s |
 | `host` | `host checks: 92  failures: 0` (command line, `.vbproject`, templates, the Fixture Kit node library, `host-install.json`; 2026-10-12: libraries written relative and found after a move, a missing one reported, template creation all or nothing) | < 1 s |
-| `workspace` | `workspace checks: 79  failures: 0` (TomlText, paths, workspace edits, Project Settings, project folders renamed and deleted) | < 1 s |
-| `workspace -build` | `workspace checks: 81  failures: 0` (the same plus BeefBuild on a workspace edited this way, and its program run) | about 5 s |
+| `workspace` | `workspace checks: 107  failures: 0` (TomlText, paths, workspace edits, Project Settings, project folders renamed and deleted, projects renamed) | < 1 s |
+| `workspace -build` | `workspace checks: 109  failures: 0` (the same plus BeefBuild on a workspace edited this way, and its program run) | about 5 s |
 | `stress` | `stress checks: 68  failures: 0` (4 context checks + 16 runs of 50 random edits x 4 checks) | about 2 s |
 | `debug -out <dir>` | `debug checks: 83  failures: 0` (9 for a breakpoint on a Local declaration) | about 8 s (one small BeefBuild, three runs under the debugger, two attaches) |
 | `debugmap` (the three corpus folders, ClockWork) | `debugmap: files=204 methods=1702 statements=25724 values=49778 without-line=57 failures=0` | about 15 s |
@@ -362,7 +362,7 @@ also loads any large generated library and prints its load time, catalog size, o
 
 ### `workspace [-build]`
 The workspace and project files behind the Project Browser's project rows and Project Settings
-(`WorkspaceTests.bf`, `VisualBeefCore/src/Document/WorkspaceFiles.bf`), 79 checks in 5 groups, all in scratch
+(`WorkspaceTests.bf`, `VisualBeefCore/src/Document/WorkspaceFiles.bf`), 107 checks in 6 groups, all in scratch
 folders under `%TEMP%\VisualBeefWorkspaceTests`. **toml text**: `TomlText` reads `[Projects]` (the Beef IDE's
 form) and `Dependencies = {...}`, quoted keys, comments after values, multi-line arrays with escapes; a value
 replaced in place keeps its comment, a key added to a table goes after its last key with the file's CRLF, inline
@@ -378,7 +378,14 @@ a debug command, both cleared (the table goes), the startup object. **project fo
 (the workspace entry, `StartupProject`, `Locked`, `Name`, the dependents in both forms, `.vbproject` main and a
 relative library, the absolute one and a host key kept), a folder around a project, a project named unlike its
 folder, a rename onto another project's name (the path follows, the name stays), and the Engine folder deleted
-(the project, its dependents' entries and the startup project). With `-build` two projects are made, one renamed
+(the project, its dependents' entries and the startup project). **project rename** (`WorkspaceFiles.RenameProject`, the call
+Project Settings' Name field and Rename Project... make): a name another project has, an empty one, one starting with a
+digit and one with a space are refused with nothing written; Core renamed to Engine writes the `[Projects]` key (the path
+stays), `StartupProject`, `Locked` and `Unlocked`, `Name`, the dependents in both forms, one log line per file change and a
+`.bak` of each file; the folder then renamed through `FolderMoved` (folder box on) leaves the name alone, follows with the
+path and `.vbproject` and does not rename a dependency twice; a name with a dot is written as a quoted key with the folder
+kept (box off); a table-form `[Projects]` and a project file with no `Name` (one is added); the same name changes nothing;
+read-only mode writes nothing. With `-build` two projects are made, one renamed
 through its folder, a dependency added, and BeefBuild builds and runs the result (`answer 42`).
 
 ### `vocabulary [root] [-v]`
@@ -608,6 +615,22 @@ The editor was verified by driving a real window:
   the process by id), and **Recover unsaved changes?** on the next start. `=fatal` checks the
   `Runtime.FatalError` path, `=thread` a crash on a worker thread.
 
+* **`compiletime`** (`VB_SELFTEST=compiletime`, `SelfTestCompile.bf`; any project, its `build` folder removed by the
+  caller first; `VB_CTIME_FILE` = the file for the one-line change, else the first project file): the source hash
+  taken twice (one read) and the inputs fingerprint, then four compiles through the calls F7 and Ctrl+F7 make, each
+  logged as `[CTIME] <case>: total=... beefbuild=... call=... finish=... maxframe=...`: the first (BeefBuild runs), one
+  with nothing changed (up to date: BeefBuild not run, under 1 s, no project file written, indicator green), Force
+  Compile (BeefBuild runs), and a one-line change saved by Compile's Save All. Every case checks that no frame took
+  longer than 50 ms while it ran (Compile()'s own Save All, which flushes the file to disk, is `call`, apart) and,
+  except the one-line case, that Compile() itself took under 50 ms; at the end the file is put back and the indicator
+  says *Needs compile* at once after that save (the hash is read on a worker). 2026-10-12 (Debug editor): `done
+  failures=0` on corlib + three projects, a ClockWorkEngine copy, a copy of this workspace and a visual mod with a
+  game SDK library; the numbers are in [CHANGELOG.md](CHANGELOG.md).
+* **`compileshots`** (`VB_SELFTEST=theme:<n>,size:1280x800,compileshots,size:1920x1080,compileshots`, a project whose
+  compile takes a few seconds, `VB_SHOTS`): captures `ct-compiling` (Problems and the status bar with the elapsed
+  time while BeefBuild runs), `ct-done`, `ct-uptodate`, `ct-log` (the Output Log lines) and `ct-buildmenu` (Build >
+  Force Compile). 2026-10-12: Dark and Darker x 1280x800 and 1920x1080 x 100% and 125%, `done failures=0`, no
+  `[ASSERT]` line.
 * **`VB_SELFTEST=ids`**: opens the Node menu on the open graph, walks seven searches and the Library tree drawn open, and fails if any two rows drawn in one frame share an ImGui ID (`[SELFTEST] ok   ids: ...  0 conflicting IDs`). Use a project with the same class name in two namespaces.
 * **This tests in the running editor**: `VB_SELFTEST=rename-undo,move-undo,find-refs,openall`
   (any subset; also `open:Type.Method()`, `fit`, `select:Kind:Text` to set up a capture) drives the
@@ -693,6 +716,7 @@ The editor was verified by driving a real window:
   Captures `strings-first` (the first frame after opening), `strings-bare`, `strings-typed`, `strings-badge`,
   `strings-badge-zoom`, `strings-overloads`. 2026-10-12: 17 checks, `done failures=0` at Dark and Darker x 1280x800 and
   1920x1080 x 100% and 125%, no `[ASSERT]` line.
+* **`dragvars`** (`VB_SELFTEST=theme:<n>,dragvars,dragvars-live`, `SelfTestDragVars.bf`; a scratch project with a `Shop` class: `int mCount`, `float mPrice`, `String mName`, `int Add(int a, int b)` and `Run()` with the local variable `int total = 0;` and the statement `Add(1, 2);` between two prints): the 2026-10-12 owner requests through the calls the UI makes. The ghost over Add's `a` while mCount is dragged (green ring, `Get mCount into a`), mName over `b` (red ring, `Can't connect: text to int needs parsing (Int.Parse)`), the ghost over the empty Sheet, of a function and of a Project Browser tile; mCount dropped on `a` (`Add(mCount, 2);`, the Get selected), one undo; total dropped on the Return Value (a Set run right after Add), one undo; mName on `b` refused in the status bar with nothing written and no undo step; a Node menu Get row dropped on `b` (`Add(1, total);`) and a Set row on the Sheet (a Set, no question), one undo each; Add Variable starting with `int`, its picker open, `bool` picked (preview `public bool bRunning;`), Create, the next Add Variable starting with `bool`, a typed `Dictionary<String, int>` taken, undo. Captures `dv-first`, `dv-accepted`, `dv-refused`, `dv-ghost`, `dv-ghost-fn`, `dv-ghost-asset`, `dv-dropped`, `dv-set`, `dv-addvar-picker`, `dv-addvar-bool`. **`dragvars-live`** drags for real through ImGui's mouse input (`ImGuiIO_AddMousePosEvent` / `AddMouseButtonEvent`, one step per frame): the mCount row pressed, moved over `a`, released (`Add(mCount, 2);`); the Node menu opened, its Get total row pressed (the menu closes), moved over `b`, released (`Add(1, total);`); captures `dvlive-over-pin`, `dvlive-menu-over-pin`, `dvlive-after`. Start the editor minimized and show it without activating it: a window that has had the keyboard focus reads the real cursor every frame. 2026-10-12: 21 + 9 checks, `done failures=0`, no `[ASSERT]`, at Dark and Darker x 1280x800 and 1920x1080 x 100% and 125%.
 * **`host`** (`VB_SELFTEST=host`, `SelfTestHost.bf`; an empty scratch folder as the project, a fresh `VB_HOME`, the template folder in `VB_HOST_TEMPLATE`, default `VisualBeefTests/fixtures/Host/Template` of the checkout that built the exe): a project made from a host tool's template, through the calls the UI makes. File > New Project offers **From template folder...**; a folder without `template.json` says so; the fixture template loads with its two variables (fields `Id` = `hello-tool`, `Version` = `0.1.0`); `Hello Tool` is created and opened (`HelloTool`, `src/Program.bf`); `.vbproject` names main and configuration and `tool.json` has the filled-in id; the Fixture Kit library is indexed; the Node menu lists Days In Year under Fixture Kit and the four callback nodes under Callbacks, not the `[NodeHidden]` function; **Try register Days In Year** is placed in `Main` and `OnDaysInYear` is picked from its callback pin's Node menu, written `Clock.TryRegisterDaysInYear(=> OnDaysInYear);`; the compile configuration is Release because the `.vbproject` names it; Save All and a compile with the library; close / reopen, Reload Sheet and identity commits byte for byte. `[HOST]` lines log what the Node menu offered and the code written. `newproject-template:<template folder>` opens the New Project dialog on From template folder... with the folder filled in, for captures (`close-popups` closes it).
 * **`workspace`** (`VB_SELFTEST=workspace`, `SelfTestWorkspace.bf`): the Project Browser's projects and Project
   Settings through the calls the UI makes, on a scratch workspace the caller writes: `BeefSpace.toml` in the Beef
@@ -708,10 +732,17 @@ The editor was verified by driving a real window:
   `Kit` beside Tester, registered in `[Projects]`, Tester depends on it); Add Existing Project with the path the
   folder dialog returns (`../Outside/Ext`, the row outside the folder, refused a second time); the rename dialog's
   project note and Core renamed to Engine through the rename call (BeefSpace.toml, BeefProj.toml `Name`,
-  Tester's dependency, the open document, the tree, no error); the delete dialog's note (cancelled); Remove from
-  Workspace; Save All and a compile of the edited workspace (green). Captures `ws-first`, `ws-tree`,
-  `ws-project-menu`, `ws-folder-menu`, `ws-settings`, `ws-settings-dll`, `ws-add-menu`, `ws-newproject`,
-  `ws-outside`, `ws-rename-dialog`, `ws-renamed`, `ws-delete-dialog`. 2026-10-12: 37 checks (plus the host-assert check), `done failures=0`,
+  Tester's dependency, the open document, the tree, no error); the Name field of Project Settings (holds `Tester`, the
+  folder box starts on; committed as `Runner` with the box off: the BeefSpace.toml key, the startup project, `Name`, the
+  tree row and Properties follow, the folder stays Tester); refusals (a name another project has, empty, `two words`,
+  `CON` with the folder box on: status-bar message, nothing written, no error dialog); **Rename Project...** (the rename
+  dialog holds `Runner`, folder box off; `Player` with the box on renames the project and its folder, the open document and
+  Properties follow); Engine renamed to Motor with its folder (the dependency in Player's BeefProj.toml follows); the delete
+  dialog's note (cancelled); Remove from Workspace; Save All and a compile of the edited workspace (green). Captures
+  `ws-first`, `ws-tree`, `ws-project-menu`, `ws-folder-menu`, `ws-settings`, `ws-settings-dll`, `ws-add-menu`, `ws-newproject`,
+  `ws-outside`, `ws-rename-dialog`, `ws-renamed`, `ws-name-first`, `ws-name-field`, `ws-name-renamed`, `ws-name-refused`,
+  `ws-rename-menu`, `ws-rename-project-dialog-first`, `ws-rename-project-dialog`, `ws-renamed-project`, `ws-delete-dialog`.
+  2026-10-12: 63 workspace checks (65 with the theme and host-assert checks), `done failures=0`,
   no `[ASSERT]`, at Dark and Darker x 1280x800 and 1920x1080 x 100% and 125%. The folder dialog itself is native
   and cannot be scripted; the step calls what its answer goes to (`AddExistingProjectAt`).
 * **`startpage`** (`VB_SELFTEST=startpage`, `SelfTestStartPage.bf`; **no project argument**, a fresh `VB_HOME`; the editor must show the start page): the start page shows and nothing is reopened; File > New Project (`CreateProject`, the calls the dialog makes) makes `Alpha One` in `<VB_HOME>\sp-scratch` and the folder, `BeefProj.toml` (`Name = "Alpha One"`), `BeefSpace.toml` (`"Alpha One" = {Path = "."}`, `StartupProject`) and `Program.bf` (namespace `AlphaOne`) carry the typed name; it becomes the open project (root, a Sheet on `Program.Main`, title, Project Browser tree, index, recent list); with an unsaved change a second New Project (`Beta`) is made but the switch waits for the question; Don't Save closes `Alpha One` (nothing of it stays open: documents, Sheets, tree, index; its file on disk is unchanged); an unsaved change in `Beta`, `RequestOpenProject` and Save All writes it and opens `Alpha One`; Close Project returns to the start page; the list is in `settings.json`, loads back in order, dims and removes a folder that was deleted; the New Project dialog's `Creates` path for `My Game` and for a name with forbidden characters; the project with a space in its name opens and compiles (BeefBuild run with `-workspace=.`). 2026-10-12: 43 checks, `done failures=0`.

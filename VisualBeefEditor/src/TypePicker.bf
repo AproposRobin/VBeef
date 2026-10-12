@@ -13,6 +13,24 @@ namespace VisualBeef.Editor
 	extension EditorApp
 	{
 		TextBuffer mTypeSearch = new .(256) ~ delete _;
+		/// The type the last Add Variable wrote: the next one starts with it (`int` at first).
+		String mLastVarType = new .("int") ~ delete _;
+		/// Self test (`dragvars`): a row of the open picker taken as if clicked (a listed type, or the
+		/// `Use "..."` row of a typed one); the Add Variable dialog's preview line; its Create pressed.
+		String mSelfTestPickerPick = new .() ~ delete _;
+		public String SelfTestAddVarPreview = new .() ~ delete _;
+		public bool SelfTestAddVarCreate;
+
+		/// Opens the Add Variable dialog for the type `owner` (the Outline's VARIABLES +, an asset
+		/// editor's Add Variable): the name `varName`, the type the last Add Variable used (`int` at first).
+		public void OpenAddVariable(StringView owner, StringView varName)
+		{
+			mAddTargetType.Set(owner);
+			mNameBuf.Set(varName);
+			mTypeBuf.Set(mLastVarType);
+			mParamsBuf.Set("");
+			mOpenAddVariable = true;
+		}
 		String mTypePickerFor = new .() ~ delete _;
 		bool mTypeSearchFocus;
 		int32 mTypeContainer;
@@ -130,41 +148,9 @@ namespace VisualBeef.Editor
 			Gui.igPopTextWrapPos();
 		}
 
-		/// Splits "List<Foo>" / "Foo[]" / "Foo?" into the element type and a container index
-		/// (0 single, 1 array, 2 List, 3 nullable).
-		static void SplitContainer(StringView type, String outElement, out int32 container)
-		{
-			var t = type;
-			t.Trim();
-			container = 0;
-			if (t.EndsWith("[]"))
-			{
-				container = 1;
-				t.RemoveFromEnd(2);
-			}
-			else if (t.StartsWith("List<") && t.EndsWith(">"))
-			{
-				container = 2;
-				t = t.Substring(5, t.Length - 6);
-			}
-			else if (t.EndsWith("?"))
-			{
-				container = 3;
-				t.RemoveFromEnd(1);
-			}
-			outElement.Append(t);
-		}
-
-		static void JoinContainer(StringView element, int32 container, String outType)
-		{
-			switch (container)
-			{
-			case 1: outType.AppendF("{}[]", element);
-			case 2: outType.AppendF("List<{}>", element);
-			case 3: outType.AppendF("{}?", element);
-			default: outType.Append(element);
-			}
-		}
+		// The container row (Single / Array / List / Nullable): TypeRules.SplitContainer / JoinContainer.
+		static void SplitContainer(StringView type, String outElement, out int32 container) => TypeRules.SplitContainer(type, outElement, out container);
+		static void JoinContainer(StringView element, int32 container, String outType) => TypeRules.JoinContainer(element, container, outType);
 
 		/// Draws a type pill (pin colour) at the cursor and advances past it.
 		static void TypePill(StringView type, float h)
@@ -347,6 +333,11 @@ namespace VisualBeef.Editor
 					}
 					if (enter && picked.IsEmpty && !first.IsEmpty)
 						picked.Set(first);
+					if (!mSelfTestPickerPick.IsEmpty)
+					{
+						picked.Set(mSelfTestPickerPick);
+						mSelfTestPickerPick.Clear();
+					}
 				}
 				Gui.igEndChild();
 				if (!picked.IsEmpty)

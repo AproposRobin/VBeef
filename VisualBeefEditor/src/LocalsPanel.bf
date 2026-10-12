@@ -497,13 +497,13 @@ namespace VisualBeef.Editor
 					Gui.DrawText(dl, .(max.x - tw - 4 * Look.Scale, cur.y), Gui.Color(120, 120, 120), fit);
 				}
 				if (Gui.igIsItemHovered(0))
-					Gui.Tooltip(scope $"{local.Text} : {local.Text2}  (local variable of {mg.Method.Name})\nDrag into the graph: Ctrl = Get, Alt = Set");
+					Gui.Tooltip(scope $"{local.Text} : {local.Text2}  (local variable of {mg.Method.Name})\nDrag onto a pin to wire it, or onto the Sheet: Ctrl = Get, Alt = Set");
 				AddMemberRef(.Variable, local.Text, local.Text2, "", ownerName, false);
-				if (Gui.igBeginDragDropSource(0))
+				if (Gui.igBeginDragDropSource(DragNative.SourceNoPreviewTooltip))
 				{
+					// The ghost (DragGhost.bf) follows the cursor; on a pin it says what the drop does.
 					int32 idx = (int32)mMembers.Count - 1;
 					Gui.igSetDragDropPayload("VB_MEMBER", &idx, sizeof(int32), 0);
-					Gui.Text(scope $"{Icon.Variable}  {local.Text}  (Ctrl: Get, Alt: Set, or choose on drop)");
 					Gui.igEndDragDropSource();
 				}
 				LuMenuOpenHook(local.Text);
