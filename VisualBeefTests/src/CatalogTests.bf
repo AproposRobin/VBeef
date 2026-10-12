@@ -169,10 +169,121 @@ namespace VisualBeef.Tests
 			TestDiscovery();
 			Console.WriteLine("merged category tree");
 			TestMergedCategories();
+			Console.WriteLine("overloads of corlib calls (CallOverloads)");
+			TestCorlibOverloads();
 
 			LibraryIndex.sCacheDirOverride.Clear();
 			Console.WriteLine("catalog checks: {} passed, {} failed ({:0} ms)", sPass, sFail, total.Elapsed.TotalMilliseconds);
 			return sFail;
+		}
+
+		/// The real corlib: Console / Debug print overloads, the one a text or a number chooses, the
+		/// friendly pin labels (docs/Calls-and-Receivers.md#overloads).
+		static void TestCorlibOverloads()
+		{
+			ProjectIndex index = scope .();
+			TypeService svc = scope .(index);
+			svc.AutoLoadLibraries = false;
+			let corlib = Corlib();
+			if (corlib == null)
+			{
+				Check(false, "corlib indexed");
+				return;
+			}
+			SymbolStore copy = new .();
+			String cachePath = scope .();
+			LibraryIndex.CachePath(CorlibDir, cachePath);
+			copy.Load(cachePath, 0).IgnoreError();
+			copy.Name.Set("corlib");
+			copy.IsLibrary = true;
+			svc.AddLibrary(copy);
+			svc.Install();
+			let oldIndex = GraphBuilder.Index;
+			GraphBuilder.Index = index;
+			defer
+			{
+				GraphBuilder.Index = oldIndex;
+				TypeService.Current = null;
+				TypeRules.Hierarchy = null;
+			}
+
+			List<SymbolMethod> list = scope .();
+			svc.ListOverloads("Console", "", "WriteLine", true, null, list);
+			CheckEq(scope $"{list.Count}", "4", "Console.WriteLine: (), (StringView line), (StringView fmt, params Object[] args), (Object obj)");
+			bool hasLine = false;
+			bool hasObj = false;
+			for (let m in list)
+			{
+				String s = scope .();
+				CallOverloads.Signature(m, s);
+				if (s == "WriteLine(StringView line)")
+					hasLine = true;
+				if (s == "WriteLine(Object obj)")
+					hasObj = true;
+			}
+			Check(hasLine && hasObj, "both one-argument overloads listed with their parameter names");
+			list.Clear();
+			svc.ListOverloads("Debug", "", "WriteLine", true, null, list);
+			Check(list.Count >= 2, scope $"Debug.WriteLine overloads listed ({list.Count})");
+
+			const String cText =
+				"""
+				using System;
+				using System.Diagnostics;
+
+				namespace Demo
+				{
+					class Host
+					{
+						public void Run(int n)
+						{
+							Console.WriteLine("Hello from NewProject");
+							Console.WriteLine(n);
+							Debug.WriteLine("{} {}", n, n);
+							Console.Write("no line");
+						}
+					}
+				}
+
+				""";
+			let unit = Parser.Parse(cText);
+			defer delete unit;
+			List<Member> methods = scope .();
+			List<Member> owners = scope .();
+			unit.CollectMethods(methods, owners);
+			let g = GraphBuilder.Build(unit, methods[0], owners[0]);
+			defer delete g;
+			List<Node> calls = scope .();
+			for (let n in g.Nodes)
+				if (n.Kind == .Call)
+					calls.Add(n);
+			calls.Sort(scope (a, b) => a.Line <=> b.Line);
+			Check(calls.Count == 4, scope $"four calls read ({calls.Count})");
+			if (calls.Count != 4)
+				return;
+			let hello = calls[0].FindArg(0);
+			CheckEq(hello?.TypeName ?? "none", "StringView", "Console.WriteLine(\"text\") reads as WriteLine(StringView line)");
+			CheckEq(hello?.Label ?? "none", "Message", "its pin is labelled Message");
+			Check(calls[0].Binding == .Static && calls[0].FindInput("target") == null && calls[0].Qualifier == "Console", "static: no Receiver pin, Receiver is Console");
+			CheckEq(calls[1].FindArg(0)?.TypeName ?? "none", "Object", "Console.WriteLine(n) with an int reads as WriteLine(Object obj)");
+			CheckEq(calls[1].FindArg(0)?.Label ?? "none", "Message", "... its pin labelled Message too");
+			CheckEq(calls[2].FindArg(0)?.Label ?? "none", "Format", "Debug.WriteLine(\"{} {}\", n, n): Format");
+			CheckEq(calls[2].FindArg(1)?.Label ?? "none", "Values", "... and Values");
+			CheckEq(calls[3].FindArg(0)?.TypeName ?? "none", "StringView", "Console.Write(\"text\") reads as Write(StringView line)");
+			CheckEq(scope $"{CallOverloads.Count(g, calls[0], svc)}", "4", "the node knows its function has 4 overloads");
+			String sig = scope .();
+			CallOverloads.PinSignature(calls[0], sig);
+			CheckEq(sig, "WriteLine(StringView)", "the subtitle's overload");
+			// An int wired into the text pin: WriteLine(Object obj).
+			Pin nOut = null;
+			for (let p in g.Entry.Outputs)
+				if (p.Kind == .Data && p.Label == "n")
+					nOut = p;
+			Check(CallOverloads.CouldTake(g, hello, "int", svc), "an int may be dropped on the text pin");
+			g.Connect(nOut, hello);
+			Check(CallOverloads.Refit(g, calls[0], svc), "refit after the drop");
+			CheckEq(hello.TypeName, "Object", "the print becomes WriteLine(Object obj)");
+			Check(g.IsLinked(hello) && hello.Label == "Message", "the wire stays, the label too");
 		}
 
 		static void TestMergedCategories()

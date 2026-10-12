@@ -91,7 +91,11 @@ namespace VisualBeef.Editor
 		/// The BeefBuild arguments for a workspace and configuration.
 		public static void MakeArgs(StringView workspaceDir, StringView config, String outArgs)
 		{
-			outArgs.AppendF("-workspace=\"{}\"", workspaceDir);
+			// BeefBuild splits a folder name with a space even inside quotes; Start runs it in the workspace folder, so "." names it.
+			if (workspaceDir.Contains(' '))
+				outArgs.Append("-workspace=.");
+			else
+				outArgs.AppendF("-workspace=\"{}\"", workspaceDir);
 			if (!config.IsEmpty)
 				outArgs.AppendF(" -config={}", config);
 #if BF_PLATFORM_WINDOWS

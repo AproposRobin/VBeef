@@ -43,7 +43,7 @@ document tabs.
 | Panel | What it does |
 |---|---|
 | **Toolbar** | **Type Settings** (the class being edited, in Properties); **Compile** (F7) with a state badge (see [Compile status](#compile-status)): grey `?` not compiled, yellow `?` needs compile, spinning blue while compiling, green tick up to date, yellow triangle up to date with warnings, red cross errors. Next to it the **configuration dropdown** (`Debug` / `Release`, see [Compile configuration](#compile-configuration-and-problems)). **Save** (dot when the file is unsaved), **Save All**, **Browse** (Ctrl+B: show the asset in the Project Browser), **Find** (Ctrl+Shift+F), **Arrange** (layered auto-arrange), **Align** (menu), minimap and snap toggles, **Editor Preferences**. The open asset's name sits on the right. |
-| **Outline** | Search box, the class header (kind icon, kind on the right), a **Type Settings** row (and a red *N problems* row when the class misses members), **FUNCTIONS** and **VARIABLES** category bars with a count and a **+** button. FUNCTIONS has an **Override (N)** dropdown; its **+** offers Function, Override, Constructor, Static Constructor, Destructor, Property, Indexer. Functions show their parameters dimmed, overrides a red event icon, constructors / destructors their kind; variables show a type-coloured pill and their type, properties and indexers their `get` / `set` graphs. Click to open / select, drag into the graph (Ctrl = Get, Alt = Set), right-click to rename (every reference, with a preview), change type or delete. Under the function whose Sheet is in front, a **LOCAL VARIABLES** section (count, **+**) lists its local variables in declaration order with the same pill and dim type: click selects (Properties shows it), double-click or F2 in the context menu edits the name in place, drag places a Get / Set, the context menu has Rename, Move Up / Down and Delete. See [Classes-and-Members.md](Classes-and-Members.md). |
+| **Outline** | Search box, the class header (kind icon, kind on the right), a **Type Settings** row (and a red *N problems* row when the class misses members), **FUNCTIONS** and **VARIABLES** category bars with a count and a **+** button. FUNCTIONS has an **Override (N)** dropdown; its **+** offers Function, Override, Constructor, Static Constructor, Destructor, Property, Indexer. Functions show their parameters dimmed, overrides a red event icon, constructors / destructors their kind; variables show a type-coloured pill and their type, properties and indexers their `get` / `set` graphs. Click to open / select, drag into the graph (Ctrl = Get, Alt = Set), right-click to rename (every reference, with a preview), change type or delete. One **LOCAL VARIABLES** section (count, **+**) sits in a fixed place directly below VARIABLES and never moves along with a function: its rows are the local variables of the function whose Sheet is in front, in declaration order with the same pill and dim type, and they refresh when another function's Sheet comes to the front, when a local is added, renamed or deleted and on undo / redo; **+** adds a local to that function (hotkey **L** on a Sheet does the same). With no Sheet open the section shows a dim *Open a function to see its locals* row. For a row: click selects (Properties shows it), double-click or F2 in the context menu edits the name in place, drag places a Get / Set, the context menu has Rename, Move Up / Down and Delete. See [Classes-and-Members.md](Classes-and-Members.md). |
 | **Properties** | A two-column property grid (name / value) with collapsible category bars. Node: kind-specific fields, then **Inputs** with a widget per pin type (checkbox for bool, numeric drag for int / float literals, enum combo for project enums, text otherwise), **Connected Inputs**, **Comment**, **Source**. Call nodes: a **Call** category (static / member / unresolved, "Receiver is", each out variable's spelling, the node's error or warning). Function: **Graph** (name, access, static, inheritance virtual / override / abstract / new, mut, *Overrides*, **Add Override**), **Attributes**, **Inputs** (one row per parameter: name + **Passing** chooser (value / out / ref / in, only what Beef takes for that row: a parameter with a default value is passed by value) + type picker + remove, **Add Input**), **Outputs** (the **Return Value** type picker, then one row per further output: name, type picker, move up / down, remove, **Add Output**; each further output is an `out` parameter, and the read-only Beef header is shown under the rows). Local variable (selected in the Outline): **Variable Name**, **Variable Type**, **Ownership** for class types (Reference, or **Made for this call** with its Arguments / Initial Text), **Initial Value** (the member variable controls), the declaration line, **Delete Local Variable**. A Local Variable node read from the middle of a function shows **Move to Local Variables** with a note (see [Classes-and-Members.md](Classes-and-Members.md#local-variables)). The **Add Function** dialog uses the same controls: Name, a Return Type picker and Inputs rows (name, Passing, type picker, remove, Add Input); no parameter text is typed. Variable: name, type picker, access, storage (static / const / readonly), default value, get / set graphs, owner, attributes, delete. **Type Settings** (the type itself selected): problems, name, kind, parent class, namespace, interfaces, Implement Missing Members, Override, modifiers, attributes, generics, enum values, add constructors / destructor. Renames (class, function, variable, parameter, local) rename every reference in the project after a **Rename References** preview. Several nodes: the selection list and alignment buttons. |
 | **Project Browser** | Folder tree + tiles. **Filters** (asset kinds, Unsaved, Changed in the last 24 hours) with removable chips. **Drag a tile onto a folder** (tile or tree) to move it. Double-click opens, F2 renames, Del deletes. |
 | **Output Log** | Every editor message and BeefBuild's output as it streams (including the exact BeefBuild command line); GraphValidator's errors and warnings (category `Graph`) after each edit and when a graph is first shown. Search, severity toggles (Messages / Warnings / Errors / Verbose), category filter, **Copy** (visible lines) and **Clear**. Compiler messages with a location: double-click to open the node. Every line is also written to the session log file (see [Logs, crashes, recovery](#logs-crash-reports-recovery-settings)). |
@@ -55,6 +55,7 @@ document tabs.
 | **Status bar** | **Project Drawer** and **Output Log** buttons (bottom-left), the background indexing progress (phase, bar, **x** to cancel) while it runs, the debugger state ("Running", "Stopped at Greeter.Hello", "Not debugging"), the latest message, compile state and "All Saved" / "N Unsaved" (bottom-right). |
 | **Toasts** | Bottom-right notifications, coloured by severity, auto-dismiss (4 s info, 6 s warning, 8 s error), hover to keep, click to dismiss, repeats collapse into "(x2)". |
 | **Update notice** | A line under the toolbar, only while a new version is available, downloading (progress, **Cancel**), downloaded (**Restart to finish**) or refused (the reason, **Dismiss**); **Update**, **Release notes**, **Later**. **Help > Check for Updates...** checks at once. See [Updating.md](Updating.md). |
+| **Documentation** | **Help > Documentation** (**F1**, or the start page's Documentation card): a window with the shipped pages listed on the left (in the order of their front matter, the open page's headings under it) and a search over titles and headings, the page on the right: headings, lists, tables, code, pictures from `docs/images`, links to other pages and to headings that work, **Back**. Read from the `docs` folder next to the editor program (a development build uses the checkout's `docs`). A blank build carries no pages and says so. |
 | **Editor Preferences** | Edit > Editor Preferences or the toolbar gear. Appearance (theme, font size, display scale, notifications), Graph Editor (snap to grid, minimap, idle frame pacing), Saving (autosave interval, off by default; recovery journal interval, 30 s by default; the recovery and logs folders), Build (BeefBuild path and whether it was found; default compile configuration), Node Hotkeys, Updates (the version, **Check at Start**, **Channel** Stable / Preview, the last result, **Check Now**, **Open Release Page**). Stored in `%LOCALAPPDATA%\VisualBeef\settings.json`. |
 
 The window title follows the active tab: `VisualBeef - <Project> - <Class> *`.
@@ -80,6 +81,28 @@ that was compiled and not touched opens green, and one changed outside the edito
 hash is retaken after a save and at most every three seconds otherwise. A damaged record is ignored.
 The logic is `CompileRecord` (Core, tested by `safety` group 17).
 
+## Start page
+
+Started with no project on the command line, the editor shows the **start page** over the work area
+and reopens nothing from the last session. Left: **Recent projects**, newest first, each with its
+name, its folder and when it was opened (a click opens it); a folder that is not there any more is
+dimmed and marked **Missing**, with a **x** to take it off the list (the folder itself is never
+touched). Right: **New project...** (the New Project dialog), **Open project...** (the folder
+picker) and **Documentation**. A project folder or a `.bf` file dropped on the window opens too.
+Opening or making a project closes the page; **File > Close Project** brings it back.
+
+The list is kept in the preferences (`settings.json`, `preferences.recentProjects`): the 12 newest,
+a path under the per-user folder stored relative to it, any other as chosen. **File > Open Recent**
+has the same list.
+
+## Opening and closing a project
+
+**File > Open Project Folder...**, **File > Open Recent**, the start page, a dropped folder and a
+new project all take the same path: if files have unsaved changes the editor asks (**Save All**,
+**Don't Save**, **Cancel**), then the open project is closed (its files, Sheets, Problems and Find
+results, the debug session), and the Project Browser, Outline, window title and recent list follow the
+new folder. A project named on the command line opens directly, with no start page.
+
 ## Working on a whole project
 
 Use **File > Open Project Folder...** (the standard Windows folder picker) and pick the
@@ -93,8 +116,12 @@ Docked at the bottom (**Ctrl+Space** also opens it as a drawer).
 - The left side is the folder tree. The right side shows the current folder's subfolders and
   **one tile per class, struct, enum and interface**, even when a file holds several. Global
   `static { }` blocks show up as a "Global functions" tile.
+- The tree's root is the **workspace**; each project `BeefSpace.toml` lists is a **project row**
+  (package icon, the project's name, **startup** in green for the startup project) with its folders
+  beneath it, never folded into a `Project/src` chain. A project folder's tile carries the package
+  icon (and a green dot for the startup project). See [Projects and Project Settings](#projects-and-project-settings).
 - **+ Add** or right-click: New Folder, New Class, New Struct, New Enum, New Interface,
-  New Beef File, New Project. A new type gets its own file (`Player.bf`) with the namespace
+  New Beef File, New Project in This Workspace, Add Existing Project. A new type gets its own file (`Player.bf`) with the namespace
   its neighbours use. The dialog also takes a **Template** (Empty class, or Node Library: a
   static class of global functions and variables), **Derived from** (project and library
   types), **Interfaces** and **Implement missing members** (stubs for abstract and interface
@@ -106,20 +133,60 @@ Docked at the bottom (**Ctrl+Space** also opens it as a drawer).
   deletes after a confirmation (to the Recycle Bin on Windows, the Trash on Linux). Search filters the whole
   project. Files changed outside VisualBeef are picked up automatically.
 
+### Projects and Project Settings
+
+Right-click a project row (or its folder tile): **Project Settings** (in Properties, on the right),
+**Set as Startup Project**, **Add as Dependency of <current project>** / **Remove as Dependency of ...**
+(the current project is the open file's, else the startup project), **Remove from Workspace** (the
+files stay), then **Rename Project Folder...**, **New Folder...**, **Delete...** and the create items.
+Folder rows start their menu with **Rename...**, **New Folder...** and **Delete...**.
+
+Project Settings: Name, File, **Build kind** (Console application = `BeefConsoleApplication`,
+Windows application = `BeefGUIApplication`, Library = `BeefLib`, Dynamic library = `BeefLib`
+with `BuildKind = "DynamicLib"` in every configuration, Debug and Release Win64 at least), Startup object,
+Namespace (`DefaultNamespace`), Startup project; **Dependencies** (corlib and the workspace's projects as
+checkboxes, `Name = "*"`); **Configuration** (`[Configs.<Configuration>.<Platform>]`): Pre-build and
+Post-build (`PreBuildCmds` / `PostBuildCmds`, one per line), Output folder and Output name
+(`TargetDirectory` / `TargetName`), Run program, Run arguments and Run in folder (`DebugCommand`,
+`DebugCommandArguments`, `DebugWorkingDirectory`), Macros (`PreprocessorMacros`, `;`-separated), Link flags
+(`OtherLinkFlags`), and the configuration's other keys as written.
+A field is written when you leave it; the Output Log has one `Project:` line per change
+(`Core/BeefProj.toml: [Configs.Debug.Win64] PostBuildCmds = [...]`). A file changed outside VisualBeef
+is read again.
+
+Renaming a project's folder (F2, Rename Project Folder..., or dragging it into another folder) updates
+`BeefSpace.toml` (the path; the name, the startup project and `Locked` / `Unlocked` when the project was
+named like its folder), the project's `BeefProj.toml` `Name`, the other projects' dependencies and
+`.vbproject`'s `main` and relative `libraries`; open files follow. When those files cannot be written the
+folder is moved back and nothing changes. Deleting a project's folder removes it from `BeefSpace.toml` and
+from the other projects' dependencies (the dialog says which projects leave).
+
+**+ Add > New Project in This Workspace...** makes a library or a program beside the current project
+(`Name/BeefProj.toml`, `Name/src/Name.bf` or `Name/src/Program.bf`), lists it in `BeefSpace.toml` and,
+when ticked, adds it to the current project's dependencies. **+ Add > Add Existing Project...** (the
+folder dialog) lists a folder holding `BeefProj.toml` by a path relative to the workspace. A folder with a
+`BeefProj.toml` the workspace does not list offers **Add to Workspace** in its menu.
+
 ### New projects
 
-**File > New Project...** (or **+ Add > New Project**) creates `Name/BeefProj.toml` and
-`Name/src/Program.bf` (console app, library or Windows app) and registers the project in the
-workspace's `BeefSpace.toml`, creating one if there isn't one yet. Compile and the Beef IDE
-see it straight away.
+**File > New Project...** (or **New project...** on the start page) makes a project of its own. Type
+its name: the folder is named exactly that (`My Game` makes `My Game`; only characters a folder
+name cannot hold are left out, and the dialog says so) inside the **Location** you pick (the folder
+the last new project was made in at first). The folder gets `BeefProj.toml`, `BeefSpace.toml` (its own
+workspace, `"My Game" = {Path = "."}`) and `src/Program.bf` (console app, library or Windows app; the
+namespace is the name's letters and digits, `MyGame`), the dialog's `Creates ...` line shows the full
+path before you press **Create Project**, and the new folder becomes the open project (the previous
+one is closed, after the unsaved-changes question). **+ Add > New Project** in a folder of the Project
+Browser instead adds a project there, registered in the workspace around it, and leaves the open
+project as it is. Compile and the Beef IDE see it straight away.
 
 The fourth type, **From template folder...**, makes a project from a template a tool or library
 provides (a folder with a `template.json`, [Host-Integration.md](Host-Integration.md)): a **Template
 folder** row with **Browse...**, the template's name and description under it, and one field per
-variable the template declares, filled with its defaults. The project name is a display name ("Hello
-Tool"); the folder is made from its letters and digits (`HelloTool`), and the dialog shows
-`Creates <folder>` and the first files before you press **Create Project**. A folder that exists
-already is refused. The new folder is opened as the project, on the template's main file.
+variable the template declares, filled with its defaults. The folder is named as typed too ("Hello
+Tool" makes `Hello Tool`), and the dialog shows `Creates <folder>` and the first files before you
+press **Create Project**. A folder that exists already is refused. The new folder is opened as the
+project, on the template's main file.
 
 ### Many files at once
 
@@ -246,7 +313,7 @@ environment variable is set; nothing is written to the working directory or the 
 
 | Path | What |
 |---|---|
-| `settings.json` | Editor Preferences, node hotkeys and favorites (`editor.nodeHotkeys`, `editor.favorites`), the last session (folder, open tabs, Project Browser folder and tile size, layout version), the BeefBuild path, per-workspace choices (compile configuration). Written atomically. The old `%APPDATA%\VisualBeef\EditorPreferences.ini` and `VisualBeef_settings.txt` in the working directory are read once to migrate and no longer written. |
+| `settings.json` | Editor Preferences, node hotkeys and favorites (`editor.nodeHotkeys`, `editor.favorites`), the recent projects (`preferences.recentProjects`), the Project Browser's tile size and the layout version, the BeefBuild path, per-workspace choices (compile configuration). Written atomically. The old `%APPDATA%\VisualBeef\EditorPreferences.ini` and `VisualBeef_settings.txt` in the working directory are read once to migrate and no longer written. |
 | `layout.ini` | The ImGui dock layout (was `VisualBeef_layout.ini` in the working directory; copied over once). |
 | `logs\visualbeef-<date>.log` | The session log: every Output Log line of every session that day, with a header per session (time, pid, exe). Written unbuffered, so the lines before a crash are on disk. The 30 newest are kept. |
 | `logs\visualbeef-crash-<date>-<time>.log` + `.dmp` | A crash report and a minidump (see below). |
@@ -302,6 +369,7 @@ scope, so hovering never reports a conflicting ID. Search results show the same 
 | **F10** / **F11** / **Shift+F11** | Step Over / Step Into / Step Out while stopped |
 | **Ctrl+S** / **Ctrl+Shift+S** | Save / Save All |
 | **Ctrl+O** | Open file |
+| **F1** | Documentation (Help > Documentation) |
 | **Ctrl+B** | Browse to the current asset in the Project Browser |
 | **Ctrl+Shift+F** | Find in Sheets (project-wide) |
 | **Ctrl+F** | Find in the current graph |
@@ -405,17 +473,39 @@ Properties > Inputs (`PinValue`, `PinValueEditor`; tests: `PinTests.bf` in `flow
 | Pin type | Control | Beef written |
 |---|---|---|
 | enum | dropdown of the enum's members | `.Member` (read back from `.Member` or `Enum.Member`) |
-| `String`, `StringView` | text field, no quotes | `"text"` (escapes for `\`, quotes, line breaks) |
+| `String`, `StringView`, `char8*` | text field: type the bare text, no quotes | `"text"` (escapes for `\`, quotes, line breaks, tabs) |
 | `bool` | checkbox | `true` / `false` |
 | `int`, `uint8`, ..., `float`, `double` | number field; refuses a value the type cannot hold | `5`, `-3`, `1.5f` (float), `2.0` (double) |
 | `char8`, `char32` | one-character field | `'x'` |
-| class, struct, pointer, function | none (wire it, or use a Construct); `null` / `default` shown dim | |
-| not a plain literal | read-only text with a **Custom** badge; edit it as text in Properties | kept as written |
+| class, struct, other pointers, function | none (wire it, or use a Construct); `null` / `default` shown dim | |
+| not a plain literal | read-only text with an **Expression** badge; edit it as text in Properties | kept as written |
 
 Typing is committed when the field loses focus or Enter is pressed; a refused value (`300` for `uint8`)
 turns the frame red while typed, and on commit the value stays as it was and the reason shows in a
 toast (`300 does not fit uint8 (0 to 255).`). Receivers and pins of a type the index does
 not know stay plain expression text.
+
+### Text fields
+
+A text field shows the text without its quotes and takes the text the same way: type
+`Hello from NewProject`, and the code gets `Console.WriteLine("Hello from NewProject");`. The quotes are
+added when the code is written, and a quote, a backslash, a line break or a tab in the text is escaped
+(`say "hi" \ done` is written `"say \"hi\" \\ done"`). Older projects whose code has the literal with its
+quotes read the same way: the field shows the text inside the quotes and writing it back changes nothing.
+
+* **One pair of quotes around the whole text is taken off**: typing `"Hello"` gives the text `Hello`,
+  as if the quotes were not typed. For a text that starts and ends with a quote, type the quotes twice:
+  `""Hello""` is the text `"Hello"`, written `"\"Hello\""`.
+* **`$"` and `@"` start an expression**, not a text: an interpolated string (`$"n = {n}"`) or a verbatim
+  string (`@"C:\dir"`) is written exactly as typed and the field shows it with the Expression badge.
+  An interpolated string read back from code is a Format Text node wired into the pin.
+
+### The Expression badge
+
+The badge means the pin's value is not a plain literal of the pin's type: a name, a call, an
+interpolated or verbatim string, a text in an `Object` pin. The value is kept exactly as written; on
+the node it is read-only (a long value ends in "..." before the badge) and Properties > Inputs edits
+it as Beef text. Hovering it shows the whole value and what the badge means.
 
 ## Canvas
 

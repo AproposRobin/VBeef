@@ -212,6 +212,14 @@ namespace VisualBeef.Editor
 				return;
 			}
 			RemapDocPaths(item.Path, target, isFolder);
+			if (isFolder && !WorkspaceAfterFolderMove(item.Path, target))
+			{
+				String back = scope .();
+				if (AssetOps.MovePath(target, item.Path, true, back) case .Ok)
+					RemapDocPaths(target, item.Path, true);
+				ScanProject();
+				return;
+			}
 			ScanProject();
 			SaveSettings();
 			String folderName = scope .();

@@ -131,7 +131,7 @@ namespace VisualBeef.Editor
 				bool made = CreateTemplateProject("Hello Tool", location);
 				mHoFile.Clear();
 				mHoFile.AppendF("{0}{1}src{1}Program.bf", mProjectRoot, Path.DirectorySeparatorChar);
-				SelfTestCheck(made && mProjectRoot.EndsWith("HelloTool") && File.Exists(mHoFile), scope $"host 1: 'Hello Tool' from the template wrote and opened {mProjectRoot}");
+				SelfTestCheck(made && mProjectRoot.EndsWith("Hello Tool") && File.Exists(mHoFile), scope $"host 1: 'Hello Tool' from the template wrote and opened {mProjectRoot} (the folder is named as typed)");
 				if (!made)
 					return true;
 				String manifest = scope .();

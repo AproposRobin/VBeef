@@ -100,7 +100,7 @@ namespace VisualBeef.Editor
 			}
 			// Also wait for the first-start focus of the Project Browser (a fresh default layout), which
 			// would otherwise take the front tab from a panel a step just showed.
-			if ((!mIndexReady || mIndexJob != null || mCommitPending || mFocusCBFrames > 0) && !(mSelfTests.IsEmpty || mSelfTests[0] == "nodoc"))
+			if ((!mIndexReady || mIndexJob != null || mCommitPending || mFocusCBFrames > 0) && !mProjectRoot.IsEmpty && !(mSelfTests.IsEmpty || mSelfTests[0] == "nodoc"))
 				return;
 			if (mSelfTestWait > 0)
 			{
@@ -138,9 +138,14 @@ namespace VisualBeef.Editor
 			case "faultshot": finished = SelfTestFaultShot();
 			case "newcomer": finished = SelfTestNewcomer();
 			case "host": finished = SelfTestHost();
+			case "startpage": finished = SelfTestStartPage();
+			case "docs": finished = SelfTestDocs();
+			case "projectarg": finished = SelfTestProjectArg();
 			case "fnlocals": finished = SelfTestFnLocals();
 			case "localsui": finished = SelfTestLocalsUi();
 			case "mathexpr": finished = SelfTestMath();
+			case "workspace": finished = SelfTestWorkspace();
+			case "strings": finished = SelfTestStrings();
 			case "adddialog-close": mSelfTestCloseDialog = true;
 			case "locals-open": mSelfTestLocalsOpen = true;
 			case "menu": SelfTestMenu(true);
@@ -193,6 +198,7 @@ namespace VisualBeef.Editor
 				else if (test == "close-popups")
 					mSelfTestClosePopups = true;
 				else if (SelfTestPixelStep(test)) {}
+				else if (SelfTestStartPageStep(test)) {}
 				else if (test == "fit")
 					SelfTestFit();
 				else if (test.StartsWith("minimap:")) // the minimap on / off (captures)

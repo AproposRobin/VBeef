@@ -216,12 +216,12 @@ Notes on each step:
 | State | Where | Lifetime |
 |---|---|---|
 | Source text, parsed unit, graphs, undo stack, dirty flag | `SourceDocument` (one per open file) held in `EditorApp.mDocs` | Open file |
-| Open tabs, selection, pan / zoom | `GraphTab` in `EditorApp.Tabs` | Session (tabs restored from settings) |
+| Open tabs, selection, pan / zoom | `GraphTab` in `EditorApp.Tabs` | Session (not restored: a start without a project shows the start page) |
 | Project symbols | `ProjectIndex` (`EditorApp.Index`, also `GraphBuilder.Index` static) | Open project; built on a worker thread by `IndexJob` on open, then rescanned incrementally on file changes |
 | Library symbols, node catalog | `TypeService` | Open project; libraries cached on disk |
 | Node positions, comment boxes, reroutes, orphan nodes | `File.bf.vblayout` beside each source | Persistent, optional |
 | Library index cache | `%LOCALAPPDATA%\VisualBeef\index\<hash>.bin` | Persistent, safe to delete |
-| Editor Preferences, last project folder, open tabs, BeefBuild path, per-workspace compile configuration | `%LOCALAPPDATA%\VisualBeef\settings.json` (`Settings`, `Prefs`) | Persistent |
+| Editor Preferences, recent projects, BeefBuild path, per-workspace compile configuration | `%LOCALAPPDATA%\VisualBeef\settings.json` (`Settings`, `Prefs`) | Persistent |
 | Dock layout | `%LOCALAPPDATA%\VisualBeef\layout.ini` (ImGui `io.IniFilename`) | Persistent |
 | Session log, crash reports, minidumps | `%LOCALAPPDATA%\VisualBeef\logs\` (`SessionLog`, `CrashHandler`) | Persistent (30 newest kept) |
 | Unsaved document text (recovery journal) | `%LOCALAPPDATA%\VisualBeef\recovery\<pid>-<start>\` (`Recovery`) | Until save / clean exit; offered back after a crash |

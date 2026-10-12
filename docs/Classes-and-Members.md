@@ -514,8 +514,10 @@ The owner's words (2026-10-12): "Eliminate the Local Variable node; functions ge
 locals panel, like global vs local variables." A function's **local variables** are the
 declarations at the top of its body, in order (`Graph.Locals`). They are not nodes on the Sheet:
 
-* **Outline**: under the function whose Sheet is in front, **LOCAL VARIABLES** with a count and
-  **+**, one row per local variable (type-coloured pill, name, the type dimmed). Click selects it
+* **Outline**: one **LOCAL VARIABLES** section in a fixed place directly below VARIABLES (it does
+  not move with the function; its rows follow the function whose Sheet is in front, and a dim
+  *Open a function to see its locals* row shows when none is open) with a count and
+  **+** (adds to that function), one row per local variable (type-coloured pill, name, the type dimmed). Click selects it
   (Properties shows it), double-click edits the name in place, drag onto the Sheet places a Get
   (Ctrl) or a Set (Alt) or asks, the context menu has Rename, Move Up / Down and Delete. **L** on
   the Sheet adds `int newLocal = 0;` and selects it with its name box focused.

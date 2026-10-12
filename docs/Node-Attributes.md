@@ -244,6 +244,11 @@ types: "Clamp (int, int, int)" and "Clamp (float, float, float)". A call that is
 code is matched first by its number of arguments (default and `params` arguments count), then by
 the types of its arguments.
 
+A placed node follows the values put into it: wiring or typing a value switches it to the most
+specific overload with the same number of arguments (an int wired into `Clamp (float, float, float)`
+whose other inputs are empty makes it `Clamp (int, int, int)`), and Properties > Call > Overload lists
+every overload to pick from ([Calls-and-Receivers.md](Calls-and-Receivers.md#overloads)).
+
 ## Full example
 
 `VisualBeefTests/src/MetaSample.bf` uses every attribute and is compiled with the tests, so the

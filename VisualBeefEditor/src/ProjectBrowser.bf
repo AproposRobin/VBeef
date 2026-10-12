@@ -81,6 +81,14 @@ namespace VisualBeef.Editor
 		public List<CBDir> Dirs = new .() ~ DeleteContainerAndItems!(_);
 		/// .bf files directly in this folder.
 		public List<String> Files = new .() ~ DeleteContainerAndItems!(_);
+		/// The workspace project this folder is (BeefSpace.toml lists it), or null.
+		public String ProjectName ~ delete _;
+		/// The workspace's startup project.
+		public bool Startup;
+		/// A BeefProj.toml the workspace does not list.
+		public bool LooseProject;
+		/// A workspace project outside the open folder (a leaf row; Path is its folder).
+		public bool Outside;
 
 		public int CountFilesRecursive()
 		{
@@ -293,6 +301,9 @@ namespace VisualBeef.Editor
 
 		// New Project modal
 		bool mOpenNewProject;
+		/// The dialog adds a project to the workspace of a folder of the open project (the Project Browser's folder menu)
+		/// instead of making a project of its own that becomes the open one.
+		bool mNPAddHere;
 		TextBuffer mNPName = new .(256) ~ delete _;
 		TextBuffer mNPLocation = new .(2048) ~ delete _;
 		int32 mNPType;
@@ -567,6 +578,7 @@ namespace VisualBeef.Editor
 			if (mCBTree.Name.IsEmpty)
 				mCBTree.Name.Set(mProjectRoot);
 			ScanContentDir(mCBTree, 0);
+			MarkProjects();
 			// Keep the current folder (or its nearest surviving parent).
 			String folder = scope .(mCBFolder);
 			while (!folder.IsEmpty && FindCBDir(folder) == null)
@@ -659,7 +671,8 @@ namespace VisualBeef.Editor
 			{
 				name.Clear();
 				e.GetFileName(name);
-				if (!name.EndsWith(".bf", .OrdinalIgnoreCase))
+				// Project files too: a project added or renamed outside VisualBeef shows in the tree.
+				if (!name.EndsWith(".bf", .OrdinalIgnoreCase) && name != "BeefSpace.toml" && name != "BeefProj.toml")
 					continue;
 				HashStr(name, ref h);
 				h ^= e.GetLastWriteTimeUtc().Ticks;
@@ -905,7 +918,7 @@ namespace VisualBeef.Editor
 					bool anyPopup = Gui.igIsPopupOpen_Str("", PopupFlags.AnyPopup);
 					// (Not while a create / rename / delete dialog is pending or open: it would take
 					// the drawer down with it, which looked like "+ Add does nothing".)
-					bool dialogBusy = mCBModalOpen || mOpenCBNew || mOpenCBRename || mOpenCBDelete || mOpenNewProject || mOpenCBNoProject;
+					bool dialogBusy = mCBModalOpen || mOpenCBNew || mOpenCBRename || mOpenCBDelete || mOpenNewProject || mOpenCBNoProject || mOpenWsNew || mOpenWsExisting || mWsNewOpen;
 					if (mCBDrawerFrames > 2 && !focused && !anyPopup && !dialogBusy)
 						open = false;
 					if (Gui.IsKeyPressed(Key.Escape, false) && !anyPopup && !Gui.igIsAnyItemActive() && !dialogBusy)
@@ -917,6 +930,7 @@ namespace VisualBeef.Editor
 					mCBDrawerOpen = false;
 			}
 			ProcessCBRequests();
+			ProcessWorkspaceRequest();
 		}
 
 		public void ToggleProjectDrawer()
@@ -966,10 +980,11 @@ namespace VisualBeef.Editor
 			}
 
 			// ---- toolbar: + Add, Save All | up, breadcrumb ............ search
-			if (GreenButton("+ Add"))
+			if (GreenButton("+ Add") || mSelfTestAddMenu)
 				Gui.OpenPopup("##cbadd");
+			mSelfTestAddMenu = false;
 			if (Gui.igIsItemHovered(0))
-				Gui.Tooltip("Create a folder, class, struct, enum, interface, file or project");
+				Gui.Tooltip("Create a folder, class, struct, enum, interface or file; add a project to the workspace");
 			if (Gui.BeginPopup("##cbadd"))
 			{
 				DrawAddMenu(mCBFolder);
@@ -1081,15 +1096,24 @@ namespace VisualBeef.Editor
 			Gui.igPopStyleColor(2);
 		}
 
-		void DrawCBTree(CBDir dir, bool isRoot)
+		void DrawCBTree(CBDir dir, bool isRoot) => DrawCBTreeRow(dir, isRoot ? 1 : 0);
+
+		/// One row of the folder tree and its children. `mode` 0: a folder or a project; 1: the root (the
+		/// workspace); 2: the project whose folder is the root itself (`Path = "."`), drawn under the root with
+		/// the root's own folders, the other projects beside it. Projects are their own kind of row (icon, name,
+		/// startup mark) and are never folded into a "parent/child" chain.
+		void DrawCBTreeRow(CBDir dir, int mode)
 		{
 			var d = dir;
+			bool isRoot = mode == 1;
+			bool asProject = (mode == 0 && d.ProjectName != null) || mode == 2;
+			bool rootIsProject = isRoot && d.ProjectName != null;
 			String name = scope .(d.Name);
 			bool chainSelected = ProjectIndex.SamePath(d.Path, mCBFolder);
-			if (!isRoot)
+			if (mode == 0 && !asProject)
 			{
-				// Collapse single-folder chains ("ClockWorkEngine/src") like an IDE does.
-				while (d.Files.IsEmpty && d.Dirs.Count == 1)
+				// Collapse single-folder chains ("Engine/src") like an IDE does, never into a project.
+				while (d.Files.IsEmpty && d.Dirs.Count == 1 && d.Dirs[0].ProjectName == null)
 				{
 					d = d.Dirs[0];
 					name.AppendF("/{}", d.Name);
@@ -1097,61 +1121,85 @@ namespace VisualBeef.Editor
 						chainSelected = true;
 				}
 			}
+			bool hasKids = rootIsProject || (isRoot && !mCBOutsideProjects.IsEmpty);
+			for (let sub in d.Dirs)
+				if (mode != 2 || sub.ProjectName == null)
+					hasKids = true;
 			int32 flags = TreeNodeFlags.OpenOnArrow | TreeNodeFlags.SpanAvailWidth | (1 << 6) /* OpenOnDoubleClick */;
-			if (d.Dirs.IsEmpty)
+			if (!hasKids)
 				flags |= TreeNodeFlags.Leaf;
-			if (chainSelected)
+			if (chainSelected && !rootIsProject)
 				flags |= TreeNodeFlags.Selected;
-			if (isRoot)
+			if (isRoot || asProject)
 				flags |= TreeNodeFlags.DefaultOpen;
 			if (mCBReveal && IsUnder(mCBFolder, d.Path))
 				Gui.igSetNextItemOpen(true, Cond.Always);
 			String label = scope .();
-			label.AppendF("{}##{}", name, d.Path);
-			Gui.igPushStyleColor_U32(Col.Text, isRoot ? Gui.Color(230, 230, 230) : Gui.Color(214, 190, 136));
+			let color = TreeRowLabel(d, name, isRoot, asProject, label);
+			label.AppendF("##{}{}", mode, d.Path);
+			Gui.igPushStyleColor_U32(Col.Text, color);
 			bool open = Gui.TreeNode(label, flags);
 			Gui.igPopStyleColor(1);
+			TreeRowTooltip(d, isRoot, asProject);
 			CBFolderDropTarget(d.Path);
 			if (Gui.igIsItemClicked(0) && !Gui.igIsItemToggledOpen())
 				mCBNavigateRequest.Set(d.Path);
-			if (Gui.igBeginPopupContextItem(null, PopupFlags.MouseButtonRight))
+			String ctxId = scope $"##ctx{mode}{d.Path}";
+			if (!mSelfTestTreeMenu.IsEmpty && ProjectIndex.SamePath(mSelfTestTreeMenu, d.Path) && (mode != 1 || !rootIsProject))
 			{
-				Gui.TextDisabled(name);
-				Gui.Separator();
-				DrawAddMenu(d.Path);
-				if (!isRoot)
-				{
-					Gui.Separator();
-					if (Gui.MenuItem("Rename", "F2"))
-					{
-						CBItem item = new .();
-						item.Kind = .Folder;
-						item.Name.Set(d.Name);
-						item.Path.Set(d.Path);
-						CBItem.MakeKey(.Folder, d.Path, "", item.Key);
-						StartRename(item);
-						delete item;
-					}
-					if (Gui.MenuItem("Delete", "Del"))
-					{
-						ClearAndDeleteItems!(mCBDeleteItems);
-						CBItem item = new .();
-						item.Kind = .Folder;
-						item.Name.Set(d.Name);
-						item.Path.Set(d.Path);
-						CBItem.MakeKey(.Folder, d.Path, "", item.Key);
-						mCBDeleteItems.Add(item);
-						mOpenCBDelete = true;
-					}
-				}
+				mSelfTestTreeMenu.Clear();
+				Gui.OpenPopup(ctxId);
+				// Captures: where a right-click on the row would put it.
+				let rowMin = Gui.igGetItemRectMin();
+				Gui.igSetNextWindowPos(.(rowMin.x + 60 * Look.Scale, rowMin.y + Gui.igGetFrameHeight()), Cond.Always, .(0, 0));
+			}
+			if (Gui.igBeginPopupContextItem(ctxId, PopupFlags.MouseButtonRight))
+			{
+				DrawTreeRowMenu(d, isRoot || mode == 2, asProject);
 				Gui.EndPopup();
 			}
+			TreeRowMarks(d, asProject);
 			if (open)
 			{
-				for (let sub in d.Dirs)
-					DrawCBTree(sub, false);
+				if (rootIsProject)
+				{
+					DrawCBTreeRow(d, 2);
+					for (let sub in d.Dirs)
+						if (sub.ProjectName != null)
+							DrawCBTreeRow(sub, 0);
+				}
+				else
+				{
+					for (let sub in d.Dirs)
+						if (mode != 2 || sub.ProjectName == null)
+							DrawCBTreeRow(sub, 0);
+				}
+				if (isRoot)
+					for (let o in mCBOutsideProjects)
+						DrawOutsideProjectRow(o);
 				Gui.TreePop();
 			}
+		}
+
+		/// A workspace project outside the open folder: a leaf with its menu; a click shows its settings.
+		void DrawOutsideProjectRow(CBDir d)
+		{
+			String label = scope .();
+			let color = TreeRowLabel(d, d.Name, false, true, label);
+			label.AppendF("##out{}", d.Path);
+			Gui.igPushStyleColor_U32(Col.Text, color);
+			Gui.TreeNode(label, TreeNodeFlags.Leaf | TreeNodeFlags.SpanAvailWidth | TreeNodeFlags.NoTreePushOnOpen);
+			Gui.igPopStyleColor(1);
+			TreeRowTooltip(d, false, true);
+			if (Gui.igIsItemClicked(0))
+				QueueWsAction(.Settings, d.Path, d.ProjectName);
+			String ctxId = scope $"##ctxout{d.Path}";
+			if (Gui.igBeginPopupContextItem(ctxId, PopupFlags.MouseButtonRight))
+			{
+				DrawTreeRowMenu(d, false, true);
+				Gui.EndPopup();
+			}
+			TreeRowMarks(d, true);
 		}
 
 		/// Text in a table cell: cut to the cell with "..." (a tooltip carries the whole text).
@@ -1397,6 +1445,7 @@ namespace VisualBeef.Editor
 				else if (hovered)
 					Gui.ImDrawList_AddRectFilled(dl, p0, .(p1.x, p1.y - fontH + 4), Gui.Color(255, 255, 255, 20), 5, 0);
 				AssetStyle.DrawIcon(dl, .Folder, .(p0.x + tile / 2, p0.y + tile * 0.52f), tile * 0.82f, kc);
+				DrawProjectTileMark(dl, item, p0, tile);
 				WrapName(name, tile - 4, line1, line2);
 				float w1 = Gui.CalcTextSize(line1).x;
 				AssetStyle.Text(dl, line1, .(p0.x + (tile - w1) / 2, p0.y + tile + 2), fontH, Gui.Color(225, 225, 225));
@@ -1477,14 +1526,20 @@ namespace VisualBeef.Editor
 			return r;
 		}
 
-		/// The "+ Add" / right-click menu, acting on `folder`.
-		void DrawAddMenu(StringView folderIn)
+		/// The "+ Add" / right-click menu, acting on `folder` (`withFolder`: the New Folder item, which the tree's
+		/// folder menus show at the top instead).
+		void DrawAddMenu(StringView folderIn, bool withFolder = true)
 		{
+			if (mSelfTestCloseMenus)
+				Gui.igCloseCurrentPopup();
 			String folder = scope .(folderIn);
-			Gui.TextDisabled("CREATE");
-			if (IconMenuItem(.Folder, "New Folder"))
-				StartNewAsset(.Folder, folder);
-			Gui.Separator();
+			if (withFolder)
+			{
+				Gui.TextDisabled("CREATE");
+				if (IconMenuItem(.Folder, "New Folder"))
+					StartNewAsset(.Folder, folder);
+				Gui.Separator();
+			}
 			Gui.TextDisabled("BEEF TYPES");
 			if (IconMenuItem(.Class, "New Class..."))
 				StartNewAsset(.Class, folder);
@@ -1499,8 +1554,8 @@ namespace VisualBeef.Editor
 			Gui.Separator();
 			if (IconMenuItem(.File, "New Beef File (empty)..."))
 				StartNewAsset(.File, folder);
-			if (Gui.MenuItem("      New Project..."))
-				StartNewProject(folder);
+			Gui.Separator();
+			DrawProjectAddItems();
 			Gui.Separator();
 			if (Gui.MenuItem("Show in Explorer"))
 				ShowInExplorer(folder, false);
@@ -1523,6 +1578,13 @@ namespace VisualBeef.Editor
 			else
 				Gui.Text(scope $"{sel.Count} items");
 			Gui.Separator();
+			// A project's folder: the project's own entries first.
+			let projectDir = (sel.Count == 1 && first.Kind == .Folder) ? ProjectDirOf(first.Path) : null;
+			if (projectDir != null)
+			{
+				DrawProjectMenu(projectDir);
+				Gui.Separator();
+			}
 			if (sel.Count == 1 && Gui.MenuItem("Open", "Enter"))
 			{
 				delete mCBOpenRequest;
@@ -2012,6 +2074,15 @@ namespace VisualBeef.Editor
 					return;
 				}
 				RemapDocPaths(item.Path, newPath, true);
+				// A project's folder (or one holding projects): BeefSpace.toml, BeefProj.toml and .vbproject follow.
+				if (!WorkspaceAfterFolderMove(item.Path, newPath))
+				{
+					String back = scope .();
+					if (AssetOps.MovePath(newPath, item.Path, true, back) case .Ok)
+						RemapDocPaths(newPath, item.Path, true);
+					ScanProject();
+					return;
+				}
 				ScanProject();
 				String key = scope .();
 				CBItem.MakeKey(.Folder, newPath, "", key);
@@ -2225,6 +2296,7 @@ namespace VisualBeef.Editor
 				return false;
 			}
 			CloseDocsUnder(path, true);
+			WorkspaceAfterFolderDelete(path);
 			return true;
 		}
 
@@ -2313,6 +2385,7 @@ namespace VisualBeef.Editor
 			DrawRenameAssetPopup();
 			DrawDeleteAssetsPopup();
 			DrawNewProjectPopup();
+			DrawWorkspacePopups();
 		}
 
 		static void ErrorLine(StringView err)
@@ -2474,6 +2547,8 @@ namespace VisualBeef.Editor
 			Gui.Text(scope $"Rename {AssetStyle.KindLabel(item.Kind)} '{item.IsType ? item.TypeName : item.Name}'");
 			if (item.IsType)
 				Gui.TextDisabled("The declaration is renamed; references in other code are not.");
+			if (item.Kind == .Folder)
+				DrawRenameProjectNote(item.Path);
 			if (Gui.igIsWindowAppearing() || mCBRefocus)
 				Gui.igSetKeyboardFocusHere(0);
 			mCBRefocus = false;
@@ -2532,6 +2607,7 @@ namespace VisualBeef.Editor
 					let dir = FindCBDir(it.Path);
 					int files = (dir != null) ? dir.CountFilesRecursive() : 0;
 					Gui.Text(scope $"{rel}/  - the folder and everything in it ({files} .bf file{(files == 1) ? "" : "s"})");
+					DrawDeleteProjectNote(it.Path);
 				case .File:
 					Gui.Text(rel);
 				default:
@@ -2577,13 +2653,17 @@ namespace VisualBeef.Editor
 
 		// ------------------------------------------------------------------ new project
 
+		/// File > New Project / the start page (no `location`): a project of its own in a folder named after it, which
+		/// then becomes the open project. With a `location` (the Project Browser's folder menu): a project added in that
+		/// folder of the open one, registered in its workspace, the open project unchanged.
 		public void StartNewProject(StringView location = "")
 		{
-			mNPName.Set("NewProject");
+			mNPName.Set("");
+			mNPAddHere = !location.IsEmpty;
 			if (!location.IsEmpty)
 				mNPLocation.Set(location);
 			else
-				mNPLocation.Set(mProjectRoot);
+				mNPLocation.Set(NewProjectLocation());
 			mNPType = 0;
 			mNPError.Clear();
 			mOpenNewProject = true;
@@ -2620,161 +2700,45 @@ namespace VisualBeef.Editor
 			}
 		}
 
-		/// Keys of the `Projects = {...}` inline table, or -1s when there is none.
-		static void FindProjectsTable(StringView text, out int open, out int close)
-		{
-			open = -1;
-			close = -1;
-			int lineStart = 0;
-			while (lineStart < text.Length)
-			{
-				int lineEnd = text.IndexOf('\n', lineStart);
-				if (lineEnd < 0)
-					lineEnd = text.Length;
-				var line = StringView(text, lineStart, lineEnd - lineStart);
-				var trimmed = line;
-				trimmed.TrimStart();
-				if (trimmed.StartsWith('['))
-					return; // past the root table
-				if (trimmed.StartsWith("Projects"))
-				{
-					var rest = trimmed.Substring(8);
-					rest.TrimStart();
-					if (rest.StartsWith('='))
-					{
-						int brace = text.IndexOf('{', lineStart);
-						if (brace < 0)
-							return;
-						int depth = 0;
-						bool inStr = false;
-						for (int i = brace; i < text.Length; i++)
-						{
-							let c = text[i];
-							if (inStr)
-							{
-								if (c == '\\')
-									i++;
-								else if (c == '"')
-									inStr = false;
-								continue;
-							}
-							if (c == '"')
-								inStr = true;
-							else if (c == '{')
-								depth++;
-							else if (c == '}')
-							{
-								depth--;
-								if (depth == 0)
-								{
-									open = brace;
-									close = i;
-									return;
-								}
-							}
-						}
-						return;
-					}
-				}
-				lineStart = lineEnd + 1;
-			}
-		}
-
-		/// True when the workspace's Projects table already has `name`.
+		/// True when the workspace's Projects table already has `name` (`Projects = {...}` or `[Projects]`).
 		static bool WorkspaceHasProject(StringView text, StringView name)
 		{
-			FindProjectsTable(text, let open, let close);
-			if (open < 0)
-				return false;
-			int depth = 0;
-			int i = open + 1;
-			while (i < close)
-			{
-				let c = text[i];
-				if (c == '{')
-					depth++;
-				else if (c == '}')
-					depth--;
-				else if (depth == 0 && (c.IsLetter || c == '_' || c == '"'))
-				{
-					int s = i;
-					bool quoted = c == '"';
-					if (quoted)
-					{
-						i++;
-						s = i;
-						while (i < close && text[i] != '"')
-							i++;
-					}
-					else
-					{
-						while (i < close && (text[i].IsLetterOrDigit || text[i] == '_' || text[i] == '-'))
-							i++;
-					}
-					let key = StringView(text, s, i - s);
-					if (StringView.Compare(key, name, true) == 0)
-						return true;
-					while (i < close && text[i] != '=' && text[i] != ',')
-						i++;
-					continue;
-				}
-				i++;
-			}
+			TomlText t = scope .();
+			t.Set(text);
+			List<(String key, String raw)> entries = scope .();
+			defer { for (let e in entries) { delete e.key; delete e.raw; } }
+			t.MapEntries("Projects", entries);
+			for (let e in entries)
+				if (StringView.Compare(e.key, name, true) == 0)
+					return true;
 			return false;
 		}
 
+		/// Lists the project in the workspace (WorkspaceFiles.AddProject: both forms of the Projects table, a
+		/// path relative to the workspace folder, atomic). Before 2026-10-12 a workspace written by the Beef IDE
+		/// (`[Projects]` table) got a second `Projects = {...}` line, and BeefBuild then skipped the table's projects.
 		static Result<void> RegisterProject(StringView wsFile, StringView name, StringView relPath, bool create)
 		{
-			String entry = scope .();
-			entry.AppendF("{} = {{Path = \"{}\"}}", name, relPath);
-			String text = scope .();
 			if (create)
 			{
+				String entry = scope .();
+				String key = scope .();
+				TomlKey(name, key);
+				entry.AppendF("{} = {{Path = \"{}\"}}", key, relPath);
+				String text = scope .();
 				text.AppendF("FileVersion = 1\nProjects = {{{}}}\n\n[Workspace]\nStartupProject = \"{}\"\n", entry, name);
 				return File.WriteAllText(wsFile, text);
 			}
-			if (File.ReadAllText(wsFile, text, true) case .Err)
-				return .Err;
-			bool crlf = text.Contains("\r\n");
-			StringView nl = crlf ? "\r\n" : "\n";
-			FindProjectsTable(text, let open, let close);
-			if (open >= 0)
-			{
-				var inner = StringView(text, open + 1, close - open - 1);
-				inner.Trim();
-				String ins = scope .();
-				if (!inner.IsEmpty)
-					ins.Append(", ");
-				ins.Append(entry);
-				// Keep any whitespace before the closing brace after the new entry.
-				int at = close;
-				while (at > open + 1 && text[at - 1] == ' ')
-					at--;
-				text.Insert(at, ins);
-			}
-			else
-			{
-				// No Projects line: add one after FileVersion (or at the top).
-				String line = scope .();
-				line.AppendF("Projects = {{{}}}{}", entry, nl);
-				int fv = text.IndexOf("FileVersion");
-				int at = 0;
-				if (fv >= 0)
-				{
-					int eol = text.IndexOf('\n', fv);
-					at = (eol < 0) ? text.Length : eol + 1;
-					if (eol < 0)
-						line.Insert(0, nl);
-				}
-				text.Insert(at, line);
-			}
-			if (!text.Contains("[Workspace]"))
-			{
-				if (!text.EndsWith('\n'))
-					text.Append(nl);
-				text.AppendF("{0}[Workspace]{0}StartupProject = \"{1}\"{0}", nl, name);
-			}
-			return File.WriteAllText(wsFile, text);
+			String wsDir = scope .();
+			WorkspaceFiles.ParentDir(wsFile, wsDir);
+			String projDir = scope .();
+			WorkspaceFiles.Resolve(wsDir, relPath, projDir);
+			List<String> changes = scope .();
+			defer { ClearAndDeleteItems!(changes); }
+			let result = WorkspaceFiles.AddProject(wsFile, name, projDir, changes, scope String());
+			for (let c in changes)
+				Notify.Log(.Info, "Project", c);
+			return result;
 		}
 
 		static void RelativePath(StringView fromDir, StringView toPath, String outRel)
@@ -2791,10 +2755,60 @@ namespace VisualBeef.Editor
 			outRel.Replace('\\', '/');
 		}
 
-		bool ValidateNewProject(StringView name, StringView location, String outError)
+		/// The project's name and its folder's: the typed name as the file system allows it (ProjectKind.FolderName).
+		static void ProjectFolderName(StringView typed, String outFolder)
 		{
-			if (!ValidateIdentifier(name, outError))
+			var t = typed;
+			t.Trim();
+			ProjectKind.FolderName(t, outFolder);
+		}
+
+		/// The Beef namespace of a project's Program.bf: the letters, digits and `_` of its name ("My Game" -> "MyGame"),
+		/// `_` in front of a keyword or an empty result ("App").
+		static void ProjectNamespace(StringView name, String outNs)
+		{
+			String ident = scope .();
+			ProjectKind.Identifier(name, ident);
+			if (ident.IsEmpty)
+				ident.Set("App");
+			for (let k in sKeywords)
+				if (k == ident)
+				{
+					ident.Insert(0, '_');
+					break;
+				}
+			outNs.Append(ident);
+		}
+
+		/// A BeefSpace.toml key: bare when it only has letters, digits, `_` and `-`, else quoted.
+		static void TomlKey(StringView name, String outKey)
+		{
+			bool bare = !name.IsEmpty;
+			for (let c in name.RawChars)
+				if (!(c.IsLetterOrDigit || c == '_' || c == '-') || c >= (char8)128)
+					bare = false;
+			if (bare)
+				outKey.Append(name);
+			else
+				outKey.AppendF("\"{}\"", name);
+		}
+
+		/// `name` is what was typed. `addHere`: the project is added to the workspace around `location`; otherwise it is a
+		/// project of its own and may live anywhere.
+		bool ValidateNewProject(StringView name, StringView location, String outError, bool addHere = true)
+		{
+			String folder = scope .();
+			ProjectFolderName(name, folder);
+			if (name.IsEmpty)
+			{
+				outError.Set("Enter a name.");
 				return false;
+			}
+			if (folder.IsEmpty)
+			{
+				outError.Set("Give the project a name with letters or digits.");
+				return false;
+			}
 			if (location.IsEmpty)
 			{
 				outError.Set("Choose a location.");
@@ -2805,21 +2819,22 @@ namespace VisualBeef.Editor
 				outError.Set("The location folder doesn't exist.");
 				return false;
 			}
-			if (EntryExists(location, name))
+			if (EntryExists(location, folder))
 			{
-				outError.Set(scope $"'{name}' already exists in that folder.");
+				outError.Set(scope $"'{folder}' already exists in that folder.");
 				return false;
 			}
 			String ws = scope .();
-			FindWorkspaceFor(location, ws);
+			if (addHere)
+				FindWorkspaceFor(location, ws);
 			if (!ws.IsEmpty)
 			{
 				String text = scope .();
 				if (File.ReadAllText(ws, text, true) case .Ok)
 				{
-					if (WorkspaceHasProject(text, name))
+					if (WorkspaceHasProject(text, folder))
 					{
-						outError.Set(scope $"The workspace already has a project named '{name}'.");
+						outError.Set(scope $"The workspace already has a project named '{folder}'.");
 						return false;
 					}
 				}
@@ -2827,17 +2842,26 @@ namespace VisualBeef.Editor
 			return true;
 		}
 
-		void CreateProject(StringView nameIn, int32 type, StringView locationIn)
+		/// Writes a new project named after `nameIn` (the folder is the typed name, as the file system allows it; the
+		/// project and workspace files use the same name). `addHere`: it goes into `locationIn` and is registered in the
+		/// workspace around it, the open project stays. Otherwise it gets a workspace of its own and becomes the open
+		/// project (the previous one is closed after the unsaved-changes question).
+		void CreateProject(StringView nameIn, int32 type, StringView locationIn, bool addHere = true)
 		{
-			String name = scope .(nameIn);
+			String typed = scope .(nameIn);
+			typed.Trim();
 			String location = scope .(locationIn);
 			TrimSeparators(location);
 			String err = scope .();
-			if (!ValidateNewProject(name, location, err))
+			if (!ValidateNewProject(typed, location, err, addHere))
 			{
 				SetStatus(err);
 				return;
 			}
+			String name = scope .();
+			ProjectFolderName(typed, name);
+			String ns = scope .();
+			ProjectNamespace(name, ns);
 			String projDir = scope .();
 			JoinPath(location, name, projDir);
 			String srcDir = scope .();
@@ -2853,7 +2877,7 @@ namespace VisualBeef.Editor
 			toml.AppendF("[Project]\nName = \"{}\"\n", name);
 			toml.AppendF("TargetType = \"{}\"\n", sTargetTypes[Math.Clamp(type, 0, 2)]);
 			if (type != 1)
-				toml.AppendF("StartupObject = \"{}.Program\"\n", name);
+				toml.AppendF("StartupObject = \"{}.Program\"\n", ns);
 			String tomlPath = scope .();
 			JoinPath(projDir, "BeefProj.toml", tomlPath);
 			String program = scope .();
@@ -2867,18 +2891,35 @@ namespace VisualBeef.Editor
 					{{
 						public static int Main(String[] args)
 						{{
-							Console.WriteLine("Hello from {0}");
+							Console.WriteLine("Hello from {1}");
 							return 0;
 						}}
 					}}
 				}}
 
-				""", name);
+				""", ns, name);
 			String programPath = scope .();
 			JoinPath(srcDir, "Program.bf", programPath);
 			if ((File.WriteAllText(tomlPath, toml) case .Err) || (File.WriteAllText(programPath, program) case .Err))
 			{
 				SetStatus(scope $"Could not write the project files in {projDir}");
+				return;
+			}
+
+			if (!addHere)
+			{
+				// A project of its own: its folder holds its workspace, then it becomes the open project.
+				String wsOwn = scope .();
+				JoinPath(projDir, "BeefSpace.toml", wsOwn);
+				bool wrote = RegisterProject(wsOwn, name, ".", true) case .Ok;
+				SaveNewProjectLocation(location);
+				RememberProject(projDir);
+				FileSafety.ReadOnlyProject = false; // a project of your own is not the viewer-mode one that may have been open
+				if (!wrote)
+					SetStatus(scope $"Created {name}, but could not write {wsOwn}");
+				RequestOpenProject(projDir, programPath);
+				if (wrote && mProjectRoot == projDir)
+					SetStatus(scope $"Created project {name} in {projDir}");
 				return;
 			}
 
@@ -3012,7 +3053,7 @@ namespace VisualBeef.Editor
 			String location = scope .(locationIn);
 			TrimSeparators(location);
 			String folder = scope .();
-			ProjectKind.Identifier(name, folder);
+			ProjectFolderName(name, folder);
 			String projDir = scope .();
 			JoinPath(location, folder, projDir);
 			List<(String key, String value)> overrides = scope .();
@@ -3029,12 +3070,10 @@ namespace VisualBeef.Editor
 				SetStatus(err);
 				return false;
 			}
-			mProjectRoot.Set(projDir);
-			ScanProject();
-			SaveSettings();
-			UpdateTitle();
-			if (!main.IsEmpty && File.Exists(main))
-				OpenFile(main, false);
+			SaveNewProjectLocation(location);
+			RememberProject(projDir);
+			FileSafety.ReadOnlyProject = false;
+			RequestOpenProject(projDir, (!main.IsEmpty && File.Exists(main)) ? (StringView)main : "", false);
 			SetStatus(scope $"Created {name} from the template {mNPTemplateInfo.Name} in {projDir} ({created.Count} files)");
 			return true;
 		}
@@ -3113,13 +3152,21 @@ namespace VisualBeef.Editor
 			TrimSeparators(location);
 			String err = scope .();
 			// From a template the name is a display name ("Hello Tool"): the folder is made from it.
-			bool valid = (mNPType == cTemplateType) ? Directory.Exists(location) : ValidateNewProject(name, location, err);
+			bool valid = (mNPType == cTemplateType) ? Directory.Exists(location) : ValidateNewProject(name, location, err, mNPAddHere);
 			if (!valid && mNPType == cTemplateType)
 				err.Set("The location folder doesn't exist.");
+			// Nothing typed yet is a prompt, not an error.
+			bool nameEmpty = name.IsEmpty;
+			if (nameEmpty)
+			{
+				valid = false;
+				err.Clear();
+				Gui.TextDisabled("Type a name: the project's folder is named after it.");
+			}
 			if (valid && mNPType == cTemplateType)
 			{
 				String folder = scope .();
-				ProjectKind.Identifier(name, folder);
+				ProjectFolderName(name, folder);
 				if (mNPTemplateInfo == null)
 				{
 					valid = false;
@@ -3160,21 +3207,34 @@ namespace VisualBeef.Editor
 			else if (valid)
 			{
 				String ws = scope .();
-				FindWorkspaceFor(location, ws);
+				if (mNPAddHere)
+					FindWorkspaceFor(location, ws);
+				String folder = scope .();
+				ProjectFolderName(name, folder);
 				String projDir = scope .();
-				JoinPath(location, name, projDir);
+				JoinPath(location, folder, projDir);
 				CreatesLine(projDir);
-				Gui.TextDisabled("    BeefProj.toml and src/Program.bf");
-				if (ws.IsEmpty)
+				if (!mNPAddHere)
 				{
-					String wsAt = scope .();
-					JoinPath((mProjectRoot.IsEmpty || !(ProjectIndex.SamePath(location, mProjectRoot) || IsUnder(location, mProjectRoot))) ? location : mProjectRoot, "BeefSpace.toml", wsAt);
-					Gui.TextDisabled(scope $"and a new workspace {wsAt}");
+					Gui.TextDisabled("    BeefProj.toml, BeefSpace.toml and src/Program.bf");
+					Gui.TextDisabled(mProjectRoot.IsEmpty ? "The new folder is opened as the project." : "The new folder becomes the open project; the current one is closed.");
 				}
 				else
-					Gui.TextDisabled(scope $"and adds it to {ws}");
-				if (mProjectRoot.IsEmpty)
-					Gui.TextDisabled("The location is opened as the project folder.");
+				{
+					Gui.TextDisabled("    BeefProj.toml and src/Program.bf");
+					if (ws.IsEmpty)
+					{
+						String wsAt = scope .();
+						JoinPath((mProjectRoot.IsEmpty || !(ProjectIndex.SamePath(location, mProjectRoot) || IsUnder(location, mProjectRoot))) ? location : mProjectRoot, "BeefSpace.toml", wsAt);
+						Gui.TextDisabled(scope $"and a new workspace {wsAt}");
+					}
+					else
+						Gui.TextDisabled(scope $"and adds it to {ws}");
+					if (mProjectRoot.IsEmpty)
+						Gui.TextDisabled("The location is opened as the project folder.");
+				}
+				if (folder != name)
+					Gui.TextDisabled("Characters a folder name cannot have are left out.");
 			}
 			ErrorLine(err);
 			Gui.igBeginDisabled(!valid);
@@ -3191,7 +3251,7 @@ namespace VisualBeef.Editor
 				if (mNPType == cTemplateType)
 					CreateTemplateProject(name, location);
 				else
-					CreateProject(name, mNPType, location);
+					CreateProject(name, mNPType, location, mNPAddHere);
 			}
 			Gui.EndPopup();
 		}

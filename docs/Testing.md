@@ -38,8 +38,11 @@ parser
 catalog
 diagnostics
 hotkeys
+startpage
+docs
 update
 host
+workspace
 vocabulary
 stress
 compile -out <scratch-dir>
@@ -64,25 +67,29 @@ Expected output on the tree this page was written against (2026-10-10, after the
 
 | Command | Expected last line | Time |
 |---|---|---|
-| `edits` | `total: edits ok, factory failures 0, flow failures 0` (edit scenarios 1-24 with 0 failures, factory 63 cases, flow 157 checks including the 75 call checks, the 7 Defer / Using body checks and the 3 local variable splice checks; the 7 Defer / Using body checks) | seconds |
+| `edits` | `total: edits ok, factory failures 0, flow failures 0` (edit scenarios 1-25 with 0 failures; 25 (2026-10-12) is the text pins, 34 checks of `OverloadTests.RunEdits`; factory 63 cases, flow 157 checks including the 75 call checks, the 7 Defer / Using body checks and the 3 local variable splice checks; the 7 Defer / Using body checks) | seconds |
 | `flow` | `flow checks: 251  failures: 0` (251 includes the 48 Math Expression checks of `calls`; 203 before them includes 6 loop-header checks: a bound that mixes `&&` or `||` stays header text) (59 switch / macro checks + 13 counting For Loop checks + 75 call checks + 7 Defer / Using body checks + 3 `LocalsTests.RunFlow`: a Set spliced after a call, after the local variables) | < 1 s |
 | `calls` | `call checks: 126  failures: 0` (3 unread Result notes: Set keeps it, String.AppendF has none; + 48 `MathExprTests.RunNode`: pins of ten formulas, nine refusals, eleven result types, the node's pins following its text, the code with values in place and parenthesised, a call read twice kept in a variable, a Branch condition, an open input and an unknown type refused) | < 1 s |
 | `lifetime` | `lifetime checks: 126  failures: 0` (14 in "deleting Locals": a Local that later nodes use is not deleted, with the `scope` wording) | < 1 s |
-| `textforms` | `text form checks: 118  failures: 0` (+ 27 `MathExprTests.RunInit`: Initial Value > Expression on `int x = 0;` stays chosen, `a + b` written and read back after a reload, back to Number, refusals, a Local's value) | < 1 s |
-| `classes` | `class checks: 558  failures: 0` (29 `MathExprTests.RunRoundTrip` (2026-10-12): `#math` / `#orphanmath` records written, the nodes back on reload with wires, values, place and chosen type, identity and regenerated commits byte for byte, no side file or a changed formula reads as usual, undo after a text edit, + 53 `LocalsTests.RunClasses` (2026-10-12): local variables read, written, added / renamed / retyped / reordered / removed / moved, outputs on Return nodes and calls, a signature change keeps its function's key, variables made from a pin in one undo step, + 31 Node Library: kind change, static writing, validator, catalog categories, + 179 + 136 in the ownership and initial values group + 38 in set on create, + 19 from the 2026-10-11 passover, + 26 from the suspected-issues pass: typed primitives, a rename with a refused commit, constructor chains, code-point characters, + 12 from the newcomer pass: interface functions, usings, overload ties, + 10 Passing: the chooser's choices, out / ref / in written and read back, + 14 Return defaults per type and a fresh bool function written with `return false;`, + 3 Set labels: Variable on Set nodes, Receiver on calls, + 5 Construct needs a constructor: the error, the classes that need no choice, cleared by an input, a warning when read from code, + 3 a print read back takes Object: the pin, byte for byte, a wired int) | < 1 s |
-| `safety` | `safety: failures=0` (18 groups, 136 `ok` lines) | seconds |
-| `vocabulary` | `vocabulary: source files=113 string literals=10967 docs=23 hits=0 failures=0` | < 1 s |
-| `parser` | `parser checks: 297  failures: 0` (then the 32 declaration-form checks of `classes`; exit code covers both) | < 1 s |
-| `catalog` | `catalog checks: 234 passed, 0 failed` | under 1 s once the corlib cache exists |
+| `textforms` | `text form checks: 169  failures: 0` (+ 41 `OverloadTests.RunTextForms` and + 10 `#if` / `#endif` member edits (2026-10-12): overloads that follow the values; + 27 `MathExprTests.RunInit`: Initial Value > Expression on `int x = 0;` stays chosen, `a + b` written and read back after a reload, back to Number, refusals, a Local's value) | < 1 s |
+| `classes` | `class checks: 560  failures: 0` (29 `MathExprTests.RunRoundTrip` (2026-10-12): `#math` / `#orphanmath` records written, the nodes back on reload with wires, values, place and chosen type, identity and regenerated commits byte for byte, no side file or a changed formula reads as usual, undo after a text edit, + 53 `LocalsTests.RunClasses` (2026-10-12): local variables read, written, added / renamed / retyped / reordered / removed / moved, outputs on Return nodes and calls, a signature change keeps its function's key, variables made from a pin in one undo step, + 31 Node Library: kind change, static writing, validator, catalog categories, + 179 + 136 in the ownership and initial values group + 38 in set on create, + 19 from the 2026-10-11 passover, + 26 from the suspected-issues pass: typed primitives, a rename with a refused commit, constructor chains, code-point characters, + 12 from the newcomer pass: interface functions, usings, overload ties, + 10 Passing: the chooser's choices, out / ref / in written and read back, + 14 Return defaults per type and a fresh bool function written with `return false;`, + 3 Set labels: Variable on Set nodes, Receiver on calls, + 5 Construct needs a constructor: the error, the classes that need no choice, cleared by an input, a warning when read from code, + 5 a print read back: WriteLine(StringView line) with its Message pin, byte for byte, a wired int accepted and switching it to WriteLine(Object obj)) | < 1 s |
+| `safety` | `safety: failures=0` (22 groups on Windows, 179 `ok` lines; groups 21-23 (2026-10-12): graph edits not written, shared undo copies and the byte budget, side files kept) | seconds |
+| `vocabulary` | `vocabulary: source files=115 string literals=10887 docs=23 host-rule files=212 host-rule hits=0 hits=0 failures=0` | < 1 s |
+| `parser` | `parser checks: 305  failures: 0` (8 for a `using` without `;`; then the 32 declaration-form checks of `classes`; exit code covers both) | < 1 s |
+| `catalog` | `catalog checks: 257 passed, 0 failed` (23 of them the corlib overloads: Console / Debug Write and WriteLine, Message / Format / Values, an int dropped on the text pin) | under 1 s once the corlib cache exists |
 | `diagnostics` | `diagnostics checks: 49  failures: 0` | < 1 s |
 | `hotkeys` | `hotkey checks: 36  failures: 0` | < 1 s |
+| `startpage` | `startpage checks: 38  failures: 0` (the folder name made from a typed project name, the recent projects list, stored paths, the "opened ..." wording; no window) | < 1 s |
+| `docs [folder]` | `docs checks: 54  failures: 0` (front matter, the Markdown subset, anchors, link resolution, search, and the real `audience: user` pages of the docs folder: they parse, are in front-matter order, every picture exists, every link leads somewhere; links to developer pages are counted, not failures) | < 1 s |
 | `update` | `update checks: 98  failures: 0` | < 1 s |
-| `host` | `host checks: 76  failures: 0` (command line, `.vbproject`, templates, the Fixture Kit node library, `host-install.json`) | < 1 s |
+| `host` | `host checks: 92  failures: 0` (command line, `.vbproject`, templates, the Fixture Kit node library, `host-install.json`; 2026-10-12: libraries written relative and found after a move, a missing one reported, template creation all or nothing) | < 1 s |
+| `workspace` | `workspace checks: 79  failures: 0` (TomlText, paths, workspace edits, Project Settings, project folders renamed and deleted) | < 1 s |
+| `workspace -build` | `workspace checks: 81  failures: 0` (the same plus BeefBuild on a workspace edited this way, and its program run) | about 5 s |
 | `stress` | `stress checks: 68  failures: 0` (4 context checks + 16 runs of 50 random edits x 4 checks) | about 2 s |
 | `debug -out <dir>` | `debug checks: 83  failures: 0` (9 for a breakpoint on a Local declaration) | about 8 s (one small BeefBuild, three runs under the debugger, two attaches) |
 | `debugmap` (the three corpus folders, ClockWork) | `debugmap: files=204 methods=1702 statements=25724 values=49778 without-line=57 failures=0` | about 15 s |
 | `host -lib <a large generated library>` | the `host` checks plus load time, catalog size, output pins and callback nodes of that library | 18 s on the first run of a 20k-function library (parse + cache), about 1 s after |
-| `compile -out <dir>` | `compile: cases=43 compiled=31 refusals=12 failures=0` (`MathExpression`: Math.Sqrt over an int and a float, a cast, int arithmetic, run: `len 10 7 5`) | about 1.5 s warm, longer on the first BeefBuild |
+| `compile -out <dir>` | `compile: cases=44 compiled=32 refusals=12 failures=0` (`MathExpression`: Math.Sqrt over an int and a float, a cast, int arithmetic, run: `len 10 7 5`; `TextPinsAndOverloads`: typed texts written with quotes and escapes, a char8* pin, an overload chosen with a cast) | about 1.5 s warm, longer on the first BeefBuild |
 | `roundtrip` (the three corpus folders) | `files=174 methods=1552 failures=0 broken=0` | about 15 s |
 | `roundtrip -types` (same three) | same | about 15 s |
 | `roundtrip <CorpusA> <ClockWork> -out <dir>` | `files=106 methods=1235 failures=0 broken=0` | about 8 s |
@@ -102,7 +109,9 @@ If a count differs, the number of cases changed: update this table in the same c
 Runs three suites in one go and prints one total: `EditTests.Run()` (scripted graph-editing
 scenarios), `FactoryTests.Run()` and `FlowTests.Run()`.
 
-* **EditTests** (`EditTests.bf`, scenarios 1-24, about 240 checks): load a sample `Player.bf`, edit
+* **EditTests** (`EditTests.bf`, scenarios 1-25, about 275 checks; 25 is the text pins of `OverloadTests.RunEdits`: bare text
+  written with quotes and escapes, one pair of typed quotes taken off, `$"` / `@"` written as typed, round trips, a
+  quoted literal read from code and from the side file showing the bare text, a char8* pin): load a sample `Player.bf`, edit
   the graph the way the editor does (insert a call, remove a node, morph node kinds, rename,
   asset operations, orphan persistence, broken sidecar records), commit, and assert on the
   generated text (comments and formatting preserved, only the edited statement changed), on
@@ -153,7 +162,12 @@ not an error"), and the Defer / Using body edits (also run by `flow`).
 ### `textforms`
 The last text forms as nodes (`TextFormTests.bf`, [Lifetime-Nodes.md](Lifetime-Nodes.md#the-last-text-forms)), 91 checks in 7 groups:
 overload choice (an ambiguous call lists both overloads, picking one writes the cast, read back
-unambiguous, undo; out-only overloads refused with a reason); Find References (a field across two
+unambiguous, undo; out-only overloads refused with a reason); overloads that follow the values
+(`OverloadTests.RunTextForms`, [Calls-and-Receivers.md](Calls-and-Receivers.md#overloads)): a text literal
+reads as `WriteLine(StringView line)` and an int as `WriteLine(Object obj)`, an int wired into a text pin, a
+text typed into an Object pin, an empty node, the Node menu off an int, `Abs(double)` wired with an int or a
+float, Properties' choice with a cast for a literal and for a wire, a pin removed and added back, a typed
+number carried over to a float, an out overload refused, the Message / Format / Values labels; Find References (a field across two
 files, an overloaded function a rename would refuse, a type, a parameter); methods in `#if` /
 `#else` arms (keys, the arm on each graph, the active arm for a define set, condition
 evaluation, identity commit and regeneration byte for byte of every function, an edit of one arm
@@ -190,7 +204,7 @@ and report with its file and line. It measures, it does not fail. On the three c
 
 ### `safety`
 File-safety scenarios on real files in a scratch folder **`vb_safety_tmp` under the current
-directory** (created and removed by the test): 18 groups, 130 checks.
+directory** (created and removed by the test): 22 groups on Windows, 179 checks.
 1 viewing writes nothing; 2 atomic save, backup, sidecar on edit; 3 failed write leaves the
 original; 4 disk change is a conflict; 5 read-only project refuses every write; 6 dirty tracking
 follows the saved text; 7 node moves are undoable; 8 comment boxes are undoable; 9 sidecar hygiene
@@ -209,6 +223,10 @@ parser cannot read or a declaration error (the 2026-10-11 report with `var Main(
 return type, a `var` member variable, unbalanced brackets, a missing `}`, a nameless member, a CRLF
 file): unchanged saves byte for byte, and both edits (14) keep every other member.
 19 (Linux only) the crash report writer: the report folder (`VB_HOME`, `XDG_STATE_HOME`, `~/.local/state`), a report from a fake SIGSEGV with registers (version, signal, address, project, a `backtrace(3)` stack, the caller's lines last), a runtime-error report, an unwritable folder, the next-start lookup (once), pruning.
+20 saved views (`#view` lines).
+21 graph edits not written: a refused commit leaves the text as saved but `NeedsSave` true; undo onto a step taken while the commit was refused and redo keep its errors (the save is still refused, nothing written); undoing the edit clears it.
+22 undo memory: 20 drags of one graph hold 20 copies of it, one of the other graph and one text; every undo and redo position comes back; over the byte budget the newest 10 steps stay and undo in order.
+23 the side file is kept: a function hidden by an unclosed `(` keeps its positions and `#math` record through a save with an edit and opens at its position once fixed (a really gone function still loses them); a newer-format file is not written and the reason is kept for the editor; (Windows) a side file held with no sharing at load is reported, not written while held, and merged (its comment box kept, the new position saved) once readable.
 Group 12 exercises the Recycle Bin path.
 
 ### `stress [-seed N] [-edits N] [-v] [files or folders]...`
@@ -324,7 +342,7 @@ Before this change the same folder took 15.0 s cold and 16.0 s warm (751 files p
 project sources on every open, on the UI thread). The cache goes to `build\vbtest-cache\root`.
 
 ### `host [-lib <dir>]`
-The host contract ([Host-Integration.md](Host-Integration.md)), `HostTests.bf`, 76 checks: the command line
+The host contract ([Host-Integration.md](Host-Integration.md)), `HostTests.bf`, 92 checks: the command line
 (`EditorArgs.Parse`: `--version` with the host contract number, `--new-from-template` with `--name`, `--var`
 and `--no-open`, the usage errors and exit codes, and the deprecated option of contract 1 mapped onto the new
 one: a deprecation line, its values as template variables, with a template folder a fill-in of the existing
@@ -341,6 +359,27 @@ exit codes 1 and 2), generated libraries reached through a workspace dependency 
 types, `[NodeLibrary("Fixture Kit")]`, the four `[CallbackNode]` roles and their callback pin, `[NodeHidden]`,
 an attributed struct, search), and `host-install.json` (`InstallInfo.IsHostManaged`). With `-lib <dir>` it
 also loads any large generated library and prints its load time, catalog size, output pins and callback nodes.
+
+### `workspace [-build]`
+The workspace and project files behind the Project Browser's project rows and Project Settings
+(`WorkspaceTests.bf`, `VisualBeefCore/src/Document/WorkspaceFiles.bf`), 79 checks in 5 groups, all in scratch
+folders under `%TEMP%\VisualBeefWorkspaceTests`. **toml text**: `TomlText` reads `[Projects]` (the Beef IDE's
+form) and `Dependencies = {...}`, quoted keys, comments after values, multi-line arrays with escapes; a value
+replaced in place keeps its comment, a key added to a table goes after its last key with the file's CRLF, inline
+entries added / removed with their commas, an emptied configuration table removed, a missing table appended, and
+`MiniToml` (library discovery, the debugger) reads the edited text. **paths**: relative paths with `..`, the
+workspace folder as `.`, another drive, `Resolve`, project names. **workspace**: File > New Project's
+registration into a `[Projects]` workspace (one Projects table, the comment and the unknown key kept), an inline
+workspace and a missing one; Add Existing Project by its `[Project] Name` and a `../` path, refused twice and
+without BeefProj.toml; Set as Startup Project; read-only mode writes nothing. **project settings**: build kinds
+(Console, Dynamic library with `BuildKind = "DynamicLib"` in every configuration and back, Library, Windows),
+dependencies in the `[Dependencies]` form (no write when unchanged), a post-build command list with quotes,
+a debug command, both cleared (the table goes), the startup object. **project folders**: Core renamed to Engine
+(the workspace entry, `StartupProject`, `Locked`, `Name`, the dependents in both forms, `.vbproject` main and a
+relative library, the absolute one and a host key kept), a folder around a project, a project named unlike its
+folder, a rename onto another project's name (the path follows, the name stays), and the Engine folder deleted
+(the project, its dependents' entries and the startup project). With `-build` two projects are made, one renamed
+through its folder, a dependency added, and BeefBuild builds and runs the result (`answer 42`).
 
 ### `vocabulary [root] [-v]`
 Reads the string literals of `VisualBeefCore/src`, `VisualBeefEditor/src` and `VisualBeefMeta/src`
@@ -502,7 +541,7 @@ It never touches an installed editor.
 | `verify` | `-Tag`: the full win64 zip, `.sha256` and `release.json` from `AproposRobin/VBeef` via `gh`; hash and `gh attestation verify`. Unpacks into a scratch install folder. | hash mismatch, no attestation, missing `VisualBeefEditor.exe` / `vbhost.dll` / `LICENSE` / `VERSION.txt` / `docs`, no BeefBuild |
 | `version` | `VisualBeefEditor.exe --version` | non-zero exit, output without the `VERSION.txt` version |
 | `matrix` | `VB_SELFTEST=theme:<n>,session` on the packaged exe: Dark and Darker x 1280x800 and 1920x1080 x 100% and 125% (`VB_UI_SCALE`), eight runs, each on a fresh data folder and scratch project; every `shot:` is captured with `PrintWindow` into `<Out>\shots\<run>\` | a run that does not end `done failures=0`, any `[ASSERT]` or `[SELFTEST] FAIL` line, a crash report in the data folder, a requested capture that is missing or tiny, fewer than 20 captures |
-| `fresh` | empty data folder: (a) no project (`nodoc`); (b) a scratch project: `session` (compiles the sample with BeefBuild), then `open:` a function, the Node menu (`menu`), Editor Preferences > Updates (`prefs:5`), and `update-check` (Help > Check for Updates) | as above, and an update answer that is not "up to date" or "<next version> is available" (never "not set up"; no network is a failure unless `-AllowOffline`) |
+| `fresh` | empty data folder: (a) no project (`nodoc,startpage,docs`: the start page, a project switch with unsaved changes, and the documentation panel on the package's own `docs` folder); (b) a scratch project: `session` (compiles the sample with BeefBuild), then `open:` a function, the Node menu (`menu`), Editor Preferences > Updates (`prefs:5`), and `update-check` (Help > Check for Updates) | as above, and an update answer that is not "up to date" or "<next version> is available" (never "not set up"; no network is a failure unless `-AllowOffline`) |
 | `update` | `VB_SELFTEST=update-stage:<dir>` with a staged copy of the same package as a newer version: expects `update complete`, the new `VERSION.txt`, `installed.json` and the new editor running; then a staged copy whose program exits at once: expects `previous copy restored`, the old `VERSION.txt`, no `installed.json` for the failed version and the old editor running again | an end state not reached within 180 s |
 | `soak` | the editor on a scratch project for 60 s (sampled every 2 s), then a close message | exit before the end, a window that stops responding, no clean exit (code 0) within 30 s, `[ASSERT]`, a crash report |
 
@@ -624,7 +663,7 @@ The editor was verified by driving a real window:
   2026-10-11, 0.1.5 merge: `session,debug` `done failures=0` with 82 session checks + 14 debug checks (the scratch project's `Main` is `Greeter g = scope .(); g.Hello();`); `reload-check` 3 checks, `unreadable` 11 checks, `open:Reader.Read(),ids` 0 conflicting IDs (21,195 rows), each `done failures=0`.
   **`reload-check`** is the second run in a new process on the same project and `VB_HOME`: the file
   opens unchanged, its graphs check clean, the indicator is green.
-* **`newcomer`** (`VB_SELFTEST=newcomer`, `SelfTestNewcomer.bf`; an empty scratch folder as the project, a fresh `VB_HOME`): a first-time user's path through the calls the UI makes. File > New Project `Mod`, New Struct `Point`, New Interface `IGreeter` with a function (written as a declaration), New Class `Greeter` implementing it (the stub), Add Variable `List<int>` (Owned, made here; `using System.Collections;` added) and `int mCount = 3`, a constructor `(int start)`, Set on create (refused on `mCount` because `this(int)` exists, then a `String mName`), a For Loop with a print, `TryGet(out int value)` with Set value and Return, `Run` with a Defer, a call, a Branch on `TryGet`'s value and the out pin printed, then in `Main` Construct Greeter (from another file, with the create constructor's input), Defer -> Delete and Run on its Receiver, Save All, a Release compile, close / reopen byte for byte, Reload node, Reload Sheet, undo / redo / undo, and a debugger stop on the print in the loop (`i = 0`) then Continue to exit code 0. `[NEWCOMER]` lines log what each chooser offered and the code written. 2026-10-11: 15 checks, `done failures=0`; the program prints `Hello from Mod`, 0-9, 3, `Run done`. 2026-10-11 (`wt/newcomer2`): 25 checks, `done failures=0`; added: the For Loop's Counter pin `i` wired into the print and read back after reopen, `TryGet` made through the Add Function dialog's Inputs rows with Passing out (the chooser offers value, out, ref, in), Properties > Inputs reads out and writes ref (undone), the Return in `TryGet` starts with `false`, the Set of the parameter labels its pin Variable, the template's print in `Main` takes Object and accepts a wired int, a bare Construct Greeter shows "needs a constructor" until one is chosen.
+* **`newcomer`** (`VB_SELFTEST=newcomer`, `SelfTestNewcomer.bf`; an empty scratch folder as the project, a fresh `VB_HOME`): a first-time user's path through the calls the UI makes. File > New Project `Mod`, New Struct `Point`, New Interface `IGreeter` with a function (written as a declaration), New Class `Greeter` implementing it (the stub), Add Variable `List<int>` (Owned, made here; `using System.Collections;` added) and `int mCount = 3`, a constructor `(int start)`, Set on create (refused on `mCount` because `this(int)` exists, then a `String mName`), a For Loop with a print, `TryGet(out int value)` with Set value and Return, `Run` with a Defer, a call, a Branch on `TryGet`'s value and the out pin printed, then in `Main` Construct Greeter (from another file, with the create constructor's input), Defer -> Delete and Run on its Receiver, Save All, a Release compile, close / reopen byte for byte, Reload node, Reload Sheet, undo / redo / undo, and a debugger stop on the print in the loop (`i = 0`) then Continue to exit code 0. `[NEWCOMER]` lines log what each chooser offered and the code written. 2026-10-11: 15 checks, `done failures=0`; the program prints `Hello from Mod`, 0-9, 3, `Run done`. 2026-10-11 (`wt/newcomer2`): 25 checks, `done failures=0`; added: the For Loop's Counter pin `i` wired into the print and read back after reopen, `TryGet` made through the Add Function dialog's Inputs rows with Passing out (the chooser offers value, out, ref, in), Properties > Inputs reads out and writes ref (undone), the Return in `TryGet` starts with `false`, the Set of the parameter labels its pin Variable, the template's print in `Main` is a Message text field and a wired int switches it to WriteLine(Object obj) (2026-10-12), a bare Construct Greeter shows "needs a constructor" until one is chosen.
 * **`attach`** (`VB_SELFTEST=attach`, `SelfTestAttach.bf`; the `Debuggee` fixture's workspace as the
   project, `VB_ATTACH_MODULE=Debuggee.exe`, the fixture running as `Debuggee.exe loop` started by the
   caller): Attach to Process with a made-up module (the empty list, Attach disabled; capture
@@ -641,8 +680,43 @@ The editor was verified by driving a real window:
   Continue without the breakpoint (`live-running`), Detach (`live-detached`). 2026-10-12 on a game
   client started through its store launcher: 9 checks, `done failures=0`, the game ran on after Detach.
 * **`fnlocals`** (`VB_SELFTEST=fnlocals`, `SelfTestLocals.bf`; an empty scratch folder as the project, a fresh `VB_HOME`): the 2026-10-12 owner requests through the calls the UI makes. Add Input, remove and a type change keep TryGet's Sheet in front and Properties on it, the new row focused; Outputs with two `out` rows and a Return writing `value = 0; name = null; return false;`; L adds `int newLocal = 0;` selected in the Outline with its name box focused, renamed there to `count`; a String local variable made here (`scope .()`); Get / Set count from the Node menu (no Local Variable node offered); Make variable / Make local variable / Make variable (Get) from pins, one undo step each; Save All and a Release compile; close / reopen byte for byte; no `[ASSERT]` line in the session log. Captures `fn-outputs`, `local-props`, `outline-locals`. 2026-10-12: 28 checks, `done failures=0`.
+* **`localsui`** (`VB_SELFTEST=theme:<n>,panel:outline,localsui`, `SelfTestLocalsUi.bf`; a copy of the `Debuggee` fixture as the project, with `int first = 1;` added at the top of `Hello` so it has a local variable): the Outline's LOCAL VARIABLES section. No Sheet open: the bar counts 0 and shows the dim *Open a function to see its locals* row (capture `ls-none`); the bars are in the order FUNCTIONS, VARIABLES, LOCAL VARIABLES, the last starting right below the VARIABLES rows and at the same screen position with no Sheet, with `Add` open and with `Hello` open; Add's `sum` with a breakpoint, its context menu, a refused delete, `int extra` in Hello with Move to Local Variables and a Debug stop on `sum` (captures `ls-bp`, `ls-menu`, `ls-refused`, `ls-move`, `ls-stopped`); then the rows follow the Sheet (`sum` while Add is in front, `first` while Hello is in front, capture `ls-switch`) and a local added, renamed, undone twice, added and deleted. 2026-10-12: 28 checks (plus the host-assert check), `done failures=0` at Dark and Darker x 1280x800 and 1920x1080 x 100% and 125%, no `[ASSERT]`.
 * **`mathexpr`** (`VB_SELFTEST=mathexpr`, `SelfTestMath.bf`; a scratch project with a `Shapes` class: `Length(int x, float y, float scale)` and `Sum(int p, int q)` returning `0`, member variables `a`, `b`, `int mTotal = 0`): a Math Expression picked from the Node menu off Length's Return value (the search finds it by `math` and `expression`; it starts as `a + b`, its inputs need values: the error on the node), its formula typed and the parameters wired (`return Math.Sqrt(x * x + y * y) * scale;`, the Result float), a second one in Sum with `r` left open (the error, Sum not written) and `p * (q +` typed into its field (the red frame), then Properties of `mTotal`: Initial Value > Expression stays chosen over `0` with nothing written, `a + b` written and read back as Expression, `a +` refused (red frame and the reason), `r` given a value and Save All writing the `#math` records. Captures `math-first`, `math-node`, `math-error`, `init-expr-chosen`, `init-expr-written`, `init-expr-refused`. 2026-10-12: 18 checks, `done failures=0` at Dark and Darker x 1280x800 and 1920x1080 x 100% and 125%.
+* **`strings`** (`VB_SELFTEST=strings`, `SelfTestStrings.bf`; a scratch project with a `Greeter` class: `Hello()` printing
+  `Console.WriteLine("Hello from NewProject");`, `Show(int n)` printing a text, `Paths()` printing a long verbatim string):
+  the print reads as WriteLine(StringView line) with a Message text field showing the text without quotes and the
+  subtitle naming the overload; text typed into it (`say "hi" \ done`) is written with quotes and escapes and shown as
+  typed; undo; the verbatim string shows the Expression badge, its value ends before the badge at 100% and at a 1.5 zoom
+  (the positions are checked, not only looked at); an int dropped on a print is accepted and the print becomes
+  WriteLine(Object obj), written `Console.WriteLine(n);`; Properties > Call > Overload lists the 4 overloads; choosing
+  WriteLine(Object obj) for the text writes `Console.WriteLine((Object)"Hello from NewProject");`; undo restores the file.
+  Captures `strings-first` (the first frame after opening), `strings-bare`, `strings-typed`, `strings-badge`,
+  `strings-badge-zoom`, `strings-overloads`. 2026-10-12: 17 checks, `done failures=0` at Dark and Darker x 1280x800 and
+  1920x1080 x 100% and 125%, no `[ASSERT]` line.
 * **`host`** (`VB_SELFTEST=host`, `SelfTestHost.bf`; an empty scratch folder as the project, a fresh `VB_HOME`, the template folder in `VB_HOST_TEMPLATE`, default `VisualBeefTests/fixtures/Host/Template` of the checkout that built the exe): a project made from a host tool's template, through the calls the UI makes. File > New Project offers **From template folder...**; a folder without `template.json` says so; the fixture template loads with its two variables (fields `Id` = `hello-tool`, `Version` = `0.1.0`); `Hello Tool` is created and opened (`HelloTool`, `src/Program.bf`); `.vbproject` names main and configuration and `tool.json` has the filled-in id; the Fixture Kit library is indexed; the Node menu lists Days In Year under Fixture Kit and the four callback nodes under Callbacks, not the `[NodeHidden]` function; **Try register Days In Year** is placed in `Main` and `OnDaysInYear` is picked from its callback pin's Node menu, written `Clock.TryRegisterDaysInYear(=> OnDaysInYear);`; the compile configuration is Release because the `.vbproject` names it; Save All and a compile with the library; close / reopen, Reload Sheet and identity commits byte for byte. `[HOST]` lines log what the Node menu offered and the code written. `newproject-template:<template folder>` opens the New Project dialog on From template folder... with the folder filled in, for captures (`close-popups` closes it).
+* **`workspace`** (`VB_SELFTEST=workspace`, `SelfTestWorkspace.bf`): the Project Browser's projects and Project
+  Settings through the calls the UI makes, on a scratch workspace the caller writes: `BeefSpace.toml` in the Beef
+  IDE's form (`# the workspace` comment, `[Workspace] StartupProject = "Tester"`, `[Projects]` with
+  `Core = {Path = "Core"}` and `Tester = {Path = "Tester"}`); `Core/BeefProj.toml` (a comment, `Dependencies =
+  {corlib = "*"}`, `TargetType = "BeefLib"`) with `src/Greeter.bf` (namespace `Core`, `public static class
+  Greeter` with `Hello()`); `Tester/BeefProj.toml` (depends on corlib and Core, `StartupObject =
+  "Tester.Program"`) with `src/Program.bf` calling `Core.Greeter.Hello()` and an `assets` folder; and beside the
+  workspace `Outside/Ext/BeefProj.toml` (a library). Checks: the project rows, the startup mark, Core's `src`
+  beneath it (no chain), the current project (the open file's); the project menu, a folder menu (captures);
+  Project Settings: build kind Dynamic library and back, post-build commands, the namespace, a dependency off
+  and on, Set as Startup Project (the tree mark follows); the + Add menu; New Project in This Workspace (library
+  `Kit` beside Tester, registered in `[Projects]`, Tester depends on it); Add Existing Project with the path the
+  folder dialog returns (`../Outside/Ext`, the row outside the folder, refused a second time); the rename dialog's
+  project note and Core renamed to Engine through the rename call (BeefSpace.toml, BeefProj.toml `Name`,
+  Tester's dependency, the open document, the tree, no error); the delete dialog's note (cancelled); Remove from
+  Workspace; Save All and a compile of the edited workspace (green). Captures `ws-first`, `ws-tree`,
+  `ws-project-menu`, `ws-folder-menu`, `ws-settings`, `ws-settings-dll`, `ws-add-menu`, `ws-newproject`,
+  `ws-outside`, `ws-rename-dialog`, `ws-renamed`, `ws-delete-dialog`. 2026-10-12: 37 checks (plus the host-assert check), `done failures=0`,
+  no `[ASSERT]`, at Dark and Darker x 1280x800 and 1920x1080 x 100% and 125%. The folder dialog itself is native
+  and cannot be scripted; the step calls what its answer goes to (`AddExistingProjectAt`).
+* **`startpage`** (`VB_SELFTEST=startpage`, `SelfTestStartPage.bf`; **no project argument**, a fresh `VB_HOME`; the editor must show the start page): the start page shows and nothing is reopened; File > New Project (`CreateProject`, the calls the dialog makes) makes `Alpha One` in `<VB_HOME>\sp-scratch` and the folder, `BeefProj.toml` (`Name = "Alpha One"`), `BeefSpace.toml` (`"Alpha One" = {Path = "."}`, `StartupProject`) and `Program.bf` (namespace `AlphaOne`) carry the typed name; it becomes the open project (root, a Sheet on `Program.Main`, title, Project Browser tree, index, recent list); with an unsaved change a second New Project (`Beta`) is made but the switch waits for the question; Don't Save closes `Alpha One` (nothing of it stays open: documents, Sheets, tree, index; its file on disk is unchanged); an unsaved change in `Beta`, `RequestOpenProject` and Save All writes it and opens `Alpha One`; Close Project returns to the start page; the list is in `settings.json`, loads back in order, dims and removes a folder that was deleted; the New Project dialog's `Creates` path for `My Game` and for a name with forbidden characters; the project with a space in its name opens and compiles (BeefBuild run with `-workspace=.`). 2026-10-12: 43 checks, `done failures=0`.
+* **`projectarg`** (`VB_SELFTEST=projectarg`, `SelfTestStartPage.bf`; **with** a project folder argument): the project on the command line opened directly, the start page never showed, it heads the recent list and the window title follows. 2026-10-12: 3 checks, `done failures=0`.
+* **`docs`** (`VB_SELFTEST=docs`, `SelfTestStartPage.bf`; no project needed, a fresh `VB_HOME`): the shipped pages load from the checkout's `docs` (11 `audience: user` pages, none of the developer pages), Help > Documentation opens on Getting started, the page is laid out, the 5 pictures of Classes-and-Members decode and upload as textures (Windows), a link to another page is followed and Back returns, a link to a page that is not shipped changes nothing, a deep heading scrolls the page, a search finds pages and headings, a search with no match shows nothing. 2026-10-12: 17 checks, `done failures=0`.
 * **`nodoc`** (`VB_SELFTEST=nodoc`, `SelfTest.bf`; run with no project, a fresh `VB_HOME`): asks for the Add Variable and Add Function dialogs and Type Settings with no document loaded. Add Variable / Add Function need a selected type: with no document they are refused (counted in `mDialogRefusals`, nothing opens) and `FindType` returns null. Before the fix the first frame crashed (access violation reading null in `FindType`, `Doc.Unit` is null for the empty document). 2026-10-11: 3 checks, `done failures=0`.
 * **`disk`** (`VB_SELFTEST=disk`, chained after `session,debug` as `session,debug,disk`, or in a second process on the project `session` left, like `reload-check`, with `VB_SELFTEST_DELETE_OK=1`. 2026-10-12, undoplace: `session,debug,disk` chains, 108 + 20 + 17 checks `done failures=0`; it used to fail its first save because session step 32 stopped undoing when the text equalled the saved file and left the Branch and the value-less print in Hello's graph. `reload-check` does not follow `disk` (the scratch `src` was deleted and rewritten, no compile record). 2026-10-12, 0.1.7 merge: `disk` 17 checks `done failures=0`; `SelfTestDisk.bf`, 17 checks): the disk going wrong under the open editor, through
   Save All and Reload From Disk. A read-only `Greeter.bf`: Save All is refused ("Save failed: Could not replace ... The original
@@ -668,12 +742,14 @@ The editor was verified by driving a real window:
   | outline | log | problems | source | find>`, `typesettings:<Type>`, `menu` / `menu-close` (the Node
   menu), `menu-pin` (the Node menu opened from the first value output pin: Context Sensitive enabled), `hotkey-menu` (the Node menu at the canvas's top-left corner), `hotkey-capture:<label>` (the key-capture
   control waiting on that favorite), `prefs:<n>` / `prefs-close` (Editor Preferences on a category, 4 = Node Hotkeys), `override:<Type>:<Member>`, `override-menu:<Type>` (the Outline's Override dropdown, left open),
+  `sp-seed` (four recent projects, the last one's folder gone), `sp-close`, `sp-open:<dir>`, `sp-switch:<seeded name>`, `sp-dirty` (an unsaved change), `sp-cancel` (answers the unsaved-changes question Cancel), `filemenu`, `newproject:<name>` (the New Project dialog with that name typed, `newproject:` for the empty state), `docs-open:<File.md>[#heading]`, `docs-search:<text>`, `docs-scroll:<pixels>`, `docs-image:<images/name.png>`, `docs-image-close`, `docs-close`, `helpmenu`,
   `newclass:<Parent>:<Interface>` (the New Class dialog, left open), `status:<text>` (the status bar
   text; empty hides a scratch path), `var:<Type>.<member>` (a member variable in Properties, as an Outline
   click), `addvar:<Type>:<VarType>:<name>` (the Add Variable dialog, left open) and `close-popups` (closes
   it), `initbuf:<text>` (the Initial Value box shows `<text>` as if typed: the error state). `select:` also
   brings the node to the middle of the canvas.
   Steps wait for indexing, a pending commit and the first-start focus of the Project Browser.
+* **`VB_DOCS=<folder>`** names the documentation folder Help > Documentation reads (default: `docs` next to the program, else the `docs` folder of the checkout the program was built in).
 * **`VB_UI_SCALE`** (for example `1.25`) replaces the monitor's display scale, so a 125 % or 150 %
   layout can be checked on a 100 % screen.
 * Launch the Debug or Release exe in a scratch copy of a project (never your real repo).

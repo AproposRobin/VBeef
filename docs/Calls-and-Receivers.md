@@ -25,10 +25,11 @@ A **Set** node's first pin is not a Receiver: it is the **Variable** being set (
 local, array element; `value = mCount;`, `start++`, `local += start`), so it is labelled
 *Variable*. Its pin id is unchanged (the same as the Receiver's), so saved layouts still match.
 
-A print read from code, `Console.WriteLine("text")` or `Console.Write("text")` with one argument,
-takes any value like a Print placed from the Node menu: its pin is `obj` typed `Object` (Beef's
-`WriteLine(Object)`), not the `StringView` of the overload the text resolves to. Wiring a number
-into it writes `Console.WriteLine(i)`; the text as written is unchanged.
+A call shows the overload its arguments choose, as Beef does: `Console.WriteLine("Hello from
+NewProject")` is `WriteLine(StringView line)`, its pin labelled **Message** with a text field that
+shows the text without quotes; `Console.WriteLine(n)` with an int is `WriteLine(Object obj)`. Wiring a
+number into a Message text pin switches the node to `WriteLine(Object obj)` (see
+[Overloads](#overloads)); the code is `Console.WriteLine(n)` either way.
 
 Where it lives: `Graph.bf` (the model), `GraphBuilder.bf` (`FillCall`, `BuildArg`, the out-variable
 scopes and folds), `NodeFactory.bf` (`StaticCall`, `MemberCall`, `This`), `CodeGen.bf` (`CallText`,
@@ -219,18 +220,73 @@ called where its value is used") are added to `Graph.Warnings` too.
 * **Warnings**: a yellow outline and a **WARNING** badge.
 * An unconnected member-call Receiver reads **this** in grey (no text field: there is nothing to type);
   a static call has no Receiver pin and the subtitle "Receiver is Console"; a member call's subtitle
-  names the declaring class ("Receiver is Base"). Pin tooltips explain `ref`, `out` (its variable, `?`,
-  or "writes b") and this. Properties has a **Call** category: binding, Receiver is, each out variable's
-  spelling, the node's error or warning.
+  names the declaring class ("Receiver is Base"). A function with several overloads adds the one the
+  node calls: "Receiver is Console · WriteLine(StringView)". Pin tooltips explain `ref`, `out` (its
+  variable, `?`, or "writes b") and this. Properties has a **Call** category: binding, Receiver is,
+  **Overload** (see [Overloads](#overloads)), each out variable's spelling, the node's error or warning.
 * **Saving refuses** while a built graph has errors (`SaveOutcome.GraphErrors`): the graph's edits
   are not in the text, so saving would store the old text as if they were saved. Compile saves first,
   so it stops too. See [Files-and-Safety.md](Files-and-Safety.md).
+
+## Overloads
+
+Beef has no syntax that names an overload: the arguments choose it. A call node therefore shows the
+overload its arguments choose, and its pins (names, types, the text field or number field of an
+unwired input) follow that overload (`CallOverloads` in VisualBeefCore):
+
+| What happens | The node |
+|---|---|
+| Read from code: `Console.WriteLine("Hello from NewProject")` | `WriteLine(StringView line)`: a **Message** text field showing `Hello from NewProject` |
+| Read from code: `Console.WriteLine(n)` with an int `n` | `WriteLine(Object obj)` |
+| **Print** placed from the Node menu | `WriteLine(StringView line)`, never the `Object` overload by default |
+| A number or an object wired into the Message pin | the drop is accepted because another overload takes it; the node becomes `WriteLine(Object obj)`, the wire stays |
+| Placed from the Node menu off an int output | the overload whose input takes the int (`WriteLine(Object obj)`; `Math.Abs` off an int: `Abs(int)`) |
+| A value typed into a pin (a text typed into an `Object` pin in Properties) | the most specific overload for that value (`WriteLine(StringView line)`) |
+| Nothing in its inputs | the overload with the fewest `Object` parameters |
+
+The choice uses the same scoring as reading code (`TypeService.ResolveCall`): an exact type before a
+conversion, any conversion before `Object`. Ties, unknown types (a name, an expression) and wires of
+unknown type change nothing. Only overloads with the same number of arguments are switched to
+automatically.
+
+**Properties > Call > Overload** lists every overload of the function with its parameter names; the
+one the node calls is marked. Picking another one:
+
+* retypes and relabels the argument pins; a wire stays where its type still fits the new parameter
+  (`int` into `float`), a wire that no longer fits is removed;
+* a typed value stays when it is still a plain value of the new type, is carried over when the new
+  field can hold it (`2` becomes `2.0f` for a `float`), and is cleared otherwise; an expression
+  stays as written;
+* a different number of parameters removes the extra pins or adds empty ones (`WriteLine()` has
+  none);
+* when the arguments as they are would make Beef call another overload, a Cast to the chosen
+  parameter type is put on the argument that tells them apart: `WriteLine(Object obj)` for a text is
+  written `Console.WriteLine((Object)"Hello from NewProject");`, `Abs(float v)` with an int wired is
+  `Calc.Abs((float)n)`. Read back, the call is the chosen overload;
+* overloads whose `out` parameters sit where the node has inputs (or the other way round) are listed
+  disabled; their tooltip says to change the call in the text.
+
+It is one undo step.
+
+### Pin names of static calls
+
+A static call's receiver is its type, shown in the subtitle ("Receiver is Console"); there is no
+Receiver pin. The flow pins in and out stay as on any statement. The argument pins are named after the
+library's parameter names, except for corlib's print functions, whose names would mean little:
+
+| Function | Parameter | Pin |
+|---|---|---|
+| `Console` / `Debug` `Write` / `WriteLine` | `line`, `sv`, `obj`, `value`, `text`, `str` (and a lone `fmt` / `format`) | **Message** |
+| the same, with a format and values | `fmt`, `strFormat`, `format` | **Format** |
+| the same | `args` | **Values** |
 
 ## Overload ties (6.6)
 
 When `TypeService.ResolveCall` (or the type's own overloads) picks between candidates that score
 the same on argument types that are **all known**, the node gets `Node.Ambiguous` and, once edited,
-the warning above. The dropdown to pick an overload (writing a cast) is not done yet.
+the warning above. Properties then has an **Overloads** section with the tied candidates: picking one
+writes a cast on the argument that tells them apart ([Editor-UI.md](Editor-UI.md#find-references-overloads-if-twins)).
+An ambiguous call keeps its tie until one is picked: wiring or typing does not switch it.
 
 ## Menu-made nodes
 
@@ -260,7 +316,10 @@ entries (`MenuEntryKind.CallMethod` with `OnType` / `Static`), Outline drops and
   `out name` (the code is right, the node shape differs).
 * A pure call read only through its out pins is written as a statement and reads back as an impure
   call statement.
-* The ambiguity marker has no overload dropdown yet.
+* Overloads are switched automatically only between those with the same number of arguments; a
+  `params` overload (`WriteLine(StringView fmt, params Object[] args)`) is chosen by adding arguments
+  or in Properties. A pick the arguments would not make and no cast can tell apart (overloads that
+  differ only by `ref`) is shown, but Beef calls the one the arguments choose; the status bar says so.
 * A `ref` parameter becomes an output pin only with `[Pin(Out=true)]` (or as an `out` parameter);
   untagged it is a `ref` input. A library generator tags the parameters its functions only write
   ([Host-Integration.md](Host-Integration.md#node-libraries)).

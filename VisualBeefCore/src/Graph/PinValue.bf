@@ -16,14 +16,16 @@ namespace VisualBeef.Graph
 		Bool,
 		/// A dropdown of the enum's members.
 		Enum,
-		/// A plain text field; the quotes are added on write and taken off on read.
+		/// A plain text field (String, StringView, char8*): the text without quotes; the quotes and
+		/// escapes are added on write and taken off on read. Text typed starting with `$"` or `@"` is
+		/// an expression (an interpolated or verbatim string), written as typed.
 		Text,
 		/// A numeric field that refuses what the type cannot hold.
 		Number,
 		/// A one-character field, written `'x'`.
 		Char,
 		/// The pin's current value is not a plain literal of its type (an expression): shown read-only
-		/// with a Custom badge, edited as text in Properties.
+		/// with an Expression badge, edited as text in Properties.
 		Custom
 	}
 
@@ -44,6 +46,13 @@ namespace VisualBeef.Graph
 			if (tn.IsEmpty || tn == "var" || tn == "let")
 				return .Expr;
 			let t = MemberInit.TypeOf(tn, types);
+			if (t.IsPointer && IsCharPointer(tn))
+			{
+				// `char8*` takes a text literal like a String.
+				if (def.IsEmpty || IsPlainStringLiteral(def))
+					return .Text;
+				return IsNothing(def) ? .None : .Custom;
+			}
 			if (t.IsPointer)
 				return IsNothing(def) ? .None : .Custom;
 			switch (t.Kind)
@@ -67,15 +76,50 @@ namespace VisualBeef.Graph
 
 		static bool IsNothing(StringView def) => def.IsEmpty || def == "null" || def == "default";
 
+		/// `char8*` (a C string): the one pointer type a text field writes.
+		public static bool IsCharPointer(StringView typeName)
+		{
+			var t = typeName;
+			t.Trim();
+			if (!t.EndsWith('*'))
+				return false;
+			t.RemoveFromEnd(1);
+			t.Trim();
+			return t == "char8" || t == "System.char8";
+		}
+
+		/// Text typed into a text field that is an expression rather than text: an interpolated
+		/// (`$"x = {x}"`) or verbatim (`@"C:\dir"`) string. It is written as typed and shown with the
+		/// Expression badge.
+		public static bool IsStringExpression(StringView typedIn)
+		{
+			var t = typedIn;
+			t.TrimStart();
+			return t.StartsWith("$\"") || t.StartsWith("@\"") || t.StartsWith("$@\"") || t.StartsWith("@$\"");
+		}
+
+		/// The text a text field writes for what was typed: one pair of quotes around the whole text is
+		/// taken off (`"Hello"` is the text Hello; a text that starts and ends with a quote is typed with
+		/// the quotes doubled, `""Hello""`), then the quotes are added and quotes, backslashes and line
+		/// breaks escaped (`"say \"hi\""`).
+		public static void QuoteText(StringView typed, String outLiteral)
+		{
+			var t = typed;
+			if (t.Length >= 2 && t.StartsWith('"') && t.EndsWith('"'))
+				t = t.Substring(1, t.Length - 2);
+			MemberInit.QuoteString(t, outLiteral);
+		}
+
 		static bool FormatsAs(StringView def, StringView typeName)
 		{
 			String o = scope .();
 			return MemberInit.FormatNumber(def, typeName, o);
 		}
 
+		/// A `"..."` literal (a verbatim `@"..."` or interpolated `$"..."` string is an expression).
 		static bool IsPlainStringLiteral(StringView def)
 		{
-			if (!(def.StartsWith('"') || def.StartsWith("@\"")))
+			if (!def.StartsWith('"'))
 				return false;
 			String o = scope .();
 			return MemberInit.UnquoteLiteral(def, o);
@@ -154,7 +198,14 @@ namespace VisualBeef.Graph
 			switch (kind)
 			{
 			case .Text:
-				MemberInit.QuoteString(typed, outLiteral);
+				if (IsStringExpression(typed))
+				{
+					var e = typed;
+					e.Trim();
+					outLiteral.Append(e);
+				}
+				else
+					QuoteText(typed, outLiteral);
 				return true;
 			case .Char:
 				if (typed.IsEmpty && allowEmpty)

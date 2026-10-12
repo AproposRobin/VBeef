@@ -1246,6 +1246,11 @@ namespace VisualBeef.Tests
 			RunAssetScenarios();
 			RunOrphanPersistScenarios();
 			RunTypeEditScenarios();
+			// Text pins: bare text, escaping, quoted literals of older projects (docs/Editor-UI.md#pin-values).
+			OverloadTests.Checks = 0;
+			OverloadTests.Failures = 0;
+			OverloadTests.RunEdits();
+			sFailures += OverloadTests.Failures;
 
 			Console.WriteLine("edit failures: {}", sFailures);
 			return (sFailures == 0) ? 0 : 1;

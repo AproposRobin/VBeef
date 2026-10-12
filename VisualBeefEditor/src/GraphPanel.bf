@@ -546,9 +546,10 @@ namespace VisualBeef.Editor
 				return;
 			if (node.Kind != .Call)
 				return;
+			defer AppendOverload(g, node, sub);
 			if (node.Binding == .Static)
 			{
-				// UE: "Receiver is Console"; static, so there is no Target pin.
+				// "Receiver is Console": static, so the type is the fixed receiver and there is no Receiver pin.
 				StringView owner = (node.Qualifier != null && !node.Qualifier.IsEmpty) ? (StringView)node.Qualifier : (StringView)(node.OwnerType ?? "");
 				if (!owner.IsEmpty)
 					sub.AppendF("Receiver is {}", owner);
@@ -557,12 +558,23 @@ namespace VisualBeef.Editor
 			let target = node.FindInput("target");
 			if (target == null)
 				return;
-			// UE names the class that declares the function ("Receiver is Actor").
+			// The class that declares the function ("Receiver is Actor").
 			StringView name = (node.Binding == .Instance && node.OwnerType != null) ? (StringView)node.OwnerType : (StringView)target.TypeName;
 			if (name.IsEmpty && !g.IsLinked(target) && !target.Default.IsEmpty && target.Default[0].IsUpper)
 				name = target.Default;
 			if (!name.IsEmpty)
 				sub.AppendF("Receiver is {}", name);
+		}
+
+		/// A function with several overloads names the one the node calls: "WriteLine(StringView)"
+		/// (docs/Calls-and-Receivers.md#overloads; Properties > Call > Overload switches it).
+		void AppendOverload(Graph g, Node node, String sub)
+		{
+			if (CallOverloads.Count(g, node, TypeService.Current) < 2)
+				return;
+			if (!sub.IsEmpty)
+				sub.Append("  \u{00B7}  ");
+			CallOverloads.PinSignature(node, sub);
 		}
 
 		/// The graph whose lambdas LifetimeSubtitle lists captures for.
@@ -769,7 +781,12 @@ namespace VisualBeef.Editor
 						else if (pl.VKind == .None)
 							pl.FieldW = p.Default.IsEmpty ? 0 : (Gui.CalcTextSize(p.Default).x + 4);
 						else if (pl.VKind == .Custom)
-							pl.FieldW = Gui.CalcTextSize(p.Default).x + Gui.CalcTextSize("Custom").x + 22;
+						{
+							// Grid units at scale 1 (the layout font); DrawPin draws at the zoomed size and
+							// shortens the value with an ellipsis before the badge.
+							float valueW = Math.Min(Gui.CalcTextSize(p.Default).x, cExpressionValueMaxW);
+							pl.FieldW = valueW + Gui.CalcTextSize(cExpressionBadge).x + 22;
+						}
 						else
 							pl.FieldW = InlineFieldWidth(p);
 						pl.FieldX = 24 + ((pl.LabelW > 0) ? pl.LabelW + 6 : 0);
@@ -1584,11 +1601,14 @@ namespace VisualBeef.Editor
 
 		void DrawNodes(GraphTab tab, Graph graph, ImDrawList* dl)
 		{
+			mHoverExprPin = 0;
 			float z = tab.Zoom;
 			bool widgets = z >= 0.45f;
 			if (widgets)
 			{
-				Gui.igPushFont(mFont, mFontSize * z);
+				// PushFont takes the size before the display scale (FontScaleDpi): without the division the
+				// inline fields drew their text 125% too large at a 125% display and cut it off.
+				Gui.igPushFont(mFont, MathFieldFont(z));
 				Gui.igPushStyleVar_Vec2(StyleVar.FramePadding, .(4 * z, 3 * z));
 				Gui.igPushStyleVar_Vec2(StyleVar.ItemSpacing, .(4 * z, 2 * z));
 				Gui.igPushStyleVar_Vec2(StyleVar.ItemInnerSpacing, .(4 * z, 4 * z));
@@ -1800,11 +1820,22 @@ namespace VisualBeef.Editor
 				else if (pl.VKind == .Custom)
 				{
 					// Not a plain literal of the pin's type (an expression): read-only, edited in Properties.
+					// Widths are measured at the size drawn (fh * z) whatever font size is pushed, so the
+					// value never runs under the badge.
 					let f1 = fpos + ImVec2(pl.FieldW * z, (fh + 6) * z);
 					Gui.ImDrawList_AddRectFilled(dl, fpos, f1, Theme.InlineFieldBg, 3 * z, 0);
-					Text(dl, fpos + ImVec2(4 * z, 3 * z), fh * z, Gui.Color(200, 200, 200), p.Default);
-					let bw = Gui.CalcTextSize("Custom").x * z;
-					Text(dl, ImVec2(f1.x - bw - 4 * z, fpos.y + 3 * z), fh * z, Theme.Warning, "Custom");
+					float drawScale = (fh * z) / Math.Max(Gui.igGetFontSize(), 1.0f);
+					float bw = Gui.CalcTextSize(cExpressionBadge).x * drawScale;
+					float bx = f1.x - bw - 4 * z;
+					String shown = scope .();
+					Ellipsize(p.Default, bx - (fpos.x + 4 * z) - 6 * z, drawScale, shown);
+					Text(dl, fpos + ImVec2(4 * z, 3 * z), fh * z, Gui.Color(200, 200, 200), shown);
+					Text(dl, ImVec2(bx, fpos.y + 3 * z), fh * z, Theme.Warning, cExpressionBadge);
+					ExpressionBadgeX = bx - nodePos.x;
+					ExpressionValueRight = fpos.x + 4 * z + Gui.CalcTextSize(shown).x * drawScale - nodePos.x;
+					let mouse = Gui.igGetMousePos();
+					if (mouse.x >= fpos.x && mouse.x <= f1.x && mouse.y >= fpos.y && mouse.y <= f1.y)
+						mHoverExprPin = p.Id;
 				}
 				else if (widgets && PinValueEditor.Handles(pl.VKind) && !pl.Check)
 				{
@@ -1812,6 +1843,9 @@ namespace VisualBeef.Editor
 					Gui.igSetCursorScreenPos(fpos);
 					if (mPinEditor.Draw(mApp, node, p, pl.VKind, pl.FieldW * z))
 					{
+						// A typed value can choose another overload (`$"..."` stays a text; a typed text
+						// into an Object pin is shown by the text overload).
+						mApp.RefitCall(graph, node);
 						mApp.CommitCurrent();
 						mCommitted = true;
 					}
@@ -1826,6 +1860,53 @@ namespace VisualBeef.Editor
 					Text(dl, fpos + ImVec2(4 * z, 3 * z), fh * z, Gui.Color(200, 200, 200), p.Default);
 				}
 			}
+		}
+
+		/// The badge of a pin value that is not a plain literal of the pin's type (PinValueKind.Custom).
+		public const String cExpressionBadge = "Expression";
+		public const String cExpressionTip = "Not a plain value of this pin's type (a name, a call, an interpolated or verbatim string, ...), so it is kept as written. Edit it in Properties > Inputs.";
+		/// The longest an expression value is drawn on the node (grid units); longer ones end in "...".
+		const float cExpressionValueMaxW = 220;
+		/// Self test: where the last expression badge was drawn and where its value text ends (screen
+		/// units from the node's left edge): the value must end before the badge.
+		public float ExpressionBadgeX;
+		public float ExpressionValueRight;
+		/// The pin whose expression field the mouse is over this frame (its tooltip explains the badge).
+		int32 mHoverExprPin;
+
+		/// `text` (its first line) shortened with "..." to fit `maxW` screen units, measured with the
+		/// current font scaled by `scale`.
+		public static void Ellipsize(StringView text, float maxW, float scale, String outText)
+		{
+			var t = text;
+			bool cut = false;
+			let nl = t.IndexOf('\n');
+			if (nl >= 0)
+			{
+				t = t.Substring(0, nl);
+				cut = true;
+			}
+			if (t.Length > 240)
+			{
+				t = t.Substring(0, 240);
+				cut = true;
+			}
+			if (!cut && Gui.CalcTextSize(t).x * scale <= maxW)
+			{
+				outText.Append(t);
+				return;
+			}
+			const String cDots = "...";
+			float dotsW = Gui.CalcTextSize(cDots).x * scale;
+			int len = t.Length;
+			while (len > 0 && Gui.CalcTextSize(t.Substring(0, len)).x * scale + dotsW > maxW)
+			{
+				len--;
+				while (len > 0 && ((uint8)t[len] & 0xC0) == 0x80)
+					len--;
+			}
+			outText.Append(t.Substring(0, len));
+			outText.Append(cDots);
 		}
 
 		/// The Math Expression being typed on a node (0: none) and what is typed; a refused one
@@ -2484,9 +2565,16 @@ namespace VisualBeef.Editor
 					Gui.Tooltip(tip);
 				}
 			}
+			else if (tab.Mode == .None && mHoverExprPin != 0)
+			{
+				// The Expression badge: what it means, and the whole value when it is shortened.
+				let p = graph.FindPin(mHoverExprPin);
+				if (p != null)
+					Gui.Tooltip(scope $"{cExpressionBadge}: {p.Default}\n{cExpressionTip}");
+			}
 
 			// Node tooltip after hovering ~0.6 s (UE).
-			if (tab.Mode == .None && mHoverNode != 0 && mHoverPin == 0 && !Gui.igIsPopupOpen_Str("", (1 << 10) | (1 << 11) /* AnyPopupId | AnyPopupLevel */))
+			if (tab.Mode == .None && mHoverNode != 0 && mHoverPin == 0 && mHoverExprPin == 0 && !Gui.igIsPopupOpen_Str("", (1 << 10) | (1 << 11) /* AnyPopupId | AnyPopupLevel */))
 			{
 				if (mTipNode != mHoverNode)
 				{
@@ -2524,6 +2612,17 @@ namespace VisualBeef.Editor
 
 		/// Where a dragged wire from `src` would connect: the hovered pin, or the first
 		/// compatible pin of the hovered node. Null if nothing compatible.
+		/// A wire the pin's own type refuses, but another overload of the call takes (an int dropped on
+		/// WriteLine's text pin): allowed, and the call switches to that overload once wired.
+		static bool OverloadTakes(Graph graph, Pin a, Pin b)
+		{
+			if (!Graph.CanConnect(a, b) || a.Kind != .Data)
+				return false;
+			let input = a.IsInput ? a : b;
+			let output = a.IsInput ? b : a;
+			return CallOverloads.CouldTake(graph, input, output.TypeName, TypeService.Current);
+		}
+
 		Pin DropTarget(Graph graph, Pin src)
 		{
 			if (src == null)
@@ -2531,7 +2630,7 @@ namespace VisualBeef.Editor
 			if (mHoverPin != 0)
 			{
 				let p = graph.FindPin(mHoverPin);
-				return Graph.CanConnectTyped(src, p) ? p : null;
+				return (Graph.CanConnectTyped(src, p) || OverloadTakes(graph, src, p)) ? p : null;
 			}
 			if (mHoverNode != 0)
 			{
@@ -2544,7 +2643,7 @@ namespace VisualBeef.Editor
 				{
 					for (let p in list)
 					{
-						if (!Graph.CanConnectTyped(src, p) || HidePin(graph, p))
+						if (!(Graph.CanConnectTyped(src, p) || (pass == 2 && OverloadTakes(graph, src, p))) || HidePin(graph, p))
 							continue;
 						if (!TryGetPin(p.Id, let pl) || !pl.Visible)
 							continue;
@@ -3539,6 +3638,8 @@ namespace VisualBeef.Editor
 							graph.Connect(target, src);
 						else
 							graph.Connect(src, target);
+						// A call takes the overload that fits the value now wired into it.
+						mApp.RefitCall(graph, (src.IsInput ? src : target).Owner);
 						mApp.CommitCurrent();
 						mCommitted = true;
 					}
@@ -3565,13 +3666,14 @@ namespace VisualBeef.Editor
 						if (link == null)
 							continue;
 						let other = (link.From.Id == fromPin) ? link.To : link.From;
-						if (!Graph.CanConnectTyped(other, target))
+						if (!Graph.CanConnectTyped(other, target) && !OverloadTakes(graph, other, target))
 							continue;
 						if (!any)
 							mApp.BeginEdit();
 						any = true;
 						graph.Disconnect(link);
 						graph.Connect(other, target);
+						mApp.RefitCall(graph, target.IsInput ? target.Owner : other.Owner);
 					}
 					if (any)
 					{

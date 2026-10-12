@@ -446,6 +446,43 @@ namespace VisualBeef.Tests
 			g.Connect(start.Then, print.ExecIn);
 		}
 
+		/// Text pins (bare text in, quotes and escapes written) and an overload chosen in
+		/// Properties that the argument would not choose (written with a cast).
+		static void MutateTextPins(Graph g)
+		{
+			let start = FindCall(g, "WriteLine", "\"start\"");
+			Pin prev = start.Then;
+			String lit = scope .();
+			String why = scope .();
+			Node Add(Node n)
+			{
+				g.Connect(prev, n.ExecIn);
+				prev = n.Then;
+				return n;
+			}
+			Node Typed(Node n, StringView text)
+			{
+				lit.Clear();
+				PinValue.Write(.Text, n.FindArg(0).TypeName, text, false, lit, why);
+				n.FindArg(0).Default.Set(lit);
+				return Add(n);
+			}
+			StringView[1] lineName = .("line");
+			StringView[1] svType = .("StringView");
+			StringView[1] sName = .("s");
+			StringView[1] cType = .("char8*");
+			Typed(NodeFactory.StaticCall(g, "WriteLine", "Console", "Console", true, lineName, svType, "void"), "Hello from NewProject");
+			Typed(NodeFactory.StaticCall(g, "WriteLine", "Console", "Console", true, lineName, svType, "void"), "say \"hi\" \\ done");
+			Typed(NodeFactory.StaticCall(g, "ShowC", "", "Test", true, sName, cType, "void"), "C text");
+			let boxed = Typed(NodeFactory.StaticCall(g, "Show", "", "Test", true, sName, svType, "void"), "boxed");
+			List<SymbolMethod> list = scope .();
+			CallOverloads.ListOf(g, boxed, TypeService.Current, list);
+			for (let m in list)
+				if (m.ParamTypes.Count == 1 && m.ParamTypes[0] == "Object")
+					CallOverloads.Choose(g, boxed, m, TypeService.Current, why);
+			Typed(NodeFactory.StaticCall(g, "Show", "", "Test", true, sName, svType, "void"), "plain");
+		}
+
 		static void MutateArmIntoCompleted(Graph g)
 		{
 			// The true arm wired into the node the Branch completes into: same code as before.
@@ -777,6 +814,38 @@ namespace VisualBeef.Tests
 					{
 						CgCalls.Test t = scope .();
 						t.Go();
+					}
+				}
+			}
+
+			""";
+
+		const String cTextPins =
+			"""
+			using System;
+
+			namespace CgTextPins
+			{
+				class Test
+				{
+					static void Show(StringView s)
+					{
+						Console.WriteLine("text {}", s);
+					}
+
+					static void Show(Object o)
+					{
+						Console.WriteLine("object {}", o);
+					}
+
+					static void ShowC(char8* s)
+					{
+						Console.WriteLine(StringView(s));
+					}
+
+					public static void Run()
+					{
+						Console.WriteLine("start");
 					}
 				}
 			}
@@ -1989,6 +2058,11 @@ namespace VisualBeef.Tests
 			c.MustContain.Add("\t\t\tlet __v1 = GetName();\n\t\t\tConsole.WriteLine(\"{} and {} ({})\", __v1, __v1, sNameCalls);\n");
 			c = AddCase(cases, "MathExpression", "CgMath", cMath, "Test.Measure(int,float,float)", => MutateMath, "measure\nlen 10 7 5\n");
 			c.MustContain.Add("\t\t\tConsole.WriteLine(\"len {} {} {}\", (int)(Math.Sqrt(x * x + y * y) * scale), x * 2 + 1, x / 2 + y);\n");
+			c = AddCase(cases, "TextPinsAndOverloads", "CgTextPins", cTextPins, "Test.Run()", => MutateTextPins,
+				"start\nHello from NewProject\nsay \"hi\" \\ done\nC text\nobject boxed\ntext plain\n");
+			c.WithTypes = true;
+			c.MustContain.Add("\t\t\tConsole.WriteLine(\"start\");\n\t\t\tConsole.WriteLine(\"Hello from NewProject\");\n");
+			c.MustContain.Add("\t\t\tConsole.WriteLine(\"say \\\"hi\\\" \\\\ done\");\n\t\t\tShowC(\"C text\");\n\t\t\tShow((Object)\"boxed\");\n\t\t\tShow(\"plain\");\n");
 			c = AddCase(cases, "ArmIntoCompleted", "CgArm", cArm, "Test.Show(bool)", => MutateArmIntoCompleted, "on\nend\nend\n");
 			c.SameAsSource = true;
 			c = AddCase(cases, "StyleKeptAndMatched", "CgStyle", cStyle, "Test.Run()", => MutateStyle, "start\ntick\ntick\ntick\nthree\nbig\n");

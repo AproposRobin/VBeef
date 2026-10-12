@@ -130,6 +130,123 @@ namespace VisualBeef.Editor
 
 		PinValueEditor mPropPinEditor = new .() ~ delete _;
 
+		/// Self test: the Overload dropdown of the selected call is opened / closed on the next draw.
+		public bool SelfTestOpenOverloads;
+		public bool SelfTestCloseOverloads;
+		/// Self test: how many overloads the dropdown listed when it was last drawn open.
+		public int SelfTestOverloadRows;
+
+		/// Properties > Call > Overload: every overload of the call's function, the one the node shows
+		/// marked. Picking one is ChooseOverload. True when the node changed (the caller commits).
+		bool DrawOverloadChoice(MethodGraph mg, Node node)
+		{
+			List<SymbolMethod> overloads = scope .();
+			CallOverloads.ListOf(mg.Graph, node, TypeService.Current, overloads);
+			if (overloads.Count < 2)
+				return false;
+			PropertyGrid.Row("Overload", "Which of the function's overloads the node calls. Beef chooses by the arguments: a wired or typed value picks the most specific one. Picking another one here writes a Cast where the arguments would choose differently.");
+			let cur = CallOverloads.IndexOfCurrent(node, overloads);
+			String curSig = scope .();
+			if (cur >= 0)
+				CallOverloads.Signature(overloads[cur], curSig);
+			else
+				CallOverloads.PinSignature(node, curSig);
+			SymbolMethod pick = null;
+			if (SelfTestOpenOverloads)
+			{
+				SelfTestOpenOverloads = false;
+				Gui.OpenPopup("##ovlpop");
+			}
+			let start = Gui.igGetCursorScreenPos();
+			let h = Gui.igGetFrameHeight();
+			let width = Gui.igGetContentRegionAvail().x;
+			// Left-aligned like the other dropdowns; a signature wider than the row ends in "..." (the
+			// whole one is in the tooltip and the list).
+			String shown = scope .();
+			GraphPanel.Ellipsize(curSig, width - 18 * Look.Scale, 1.0f, shown);
+			Gui.igPushStyleColor_U32(Col.Button, Look.Input);
+			Gui.igPushStyleVar_Vec2(StyleVarX.ButtonTextAlign, .(0, 0.5f));
+			if (Gui.Button(scope $"{shown}##ovlbtn", .(width, h)))
+				Gui.OpenPopup("##ovlpop");
+			Gui.igPopStyleVar(1);
+			Gui.igPopStyleColor(1);
+			if (Gui.igIsItemHovered(0))
+				Gui.Tooltip(curSig);
+			// The list opens under the button (above it when there is no room below), inside the window.
+			let display = Gui.igGetIO_Nil().DisplaySize;
+			float listW = width;
+			for (let m in overloads)
+			{
+				String s = scope .();
+				CallOverloads.Signature(m, s);
+				listW = Math.Max(listW, Gui.CalcTextSize(s).x + 60 * Look.Scale);
+			}
+			float listH = overloads.Count * (Gui.igGetFontSize() + 8 * Look.Scale) + 16 * Look.Scale;
+			float listX = Math.Max(0, Math.Min(start.x, display.x - listW - 4 * Look.Scale));
+			bool above = start.y + h + listH > display.y && start.y - listH > 0;
+			Gui.igSetNextWindowPos(.(listX, above ? start.y : start.y + h), Cond.Always, .(0, above ? 1 : 0));
+			Gui.igSetNextWindowSize(.(listW, 0), Cond.Always);
+			if (Look.BeginPopupSpaced("##ovlpop"))
+			{
+				if (SelfTestCloseOverloads)
+				{
+					SelfTestCloseOverloads = false;
+					Gui.igCloseCurrentPopup();
+				}
+				SelfTestOverloadRows = overloads.Count;
+				String why = scope .();
+				for (let m in overloads)
+				{
+					String sig = scope .();
+					CallOverloads.Signature(m, sig);
+					why.Clear();
+					bool ok = CallOverloads.Applicable(node, m, why);
+					if (!ok)
+						Gui.igBeginDisabled(true);
+					if (Gui.Selectable(scope $"{Icon.Function}  {sig}##ovl{@m.Index}", @m.Index == cur) && ok && @m.Index != cur)
+						pick = m;
+					if (!ok)
+					{
+						Gui.igEndDisabled();
+						if (Gui.igIsItemHovered(1 << 10 /* AllowWhenDisabled */))
+							Gui.Tooltip(why);
+					}
+				}
+				Look.EndPopupSpaced();
+			}
+			if (pick == null)
+				return false;
+			String sig = scope .();
+			CallOverloads.Signature(pick, sig);
+			return ChooseOverload(mg, node, sig);
+		}
+
+		/// Makes the call show the overload with signature `sig` (`WriteLine(StringView line)`), as
+		/// picking it in Properties > Call > Overload does: one undo step, wires kept where they fit.
+		public bool ChooseOverload(MethodGraph mg, Node node, StringView sig)
+		{
+			List<SymbolMethod> overloads = scope .();
+			CallOverloads.ListOf(mg.Graph, node, TypeService.Current, overloads);
+			for (let m in overloads)
+			{
+				String s = scope .();
+				CallOverloads.Signature(m, s);
+				if (s != sig)
+					continue;
+				BeginEdit();
+				String why = scope .();
+				if (!CallOverloads.Choose(mg.Graph, node, m, TypeService.Current, why))
+				{
+					SetStatus(why, .Warning);
+					return false;
+				}
+				if (!why.IsEmpty)
+					SetStatus(why, .Warning);
+				return true;
+			}
+			return false;
+		}
+
 		/// Value widget for an unlinked data input, by pin type (the same rules as the node canvas:
 		/// PinValue). Returns true when committed.
 		bool PinValueWidget(Node node, Pin p)
@@ -148,7 +265,7 @@ namespace VisualBeef.Editor
 			if (changed && !mDetailsEditPushed)
 				BeginEditBefore(p.Default, before);
 			if (kind == .Custom && Gui.igIsItemHovered(0))
-				Gui.Tooltip("Custom: not a plain value of this pin's type, so it is kept as the expression you typed");
+				Gui.Tooltip(scope $"{GraphPanel.cExpressionBadge}: {GraphPanel.cExpressionTip}");
 			return done;
 		}
 
@@ -176,6 +293,7 @@ namespace VisualBeef.Editor
 					mSelVarActive = false;
 					mSelClassActive = false;
 					mSelLocalActive = false;
+					mSelProjectActive = false;
 				}
 				if (mSelClassActive && DrawTypeSettings())
 				{
@@ -184,6 +302,9 @@ namespace VisualBeef.Editor
 				{
 				}
 				else if (mSelLocalActive && DrawLocalDetails())
+				{
+				}
+				else if (mSelProjectActive && DrawProjectSettings())
 				{
 				}
 				else if (tab == null || mg == null)
@@ -1011,6 +1132,9 @@ namespace VisualBeef.Editor
 							t.AppendF("  -  this ({}{})", g.SelfType.IsEmpty ? "no type" : (StringView)g.SelfType, g.StaticContext ? ", static: no this" : "");
 						PropertyGrid.Value(t);
 					}
+					// The overload the node calls (an ambiguous call has its own Overloads section above).
+					if (!node.Ambiguous && DrawOverloadChoice(mg, node))
+						commit = true;
 					for (let p in node.Outputs)
 					{
 						if (!p.IsOutArg)
@@ -1071,7 +1195,11 @@ namespace VisualBeef.Editor
 						tip.AppendF("{}  ({})", label, p.TypeName.IsEmpty ? "type unknown" : p.TypeName);
 						PropertyGrid.Row(label, tip, Theme.TypeColor(p.TypeName));
 						if (PinValueWidget(node, p))
+						{
+							// A typed value can choose another overload (a text typed into an Object pin).
+							RefitCall(mg.Graph, node);
 							commit = true;
+						}
 						Gui.PopID();
 					}
 				}

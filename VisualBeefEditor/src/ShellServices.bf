@@ -84,6 +84,8 @@ namespace VisualBeef.Editor
 			for (let l in mNodeMenu.Types.Libraries)
 				libs.AppendF("{}{}", libs.IsEmpty ? "" : ", ", l.Name);
 			Notify.Log(.Info, "Index", scope $"Indexed {job.Root}: {Index.Files.Count} files in {job.ProjectMs:0} ms ({Index.GeneratedLibraries.Count} generated SDK folders loaded as libraries); libraries {libs} in {job.LibraryMs:0} ms ({job.CacheHits} from cache, {job.LibrariesParsed} parsed)");
+			for (let w in job.Warnings)
+				Notify.Log(.Warning, "Index", w);
 			SetStatus(scope $"Indexed {Index.Files.Count} files, {mNodeMenu.Types.Libraries.Count} libraries ({job.ProjectMs + job.LibraryMs:0} ms)", .Info, false);
 		}
 
@@ -96,7 +98,7 @@ namespace VisualBeef.Editor
 			mRetypePending = false;
 			for (let d in mDocs)
 			{
-				if (d.FilePath.IsEmpty || d.Modified || d.CanUndo || d.LayoutTouched || !File.Exists(d.FilePath))
+				if (d.FilePath.IsEmpty || d.NeedsSave || d.CanUndo || d.LayoutTouched || !File.Exists(d.FilePath))
 					continue;
 				if (d.Load(d.FilePath) case .Ok)
 				{

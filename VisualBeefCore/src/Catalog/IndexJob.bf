@@ -84,6 +84,8 @@ namespace VisualBeef.Catalog
 		public PrebuiltCatalogs Catalogs ~ delete _;
 		public int CacheHits;
 		public int LibrariesParsed;
+		/// Problems for the Output Log (a library folder the `.vbproject` names that does not exist).
+		public List<String> Warnings = new .() ~ DeleteContainerAndItems!(_);
 		Thread mThread;
 		Monitor mLock = new .() ~ delete _;
 		bool mDone;
@@ -145,7 +147,7 @@ namespace VisualBeef.Catalog
 				List<LibraryRef> libs = scope .();
 				defer { ClearAndDeleteItems!(libs); }
 				Progress.SetPhase("Finding libraries", 0);
-				LibraryIndex.Discover(Root, libs, Project.GeneratedLibraries);
+				LibraryIndex.Discover(Root, libs, Project.GeneratedLibraries, Warnings);
 				LoadLibraries(libs);
 				LibraryMs = sw.Elapsed.TotalMilliseconds;
 				if (!Progress.Cancelled)

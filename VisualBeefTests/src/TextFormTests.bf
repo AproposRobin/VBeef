@@ -465,6 +465,108 @@ namespace VisualBeef.Tests
 			}
 		}
 
+		const String cDirectives =
+			"""
+			namespace Demo
+			{
+				class Dir
+				{
+					public int mA;
+			#if VB_TEST_X
+					public int mOnlyX;
+			#endif
+
+					public void Keep()
+					{
+					}
+			#if VB_TEST_X
+					public void OnlyX()
+					{
+					}
+			#endif
+				}
+			}
+
+			""";
+
+		static int Count(StringView text, StringView what)
+		{
+			int n = 0;
+			int at = 0;
+			while (true)
+			{
+				let i = text.IndexOf(what, at);
+				if (i < 0)
+					return n;
+				n++;
+				at = i + what.Length;
+			}
+		}
+
+		static int LastIndex(StringView text, StringView what)
+		{
+			int last = -1;
+			while (true)
+			{
+				let i = text.IndexOf(what, last + 1);
+				if (i < 0)
+					return last;
+				last = i;
+			}
+		}
+
+		static Member FindMember(SourceDocument doc, StringView name)
+		{
+			List<Member> types = scope .();
+			doc.Unit.CollectTypes(types);
+			for (let t in types)
+			{
+				if (t.Name == name)
+					return t;
+				if (t.Members != null)
+					for (let m in t.Members)
+						if (m.Name == name)
+							return m;
+			}
+			return null;
+		}
+
+		/// Deleting or adding a member keeps `#if` / `#endif` lines where they are: a member in an arm
+		/// goes without its directives, a new member lands outside the arm (2026-10-12 audit).
+		static void RunDirectives()
+		{
+			Console.WriteLine("Text forms 8: deleting and adding members next to #if / #endif");
+			SourceDocument doc = scope .();
+			doc.LoadFromText(cDirectives, "Dir.bf");
+			bool Balanced() => Count(doc.Text, "#if VB_TEST_X") == Count(doc.Text, "#endif");
+
+			doc.DeleteMember(FindMember(doc, "OnlyX"));
+			Check(!doc.Text.Contains("void OnlyX") && Count(doc.Text, "#if VB_TEST_X") == 2 && Balanced(), "the only function in an #if arm: deleted, its #if and #endif stay");
+			doc.Undo();
+			doc.DeleteMember(FindMember(doc, "Keep"));
+			Check(!doc.Text.Contains("Keep") && Count(doc.Text, "#endif") == 2 && Balanced(), "a function right after an #endif: the #endif before it stays");
+			doc.Undo();
+			doc.DeleteMember(FindMember(doc, "mOnlyX"));
+			Check(!doc.Text.Contains("mOnlyX") && Balanced() && doc.Text.Contains("#if VB_TEST_X\n#endif\n"), "the only member variable in an arm: the arm stays, empty");
+			doc.Undo();
+			Check(doc.Text == cDirectives, "undo gives the file back byte for byte");
+
+			String key = scope .();
+			Check(doc.AddMethod((Member)FindMember(doc, "Dir"), "void", "Added", "", key), "Add Function on a type whose last function is in an #if arm");
+			let added = doc.FindMethod(key);
+			Check(added != null && doc.Unit.CondPathAt(added.Method.FirstTok).IsEmpty && doc.Text.IndexOf("void Added") > LastIndex(doc.Text, "#endif"),
+				"the new function is after the #endif, in every configuration");
+			Check(Balanced(), "directives unchanged");
+			doc.Undo();
+
+			Check(doc.AddField(FindMember(doc, "Dir"), "int", "mAdded"), "Add Variable on a type whose last member variable is in an #if arm");
+			let field = FindMember(doc, "mAdded");
+			Check(field != null && doc.Unit.CondPathAt(field.FirstTok).IsEmpty && doc.Text.IndexOf("mAdded") < doc.Text.IndexOf("#if"),
+				"the new member variable follows the last one outside the arm, not inside it");
+			doc.Undo();
+			Check(doc.Text == cDirectives, "undo gives the file back byte for byte");
+		}
+
 		static void RunFindReferences()
 		{
 			Console.WriteLine("Text forms 6: Find References");
@@ -649,6 +751,7 @@ namespace VisualBeef.Tests
 			RunOverloads();
 			RunFindReferences();
 			RunConditional();
+			RunDirectives();
 			RunParse();
 			{
 				SourceDocument doc = scope .();
@@ -663,6 +766,12 @@ namespace VisualBeef.Tests
 			MathExprTests.RunInit();
 			sChecks += MathExprTests.Checks;
 			sFailures += MathExprTests.Failures;
+			// Overloads of a call node follow the values wired or typed (docs/Calls-and-Receivers.md#overloads).
+			OverloadTests.Checks = 0;
+			OverloadTests.Failures = 0;
+			OverloadTests.RunTextForms();
+			sChecks += OverloadTests.Checks;
+			sFailures += OverloadTests.Failures;
 			Console.WriteLine("text form checks: {}  failures: {}", sChecks, sFailures);
 			return sFailures;
 		}

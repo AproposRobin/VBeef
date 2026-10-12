@@ -28,8 +28,8 @@ namespace VisualBeef.Document
 		public String AttachModule = new .() ~ delete _;
 		/// One sentence for the attach dialog when no process has the module loaded.
 		public String AttachHint = new .() ~ delete _;
-		/// Node libraries the project uses (absolute, or relative to the project folder), loaded even when the
-		/// workspace does not list them.
+		/// Node libraries the project uses (relative to the project folder with `/`, or absolute when on another
+		/// drive), loaded even when the workspace does not list them. Relative ones follow the project when it moves.
 		public List<String> Libraries = new .() ~ DeleteContainerAndItems!(_);
 
 		public void Clear()
@@ -201,6 +201,62 @@ namespace VisualBeef.Document
 #endif
 				outDirs.Add(dir);
 			}
+		}
+
+		/// `target` relative to the folder `root`, with `/` (`../Kits/Lib`). False when there is no
+		/// relative form: another drive or volume, or either path not rooted (then keep it absolute).
+		public static bool MakeRelative(StringView root, StringView target, String outRelative)
+		{
+			if (!Path.IsPathRooted(root) || !Path.IsPathRooted(target))
+				return false;
+			String a = scope .(root);
+			String b = scope .(target);
+			a.Replace('\\', '/');
+			b.Replace('\\', '/');
+			while (a.Length > 1 && a.EndsWith('/'))
+				a.RemoveFromEnd(1);
+			while (b.Length > 1 && b.EndsWith('/'))
+				b.RemoveFromEnd(1);
+			List<StringView> ra = scope .();
+			List<StringView> rb = scope .();
+			for (let part in a.Split('/'))
+				ra.Add(part);
+			for (let part in b.Split('/'))
+				rb.Add(part);
+#if BF_PLATFORM_WINDOWS
+			let cmp = true; // ignore case
+#else
+			let cmp = false;
+#endif
+			// The first part is the drive (`D:`), the share (`` of `//server`) or `` of `/`.
+			if (ra.IsEmpty || rb.IsEmpty || !ra[0].Equals(rb[0], cmp) || (ra[0].IsEmpty && ra.Count > 1 && rb.Count > 1 && ra[1].IsEmpty != rb[1].IsEmpty))
+				return false;
+			int common = 0;
+			while (common < ra.Count && common < rb.Count && ra[common].Equals(rb[common], cmp))
+				common++;
+			// A UNC path (`//server/share/...`) must share server and share.
+			if (ra.Count > 1 && ra[0].IsEmpty && ra[1].IsEmpty && common < 4)
+				return false;
+			outRelative.Clear();
+			for (int i = common; i < ra.Count; i++)
+			{
+				if (ra[i].IsEmpty)
+					continue;
+				if (!outRelative.IsEmpty)
+					outRelative.Append('/');
+				outRelative.Append("..");
+			}
+			for (int i = common; i < rb.Count; i++)
+			{
+				if (rb[i].IsEmpty)
+					continue;
+				if (!outRelative.IsEmpty)
+					outRelative.Append('/');
+				outRelative.Append(rb[i]);
+			}
+			if (outRelative.IsEmpty)
+				outRelative.Append('.');
+			return true;
 		}
 
 		public static void Join(StringView a, StringView b, String outPath)
@@ -452,6 +508,37 @@ namespace VisualBeef.Document
 				outText.Insert(0, '_');
 		}
 
+		/// The folder (and project) name for a typed project name, changed only as the file system requires: the
+		/// characters Windows forbids in a name (`< > : " / \ | ? *` and control characters) are dropped, leading
+		/// spaces and trailing spaces and dots are trimmed, and a name Windows reserves ("CON", "NUL", "COM1", ...)
+		/// gets a `_` after it. Letters, digits, spaces and everything else stay: "My Game" -> "My Game",
+		/// "new project" -> "new project". Empty when nothing usable is left.
+		public static void FolderName(StringView name, String outText)
+		{
+			int start = outText.Length;
+			for (let c in name.DecodedChars)
+			{
+				if (c < (char32)32 || c == (char32)127 || c == '<' || c == '>' || c == ':' || c == '"' || c == '/' || c == '\\' || c == '|' || c == '?' || c == '*')
+					continue;
+				outText.Append(c);
+			}
+			while (outText.Length > start && (outText[outText.Length - 1] == ' ' || outText[outText.Length - 1] == '.'))
+				outText.RemoveFromEnd(1);
+			while (outText.Length > start && outText[start] == ' ')
+				outText.Remove(start, 1);
+			if (outText.Length == start)
+				return;
+			String stem = scope .();
+			int dot = outText.IndexOf('.', start);
+			stem.Append(StringView(outText, start, (dot >= 0 ? dot : outText.Length) - start));
+			stem.Trim();
+			stem.ToUpper();
+			bool reserved = stem == "CON" || stem == "PRN" || stem == "AUX" || stem == "NUL" ||
+				((stem.StartsWith("COM") || stem.StartsWith("LPT")) && stem.Length == 4 && stem[3] >= '1' && stem[3] <= '9');
+			if (reserved)
+				outText.Append('_');
+		}
+
 		/// Lower case, every run of other characters one `-`. "Hello Tool!" -> "hello-tool".
 		public static void Slug(StringView name, String outText)
 		{
@@ -645,8 +732,21 @@ namespace VisualBeef.Document
 				m.Configuration.Set(t.Configuration);
 				m.AttachModule.Set(t.AttachModule);
 				m.AttachHint.Set(t.AttachHint);
+				// Relative to the project (the relative-paths rule): a moved or copied project keeps
+				// its libraries when they move with it; another drive stays absolute.
+				String destFull = scope .(destination);
+				if (!Path.IsPathRooted(destination))
+				{
+					String cwd = scope .();
+					Directory.GetCurrentDirectory(cwd);
+					destFull.Clear();
+					Path.GetAbsolutePath(destination, cwd, destFull);
+				}
 				for (let lib in t.Libraries)
-					m.Libraries.Add(new String(lib.FullPath));
+				{
+					String rel = scope .();
+					m.Libraries.Add(new String(ProjectManifest.MakeRelative(destFull, lib.FullPath, rel) ? rel : lib.FullPath));
+				}
 				m.Write(manifestText);
 			}
 
@@ -660,44 +760,73 @@ namespace VisualBeef.Document
 					}
 			}
 
+			// All or nothing: each file is written atomically, and a failure removes what this call
+			// wrote (files, then the folders it made), so the message is true and a retry works.
+			int createdBefore = outCreated.Count;
+			List<String> madeDirs = scope .();
+			defer { ClearAndDeleteItems!(madeDirs); }
+			bool MakeDir(StringView dir)
+			{
+				if (dir.IsEmpty || Directory.Exists(dir))
+					return true;
+				String parent = scope .();
+				if (Path.GetDirectoryPath(dir, parent) case .Ok && !parent.IsEmpty && parent != dir && !MakeDir(parent))
+					return false;
+				if (Directory.CreateDirectory(dir) case .Err)
+					return false;
+				madeDirs.Add(new String(dir));
+				return true;
+			}
+			bool Fail(StringView message)
+			{
+				outError.Set(message);
+				for (int i = outCreated.Count - 1; i >= createdBefore; i--)
+				{
+					File.Delete(outCreated[i]).IgnoreError(); // written by this call a moment ago
+					delete outCreated[i];
+					outCreated.RemoveAt(i);
+				}
+				for (int i = madeDirs.Count - 1; i >= 0; i--)
+					Directory.Delete(madeDirs[i]).IgnoreError(); // only when empty
+				outError.Append(" Nothing was left behind.");
+				return false;
+			}
+
+			String err = scope .();
 			for (let p in plan)
 			{
 				if (File.Exists(p.path))
 					continue; // .Skip keeps it
 				String dir = scope .();
 				Path.GetDirectoryPath(p.path, dir).IgnoreError(); // a joined path always has a folder part
-				if (!dir.IsEmpty && !Directory.Exists(dir) && Directory.CreateDirectory(dir) case .Err)
-				{
-					outError.Set(scope $"Could not create the folder {dir}.");
-					return false;
-				}
+				if (!MakeDir(dir))
+					return Fail(scope $"Could not create the folder {dir}.");
+				err.Clear();
 				if (p.raw)
 				{
-					if (File.Copy(p.src, p.path) case .Err)
+					String tmp = scope $"{p.path}.tmp";
+					if (File.Copy(p.src, tmp) case .Err)
 					{
-						outError.Set(scope $"Could not copy {p.src} to {p.path}.");
-						return false;
+						File.Delete(tmp).IgnoreError();
+						return Fail(scope $"Could not copy {p.src} to {p.path}.");
+					}
+					if (File.Move(tmp, p.path) case .Err)
+					{
+						File.Delete(tmp).IgnoreError();
+						return Fail(scope $"Could not copy {p.src} to {p.path}.");
 					}
 				}
-				else if (File.WriteAllText(p.path, p.text) case .Err)
-				{
-					outError.Set(scope $"Could not write {p.path}.");
-					return false;
-				}
+				else if (FileSafety.AtomicWrite(p.path, p.text, false, err) case .Err)
+					return Fail(scope $"Could not write {p.path}.");
 				outCreated.Add(new String(p.path));
 			}
 			if (writeManifest && !File.Exists(manifestPath))
 			{
-				if (!Directory.Exists(destination) && Directory.CreateDirectory(destination) case .Err)
-				{
-					outError.Set(scope $"Could not create the folder {destination}.");
-					return false;
-				}
-				if (File.WriteAllText(manifestPath, manifestText) case .Err)
-				{
-					outError.Set(scope $"Could not write {manifestPath}.");
-					return false;
-				}
+				if (!MakeDir(destination))
+					return Fail(scope $"Could not create the folder {destination}.");
+				err.Clear();
+				if (FileSafety.AtomicWrite(manifestPath, manifestText, false, err) case .Err)
+					return Fail(scope $"Could not write {manifestPath}.");
 				outCreated.Add(new String(manifestPath));
 			}
 			return true;

@@ -29,6 +29,7 @@ A member is **broken** when, while parsing it, any of these happen:
 | Balanced braces but a declaration starts inside the member: a line-leading `public/private/protected/internal` at or left of the member's own indentation | missing `}` inside a method, missing `)` in a call that swallows the method's `}` |
 | An unparsed member that runs to the end of the file without `;` or `}` | |
 | A declaration that looks like a function or member variable but did not parse (`UnreadableDeclaration`, 2026-10-11): a keyword as its type, a member variable typed `var` / `let`, a member with no name | `public default Bad(int a)`, `public var mX = 1;`, `public 42 = 7;` |
+| A `using` with no `;` (2026-10-12): it ends before a bracket or before the next declaration on a later line (a declaration keyword, or a name right after a complete name), named `using X` in the Outline and Problems ("this using is not closed by ;"); the members after it parse. Before, it swallowed the rest of the file into one hidden member | `using System` then `namespace T` |
 
 Not broken: declarations kept as text on purpose (`using`, `typealias`, `delegate` / `function`
 types, enum `case`s, operators, members whose type is `Event<delegate ...>`, explicit generic

@@ -776,10 +776,11 @@ namespace VisualBeef.Editor
 
 			// Everyday calls (the Beef equivalents of Blueprint's Print String etc.). With corlib
 			// indexed the Math functions come from the catalog with their real overloads.
-			// Print takes any value (text, a number, an object): WriteLine(Object), so a wired int
-			// is accepted the way Beef accepts it. A typed text literal reads back as WriteLine(StringView).
-			Add(.CallMethod, "Utilities | Print", "Print  (Console.WriteLine)", "Console.WriteLine", "Object obj", "void").Tooltip.Set("void Console.WriteLine(Object obj) - prints any value (text, a number, an object) and a new line");
-			Add(.CallMethod, "Utilities | Print", "Console.Write", "Console.Write", "Object obj", "void").Tooltip.Set("void Console.Write(Object obj) - prints any value (text, a number, an object)");
+			// Print starts as WriteLine(StringView line), a text field labelled Message (never the Object
+			// overload by default); a number or an object wired into it switches it to WriteLine(Object obj)
+			// (CallOverloads), the overload Beef calls for that value.
+			Add(.CallMethod, "Utilities | Print", "Print  (Console.WriteLine)", "Console.WriteLine", "StringView line", "void").Tooltip.Set("void Console.WriteLine(StringView line) - prints the Message and a new line; wire a number or an object into it and it calls WriteLine(Object obj)");
+			Add(.CallMethod, "Utilities | Print", "Console.Write", "Console.Write", "StringView line", "void").Tooltip.Set("void Console.Write(StringView line) - prints the Message; wire a number or an object into it and it calls Write(Object obj)");
 			if (!haveCorlib)
 			{
 				Add(.CallMethod, "Math", "Min", "Math.Min", "var a, var b", "var").Tooltip.Set("T Math.Min(T a, T b)");
@@ -1141,7 +1142,7 @@ namespace VisualBeef.Editor
 					return (BaseTypeName(item.OnType) == BaseTypeName(T)) ? 2 : 0;
 				case .CallMethod:
 					if (item.A == "Console.WriteLine" || item.A == "Console.Write")
-						return IsStringType(T) || wild ? 2 : 0;
+						return IsStringType(T) || wild ? 2 : 1; // any value prints (WriteLine(Object obj))
 					List<String> types = scope .();
 					defer { ClearAndDeleteItems!(types); }
 					ParamTypes(item.B, types);
@@ -2358,7 +2359,10 @@ namespace VisualBeef.Editor
 			NormalizeType(ctx.TypeName, ctxType);
 			if (!ctx.IsInput)
 			{
-				// Data output -> an input of the new node.
+				// Data output -> an input of the new node. A call none of whose inputs takes the value
+				// first switches to the overload that does (Print off an int: WriteLine(Object obj)).
+				if (n.Kind == .Call)
+					CallOverloads.FitForValue(g, n, ctx.TypeName, TypeService.Current);
 				Pin best = null;
 				int32 bestScore = -1;
 				bool wantsTarget = item != null && (item.Kind == .CallInstance || item.Kind == .GetField || item.Kind == .GetMember ||
@@ -2394,6 +2398,9 @@ namespace VisualBeef.Editor
 						best = v;
 				}
 				g.Connect(ctx, best);
+				// The most specific overload for the value now wired (Abs(double) off an int: Abs(int)).
+				if (n.Kind == .Call && best.Name != "target")
+					CallOverloads.Refit(g, n, TypeService.Current);
 
 				// A statement made from a value of another statement runs right after it (or at the
 				// start of its loop body for loop elements), like UE.

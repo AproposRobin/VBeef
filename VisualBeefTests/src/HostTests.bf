@@ -202,6 +202,19 @@ namespace VisualBeef.Tests
 			Check(m.Main.IsEmpty, "a main outside the project is ignored");
 			m.Parse("{\"main\": \"C:/evil.bf\"}", err);
 			Check(m.Main.IsEmpty, "a rooted main is ignored");
+
+			// Library folders are written relative to the project (the relative-paths rule).
+			String rel = scope .();
+#if BF_PLATFORM_WINDOWS
+			Check(ProjectManifest.MakeRelative("D:\\Work\\Tool", "D:/Work/Kits/Lib", rel) && rel == "../Kits/Lib", scope $"a library beside the project: ../Kits/Lib ({rel})");
+			Check(ProjectManifest.MakeRelative("D:\\Work\\Tool\\", "d:\\work\\tool\\libs\\Kit", rel) && rel == "libs/Kit", scope $"inside the project, another case: libs/Kit ({rel})");
+			Check(!ProjectManifest.MakeRelative("D:\\Work\\Tool", "E:/Kits/Lib", rel), "another drive has no relative form (kept absolute)");
+			Check(!ProjectManifest.MakeRelative("\\\\server\\share\\Tool", "\\\\other\\share\\Lib", rel), "another network share has no relative form");
+#else
+			Check(ProjectManifest.MakeRelative("/home/a/Tool", "/home/a/Kits/Lib", rel) && rel == "../Kits/Lib", scope $"a library beside the project: ../Kits/Lib ({rel})");
+			Check(ProjectManifest.MakeRelative("/home/a/Tool/", "/home/a/Tool/libs/Kit", rel) && rel == "libs/Kit", scope $"inside the project: libs/Kit ({rel})");
+#endif
+			Check(!ProjectManifest.MakeRelative("Tool", "Kits/Lib", rel), "paths that are not rooted are not made relative");
 		}
 
 		static void ProjectTests()
@@ -311,7 +324,17 @@ namespace VisualBeef.Tests
 			Check(tool.Contains("\"id\": \"hello-tool\"") && tool.Contains("\"version\": \"0.1.0\""), "tool.json: Id defaults to the slug, Version to 0.1.0");
 			ProjectManifest pm = scope .();
 			Check(pm.Read(dest) && pm.Kind == "template" && pm.Template == "Fixture tool" && pm.Main == "src/Program.bf" && pm.Configuration == "Release" && pm.Host == "Fixture Host" &&
-				pm.AttachModule == "FixtureHost.dll" && pm.Libraries.Count == 1 && pm.Libraries[0].Equals(kitSlashes, .OrdinalIgnoreCase), ".vbproject written from template.json");
+				pm.AttachModule == "FixtureHost.dll" && pm.Libraries.Count == 1, ".vbproject written from template.json");
+			{
+				// Relative when the library is on the project's drive, absolute otherwise; either way it resolves to the kit.
+				List<String> dirs = scope .();
+				defer { ClearAndDeleteItems!(dirs); }
+				pm.LibraryDirs(dest, dirs);
+				String expect = scope .();
+				bool relative = ProjectManifest.MakeRelative(dest, kitSlashes, expect);
+				Check(dirs.Count == 1 && ProjectIndex.SamePath(dirs[0], kitDir) && (relative ? pm.Libraries[0] == expect : pm.Libraries[0].Equals(kitSlashes, .OrdinalIgnoreCase)),
+					scope $".vbproject names the library {(relative ? "relative to the project" : "by absolute path (another drive)")}: {pm.Libraries[0]}");
+			}
 
 			// Never overwritten: .Refuse writes nothing, .Skip keeps the existing files.
 			File.WriteAllText(main, "// edited\n").IgnoreError();
@@ -325,6 +348,67 @@ namespace VisualBeef.Tests
 			main.Clear();
 			Check(ProjectKind.CreateFromTemplate(tplDir, dest, "Hello Tool", null, .Skip, created, main, err) && created.Count == 1 && created[0].EndsWith("tool.json") &&
 				ReadText(main, scope .()) == "// edited\n", "keeping existing files: only the missing one is written");
+
+			// A library on the project's drive is written relative and follows a move of both (2026-10-12 audit).
+			{
+				String top = scope .();
+				ScratchDir("RelTpl", top);
+				String tpl = scope $"{top}{Path.DirectorySeparatorChar}Template";
+				Touch(scope $"{tpl}/files/a.txt", "a\n");
+				Touch(scope $"{tpl}/template.json", "{\"template\": 1, \"name\": \"Rel\", \"files\": [\"files/a.txt\"], \"libraries\": [{\"name\": \"Kit\", \"path\": \"../Kit\"}]}");
+				Directory.CreateDirectory(scope $"{top}/Kit").IgnoreError();
+				String proj = scope $"{top}{Path.DirectorySeparatorChar}Out{Path.DirectorySeparatorChar}Proj";
+				List<String> made = scope .();
+				defer { ClearAndDeleteItems!(made); }
+				String m2 = scope .();
+				err.Clear();
+				Check(ProjectKind.CreateFromTemplate(tpl, proj, "Proj", null, .Refuse, made, m2, err), scope $"a project from a template whose library is beside it {err}");
+				ProjectManifest rm = scope .();
+				Check(rm.Read(proj) && rm.Libraries.Count == 1 && rm.Libraries[0] == "../../Kit", scope $".vbproject: the library relative to the project ({(rm.Libraries.Count > 0 ? rm.Libraries[0] : "")})");
+				String moved = scope .();
+				ScratchDir("RelTplMoved", moved);
+				Directory.Delete(moved).IgnoreError();
+				Check(Directory.Move(top, moved) case .Ok, "the project and the library move together");
+				List<String> dirs = scope .();
+				defer { ClearAndDeleteItems!(dirs); }
+				ProjectManifest mm = scope .();
+				mm.Read(scope $"{moved}/Out/Proj");
+				mm.LibraryDirs(scope $"{moved}/Out/Proj", dirs);
+				Check(dirs.Count == 1 && Directory.Exists(dirs[0]) && ProjectIndex.SamePath(dirs[0], scope $"{moved}/Kit"), "after the move the library is found where it now is");
+				Directory.DelTree(moved).IgnoreError();
+			}
+
+			// Creation is all or nothing: a failure removes what the call wrote, so a retry works (2026-10-12 audit).
+			{
+				String top = scope .();
+				ScratchDir("AtomicTpl", top);
+				String tpl = scope $"{top}{Path.DirectorySeparatorChar}Template";
+				Touch(scope $"{tpl}/files/a.txt", "a\n");
+				Touch(scope $"{tpl}/files/b.txt", "b\n");
+				Touch(scope $"{tpl}/template.json", "{\"template\": 1, \"name\": \"Atomic\", \"files\": [{\"from\": \"files/a.txt\", \"to\": \"a.txt\"}, {\"from\": \"files/b.txt\", \"to\": \"sub/b.txt\"}]}");
+				String proj = scope $"{top}{Path.DirectorySeparatorChar}Proj";
+				Touch(scope $"{proj}/sub", "a file where the template needs a folder\n");
+				List<String> made = scope .();
+				defer { ClearAndDeleteItems!(made); }
+				String m2 = scope .();
+				err.Clear();
+				Check(!ProjectKind.CreateFromTemplate(tpl, proj, "Atomic", null, .Refuse, made, m2, err) && made.IsEmpty && err.Contains("sub"),
+					scope $"the second file cannot be written: refused ({err})");
+				Check(!File.Exists(scope $"{proj}/a.txt") && !File.Exists(scope $"{proj}/.vbproject"), "the first file it wrote is gone again");
+				File.Delete(scope $"{proj}/sub").IgnoreError();
+				err.Clear();
+				Check(ProjectKind.CreateFromTemplate(tpl, proj, "Atomic", null, .Refuse, made, m2, err) && made.Count == 3, scope $"once the obstacle is gone the same call works ({made.Count} files) {err}");
+				// Folders the call made go too: a file named like a folder another file of the template needs.
+				String tpl2 = scope $"{top}{Path.DirectorySeparatorChar}Template2";
+				Touch(scope $"{tpl2}/files/a.txt", "a\n");
+				Touch(scope $"{tpl2}/template.json", "{\"template\": 1, \"name\": \"Clash\", \"files\": [{\"from\": \"files/a.txt\", \"to\": \"x/a.txt\"}, {\"from\": \"files/a.txt\", \"to\": \"x\"}]}");
+				String fresh = scope $"{top}{Path.DirectorySeparatorChar}New{Path.DirectorySeparatorChar}Proj";
+				ClearAndDeleteItems!(made);
+				err.Clear();
+				Check(!ProjectKind.CreateFromTemplate(tpl2, fresh, "Clash", null, .Refuse, made, m2, err) && made.IsEmpty, scope $"a template whose files clash is refused ({err})");
+				Check(!Directory.Exists(scope $"{top}/New"), "and the folders it made are removed");
+				Directory.DelTree(top).IgnoreError();
+			}
 
 			// The command line end to end (ProjectContract.WriteFromTemplate).
 			{
@@ -446,6 +530,13 @@ namespace VisualBeef.Tests
 				if (l.Name == "SideKit")
 					found = true;
 			Check(found, "a library the .vbproject names is loaded although the workspace does not list it");
+			// A named folder that does not exist is said, not skipped in silence.
+			File.WriteAllText(scope $"{root}/.vbproject", "{\"vbproject\": 1, \"libraries\": [\"../NoSuchKit\"]}").IgnoreError();
+			ClearAndDeleteItems!(libs);
+			List<String> warnings = scope .();
+			defer { ClearAndDeleteItems!(warnings); }
+			LibraryIndex.Discover(root, libs, null, warnings);
+			Check(warnings.Count == 1 && warnings[0].Contains("NoSuchKit") && warnings[0].Contains("does not exist"), "a library folder the .vbproject names that is missing is reported for the Output Log");
 			Directory.DelTree(outside).IgnoreError();
 			Directory.DelTree(root).IgnoreError();
 		}

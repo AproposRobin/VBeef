@@ -230,6 +230,11 @@ namespace VisualBeef.Graph
 		/// Ambiguous calls: the overloads that fit equally well, as `Name(int a, float b)` (the
 		/// one the builder assumed first); the Properties panel offers them (NodeFactory.PickOverload).
 		public List<String> Overloads ~ DeleteContainerAndItems!(_);
+		/// Call nodes: how many overloads the function has (CallOverloads.Count; -1 = not looked up
+		/// yet) and the TypeService generation the count is from. The node subtitle names the
+		/// overload in use when there is more than one.
+		public int32 OverloadCount = -1;
+		public int32 OverloadGen = -1;
 		/// Construct / Delete / Defer: the keyword with its scope or allocator exactly as written
 		/// (`new`, `scope`, `scope::`, `new:alloc`, `append`, `delete:alloc`, `defer::`).
 		public String Alloc ~ delete _;
@@ -611,7 +616,126 @@ namespace VisualBeef.Graph
 				c.Parsed = l.Parsed;
 				g.Links.Add(c);
 			}
+			// The errors say the graph's edits are not in the text: an undo step must keep them, or
+			// the restored graph would be saved as if its edits were written (node ids are kept).
+			for (let e in Errors)
+				g.Errors.Add(CloneError(e));
+			for (let e in Warnings)
+				g.Warnings.Add(CloneError(e));
 			return g;
+		}
+
+		static GraphError CloneError(GraphError e)
+		{
+			GraphError c = new .();
+			c.NodeId = e.NodeId;
+			c.Message.Set(e.Message);
+			return c;
+		}
+
+		/// True when `other` (a Clone made earlier) is what Clone() would give now: every field
+		/// Clone copies is equal, except MethodKey (the caller compares keys). Undo steps share one
+		/// copy while the live graph does not change. Keep in step with Clone.
+		public bool SameAsClone(Graph other)
+		{
+			if (other == null || Nodes.Count != other.Nodes.Count || Links.Count != other.Links.Count || Locals.Count != other.Locals.Count ||
+				Errors.Count != other.Errors.Count || Warnings.Count != other.Warnings.Count)
+				return false;
+			if (MethodName != other.MethodName || !SameStr(EndComments, other.EndComments) || !SameStr(RawOpenTrail, other.RawOpenTrail) ||
+				!SameStr(RawCloseLead, other.RawCloseLead) || CloseAtLineStart != other.CloseAtLineStart || Version != other.Version ||
+				AutoLaidOut != other.AutoLaidOut || ReadOnly != other.ReadOnly || !SameStr(CondPath, other.CondPath) || SelfType != other.SelfType ||
+				StaticContext != other.StaticContext || InLibrary != other.InLibrary || mNextId != other.mNextId)
+				return false;
+			if ((Entry == null) != (other.Entry == null) || (Entry != null && Nodes.IndexOf(Entry) != other.Nodes.IndexOf(other.Entry)))
+				return false;
+			for (int i < Nodes.Count)
+				if (!SameNode(Nodes[i], other.Nodes[i]))
+					return false;
+			for (int i < Locals.Count)
+				if (!SameNode(Locals[i], other.Locals[i]))
+					return false;
+			for (int i < Links.Count)
+			{
+				let a = Links[i];
+				let b = other.Links[i];
+				if (a.Id != b.Id || a.Parsed != b.Parsed || a.From.Id != b.From.Id || a.To.Id != b.To.Id || a.From.Owner.Id != b.From.Owner.Id ||
+					a.To.Owner.Id != b.To.Owner.Id)
+					return false;
+			}
+			for (int i < Errors.Count)
+				if (Errors[i].NodeId != other.Errors[i].NodeId || Errors[i].Message != other.Errors[i].Message)
+					return false;
+			for (int i < Warnings.Count)
+				if (Warnings[i].NodeId != other.Warnings[i].NodeId || Warnings[i].Message != other.Warnings[i].Message)
+					return false;
+			return true;
+		}
+
+		static bool SameStr(String a, String b) => (a == null) ? (b == null) : (b != null && a == b);
+
+		/// The fields CloneNodeExact copies.
+		static bool SameNode(Node a, Node b)
+		{
+			if (a.Id != b.Id || a.Kind != b.Kind || a.Text != b.Text || a.Text2 != b.Text2 || a.NullCond != b.NullCond || a.Cascade != b.Cascade ||
+				a.Postfix != b.Postfix || a.IsPure != b.IsPure || a.X != b.X || a.Y != b.Y || a.HasPos != b.HasPos || a.Key != b.Key ||
+				a.KeyHash != b.KeyHash || !SameStr(a.Error, b.Error) || !SameStr(a.Reason, b.Reason) || a.Binding != b.Binding ||
+				!SameStr(a.OwnerType, b.OwnerType) || !SameStr(a.Qualifier, b.Qualifier) || a.Ambiguous != b.Ambiguous || !SameStr(a.Alloc, b.Alloc) ||
+				a.IsArray != b.IsArray || !SameStr(a.Attributes, b.Attributes) || !SameStr(a.MathType, b.MathType) || !SameStr(a.Original, b.Original) ||
+				!SameStr(a.LeadingComments, b.LeadingComments) || !SameStr(a.TrailingComment, b.TrailingComment) || !SameStr(a.RawLead, b.RawLead) ||
+				!SameStr(a.RawTrail, b.RawTrail) || a.Line != b.Line || a.LineEnd != b.LineEnd || a.Edited != b.Edited || a.Moved != b.Moved ||
+				a.Inputs.Count != b.Inputs.Count || a.Outputs.Count != b.Outputs.Count)
+				return false;
+			if ((a.Overloads == null) != (b.Overloads == null))
+				return false;
+			if (a.Overloads != null)
+			{
+				if (a.Overloads.Count != b.Overloads.Count)
+					return false;
+				for (int i < a.Overloads.Count)
+					if (a.Overloads[i] != b.Overloads[i])
+						return false;
+			}
+			for (int i < a.Inputs.Count)
+				if (!SamePin(a.Inputs[i], b.Inputs[i]))
+					return false;
+			for (int i < a.Outputs.Count)
+				if (!SamePin(a.Outputs[i], b.Outputs[i]))
+					return false;
+			return true;
+		}
+
+		/// The fields ClonePinExact copies.
+		static bool SamePin(Pin a, Pin b)
+		{
+			return a.Id == b.Id && a.IsInput == b.IsInput && a.Kind == b.Kind && a.Name == b.Name && a.Label == b.Label && a.TypeName == b.TypeName &&
+				a.Default == b.Default && a.Optional == b.Optional && a.Parens == b.Parens && SameStr(a.EndComments, b.EndComments) &&
+				SameStr(a.WildcardType, b.WildcardType) && SameStr(a.RawLead, b.RawLead) && SameStr(a.RawTail, b.RawTail) && a.Mode == b.Mode &&
+				a.Form == b.Form && SameStr(a.OutName, b.OutName) && SameStr(a.OutDecl, b.OutDecl) && SameStr(a.OutDeclRaw, b.OutDeclRaw) &&
+				a.OutKeyword == b.OutKeyword && a.OutAuto == b.OutAuto && a.OutKeepName == b.OutKeepName;
+		}
+
+		/// A rough size in bytes of a Clone of this graph (the undo history's byte budget).
+		public int64 EstimateBytes()
+		{
+			int64 bytes = 256 + Links.Count * 48;
+			for (int list < 2)
+			{
+				for (let n in (list == 0) ? Nodes : Locals)
+				{
+					bytes += 320 + n.Text.Length + n.Text2.Length + n.Key.Length;
+					if (n.Original != null)
+						bytes += n.Original.Length;
+					if (n.LeadingComments != null)
+						bytes += n.LeadingComments.Length;
+					if (n.RawLead != null)
+						bytes += n.RawLead.Length;
+					for (let p in n.Inputs)
+						bytes += 200 + p.Name.Length + p.Label.Length + p.TypeName.Length + p.Default.Length;
+					for (let p in n.Outputs)
+						bytes += 200 + p.Name.Length + p.Label.Length + p.TypeName.Length;
+				}
+			}
+			return bytes;
 		}
 
 		/// Copies a node with its pins (ids included). Links are not copied.
@@ -643,6 +767,8 @@ namespace VisualBeef.Graph
 				for (let s in src.Overloads)
 					n.Overloads.Add(new String(s));
 			}
+			n.OverloadCount = src.OverloadCount;
+			n.OverloadGen = src.OverloadGen;
 			CopyStr(ref n.Alloc, src.Alloc);
 			n.IsArray = src.IsArray;
 			CopyStr(ref n.Attributes, src.Attributes);

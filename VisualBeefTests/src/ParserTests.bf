@@ -700,6 +700,59 @@ namespace VisualBeef.Tests
 				}
 
 				""", "Other", "");
+
+			UsingWithoutSemicolon();
+		}
+
+		/// A `using` without `;` (2026-10-12 audit): it used to swallow the rest of the file into one
+		/// hidden member. It is now an unreadable member of its own, and the declarations after it parse.
+		static void UsingWithoutSemicolon()
+		{
+			Console.WriteLine(" case: a using without ;");
+			String src = "using System\nusing System.Collections;\n\nnamespace T\n{\n\tclass C\n\t{\n\t\tpublic void Run() { }\n\t}\n}\n";
+			let unit = Parser.Parse(src);
+			defer delete unit;
+			String rebuilt = scope .();
+			for (let tok in unit.Tokens)
+				rebuilt.Append(StringView(unit.Text, tok.LeadStart, tok.TrailEnd - tok.LeadStart));
+			Check(rebuilt == src, "lexer reproduces the file");
+			Check(unit.Members.Count == 3 && unit.Members[0].Kind == .Broken && unit.Members[0].Name == "using System" &&
+				unit.Members[0].Error != null && unit.Members[0].Error.Contains("not closed by ;"),
+				scope $"the using is an unreadable member with its reason ({unit.Members.Count} top-level members)");
+			Check(unit.Members.Count == 3 && unit.Members[1].Kind == .Using && unit.Members[2].Kind == .Namespace, "the next using and the namespace parse");
+			List<Member> methods = scope .();
+			unit.CollectMethods(methods, null);
+			bool run = false;
+			for (let m in methods)
+				if (m.Kind == .Method && m.Name == "Run" && m.Body != null)
+					run = true;
+			Check(run, "the function after it is listed");
+			List<UnreadableMember> problems = scope .();
+			defer { ClearAndDeleteItems!(problems); }
+			ProjectIndex.CollectUnreadable(unit, problems);
+			Check(problems.Count == 1 && problems[0].Broken && problems[0].Line == 1 && problems[0].Message.Contains("not closed by ;"),
+				"Problems lists it on line 1");
+			SourceDocument doc = scope .();
+			doc.LoadFromText(src, "test.bf");
+			let mg = doc.FindMethod("C.Run()");
+			Check(mg != null && doc.Commit(mg) && doc.Text == src, "a no-op commit of the function keeps the file byte for byte");
+
+			// At the end of the file, and the forms that are not errors.
+			let atEnd = Parser.Parse("using System");
+			defer delete atEnd;
+			Check(atEnd.Members.Count == 1 && atEnd.Members[0].Kind == .Broken, "a using at the end of the file without ; is reported");
+			let fine = Parser.Parse("using System;\nusing static System.Math;\nusing static\n\tSystem.Console;\nusing System.\n\tCollections;\nusing X = System.Collections.List<int>;\nclass A { }\n");
+			defer delete fine;
+			int usings = 0;
+			bool anyBroken = false;
+			for (let m in fine.Members)
+			{
+				if (m.Kind == .Using)
+					usings++;
+				if (m.Kind == .Broken)
+					anyBroken = true;
+			}
+			Check(usings == 5 && !anyBroken, "usings with ; (static, split over lines, an alias) are not reported");
 		}
 
 		// ------------------------------------------------------------------ layout keys

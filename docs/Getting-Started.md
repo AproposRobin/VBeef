@@ -62,7 +62,7 @@ through an `$ORIGIN` rpath), `assets/`, the same licence files and a short `READ
 Start `VisualBeefEditor.exe`. Optional arguments:
 
 ```
-VisualBeefEditor.exe                                  reopen the last project and tabs
+VisualBeefEditor.exe                                  the start page (nothing is reopened)
 VisualBeefEditor.exe <project folder>                     open this folder (or a .bf file: its project, focused on that file)
 VisualBeefEditor.exe <project folder> --file src\Game.bf  open the folder and focus a file in it
 VisualBeefEditor.exe --view <project folder>              read-only: nothing is ever written to the project
@@ -82,6 +82,22 @@ Large folders open at once: indexing runs in the background with a progress bar 
 bar, and generated libraries inside the folder are loaded as cached libraries. Settings, the
 dock layout and logs live in `%LOCALAPPDATA%\VisualBeef`, whatever folder you start the exe from.
 
+### The start page
+
+With no project on the command line the editor opens on the **start page**; it does not reopen the last
+project. On the left are your **Recent projects** (name, folder, when each was opened; click one to open
+it; a folder that has been moved or deleted is dimmed and marked **Missing**, with a **x** to remove it
+from the list). On the right: **New project...**, **Open project...** (a folder picker) and
+**Documentation**. A project folder dropped on the window opens as well. Opening or making a project
+closes the page, and closes the project that was open (asking first when files have unsaved changes);
+**File > Close Project** brings the page back.
+
+### Documentation inside the editor
+
+**Help > Documentation** (**F1**, or the start page's Documentation card) opens these pages in the
+editor: the list of pages on the left, a search over titles and headings above it, the page on the
+right with working links and **Back**.
+
 ## Make a class
 
 1. In the **Project Browser** (bottom), open the folder that should contain it.
@@ -91,13 +107,60 @@ dock layout and logs live in `%LOCALAPPDATA%\VisualBeef`, whatever folder you st
    within a namespace.
 4. **Double-click** the new tile to open it in **Outline**.
 
-New structs, enums, interfaces, plain files, folders and whole projects (`BeefProj.toml`, registered
-in `BeefSpace.toml`) come from the same menu.
+New structs, enums, interfaces, plain files and folders come from the same menu; projects are below.
+
+To start a new project from scratch use **New project...** on the start page or **File > New Project...**:
+type the name, pick where it goes, and the folder is named exactly that (`My Game` makes a folder `My Game`
+with its `BeefProj.toml`, its own `BeefSpace.toml` and `src/Program.bf`). The dialog shows the full path it
+will create, and the new project opens in place of the one that was open.
 
 The New Class dialog can also set a parent: **Derived from** lists the project's classes and the
 libraries' (corlib, a node library...), **Interfaces** adds interfaces, and **Implement missing
 members** writes a stub (a graph) for every abstract or interface member the class has to provide.
 **Template > Node Library** makes a static class whose functions and variables are global.
+
+## Projects in the workspace
+
+The folder you open is the **workspace** (the root of the Project Browser's tree, with the workspace
+icon). Every project its `BeefSpace.toml` lists is a **project row** of its own: a package icon and
+the project's name in blue, the **startup** project marked in green, and its folders (`src`,
+`assets`...) beneath it. A project whose folder is not named like the project shows the folder name
+in brackets; a project outside the opened folder is listed at the end of the tree with its path.
+
+Right-click a project row (or its folder tile):
+
+* **Project Settings** shows the project in **Properties**: **Build kind** (Console application,
+  Windows application, Library, Dynamic library: a DLL), **Startup object**, **Namespace**,
+  **Set as startup**, **Dependencies** as checkboxes (corlib and every project of the
+  workspace), and per **Configuration** (`Debug | Win64`, `Release | Win64`...) the **Pre-build** and
+  **Post-build** commands (one per line), **Output folder** and **Output name**, **Run program**,
+  **Run arguments** and **Run in folder** (what Start runs), **Macros** and **Link flags**; each
+  field's tooltip names its key in `BeefProj.toml`. Values the project file holds that this list
+  does not edit are shown as they are. Each change is written to `BeefProj.toml` (or `BeefSpace.toml`)
+  when you leave the field, and the **Output Log** lists exactly what changed.
+* **Set as Startup Project**: the project **Compile** and **Start** build and run.
+* **Add as Dependency of <current project>** / **Remove as Dependency of ...**: the current project
+  is the one of the open file (else the startup project).
+* **Remove from Workspace** takes the project out of `BeefSpace.toml`; its files stay.
+* **Rename Project Folder...**, **New Folder...** and **Delete...** (Delete asks first). Renaming a
+  project's folder renames the project with it when the project was named like its folder: the path and
+  name in `BeefSpace.toml`, `Name` in its `BeefProj.toml`, the startup project, the other projects'
+  dependencies on it and `.vbproject`'s main file follow, and open files stay open. Deleting it takes it
+  out of the workspace and out of the other projects' dependencies.
+
+Every folder row has **Rename...**, **New Folder...** and **Delete...** at the top of its right-click menu.
+
+**+ Add** (and every right-click menu) has a **PROJECTS** part:
+
+* **New Project in This Workspace...**: a **Library** (`src/<Name>.bf` with a static class) or a
+  **Program** (`src/Program.bf` with `Main`), created beside the current project and listed in
+  `BeefSpace.toml`; **Add as a dependency of <current project>** is ticked for a library.
+* **Add Existing Project...**: pick a folder that holds a `BeefProj.toml`. It is added to
+  `BeefSpace.toml` under its own name, by a path relative to the workspace (`../Shared/Lib`).
+
+**File > New Project...** writes its project into the workspace the same way (both forms the Beef IDE
+writes, `Projects = {...}` and a `[Projects]` table, are kept). All these edits change only the lines
+they are about: comments, the order of the keys and keys VisualBeef does not know stay as they were.
 
 ## Type settings, overrides and interfaces
 
@@ -205,7 +268,7 @@ the shortcuts above were exercised by hand; their menu and toolbar equivalents w
 
 | What | Where |
 |---|---|
-| Editor Preferences, last project, open tabs, compile configuration per workspace | `%LOCALAPPDATA%\VisualBeef\settings.json` |
+| Editor Preferences, recent projects, compile configuration per workspace | `%LOCALAPPDATA%\VisualBeef\settings.json` |
 | Dock layout | `%LOCALAPPDATA%\VisualBeef\layout.ini` (**Window > Reset Layout** restores the default) |
 | Session logs, crash reports | `%LOCALAPPDATA%\VisualBeef\logs` (**Build > Open Logs Folder**) |
 | Unsaved changes after a crash | `%LOCALAPPDATA%\VisualBeef\recovery` (offered back on the next start) |

@@ -856,6 +856,181 @@ namespace VisualBeef.Tests
 				Check(d5.FindView("Player.Die()", 2) != null, "and loads again from the file");
 			}
 
+			Console.WriteLine("Safety 21: graph edits not written (a refused commit) are a second dirty bit, kept by undo");
+			{
+				String path = scope $"{cDir}/Unwritten.bf";
+				Write(path, cPlayer);
+				SourceDocument doc = scope .();
+				doc.Load(path).IgnoreError(); // setup: the assertions below catch a failed load
+				Check(!doc.NeedsSave && !doc.HasUnwrittenGraphEdits, "a document as loaded needs no save");
+				let mg = Method(doc, "Player.Die()");
+				let g = mg.Graph;
+				doc.PushUndo();
+				StringView[1] names = .("amount");
+				StringView[1] types = .("int");
+				// TakeDamage(int) needs its argument: left empty, GraphValidator refuses the commit.
+				let call = NodeFactory.MemberCall(g, "TakeDamage", "Player", true, names, types, "void");
+				g.Connect(call.Then, g.ExecTarget(g.Entry.Then).ExecIn);
+				g.Connect(g.Entry.Then, call.ExecIn);
+				Check(!doc.Commit(mg) && !g.Errors.IsEmpty, "the commit is refused");
+				Check(!doc.Modified && doc.HasUnwrittenGraphEdits && doc.NeedsSave,
+					"the text is still the saved text (Modified is false) but the document needs a save: no auto-reload, quitting asks");
+				// A step taken while the commit is refused, then a layout-only change, then undo / redo.
+				doc.PushUndo();
+				Method(doc, "Player.Die()").Graph.Entry.X += 40;
+				doc.Undo();
+				Check(doc.HasUnwrittenGraphEdits && doc.TrySave() == .GraphErrors, "undo onto a step taken while the commit was refused keeps its errors: still not saved");
+				doc.Redo();
+				Check(doc.HasUnwrittenGraphEdits && doc.TrySave() == .GraphErrors, "redo keeps them too");
+				String disk = Read(path);
+				Check(disk == cPlayer, "nothing was written");
+				delete disk;
+				doc.Undo();
+				doc.Undo();
+				Check(!doc.HasUnwrittenGraphEdits && !doc.NeedsSave, "undoing the refused edit itself clears the second dirty bit");
+				Check(doc.TrySave() == .Saved, "and the document saves (nothing to write)");
+			}
+
+			Console.WriteLine("Safety 22: undo steps share what did not change, and a byte budget");
+			{
+				SourceDocument doc = scope .();
+				doc.LoadFromText(cPlayer, "Share.bf");
+				Check(Method(doc, "Player.TakeDamage(int)").Graph != null && Method(doc, "Player.Die()").Graph != null, "two graphs built");
+				let x0 = Method(doc, "Player.Die()").Graph.Entry.X;
+				for (int i < 20)
+				{
+					doc.PushUndo();
+					Method(doc, "Player.Die()").Graph.Entry.X += 10;
+				}
+				Check(doc.UndoCount == 20 && doc.UndoGraphCopies == 21 && doc.UndoTextCopies == 1,
+					scope $"20 drags of one graph: 20 copies of it, 1 of the other graph, 1 of the text ({doc.UndoGraphCopies} graph copies, {doc.UndoTextCopies} texts)");
+				bool each = true;
+				for (int i < 20)
+				{
+					doc.Undo();
+					if (Method(doc, "Player.Die()").Graph.Entry.X != x0 + 10 * (19 - i))
+						each = false;
+				}
+				Check(each && Method(doc, "Player.Die()").Graph.Entry.X == x0, "every undo brings back its own position, down to the first");
+				for (int i < 20)
+					doc.Redo();
+				Check(Method(doc, "Player.Die()").Graph.Entry.X == x0 + 200 && doc.Text == cPlayer, "redo all: the last position, the same text");
+				// An edit of one graph's code copies that graph; the text is copied once per edit.
+				String key = scope .();
+				doc.AddMethod(TypeOf(doc, "Player"), "void", "Heal", "int amount", key);
+				doc.PushUndo();
+				Check(doc.UndoTextCopies == 2, scope $"a text edit adds one text copy ({doc.UndoTextCopies})");
+				// The byte budget: the oldest steps go, the newest ten stay, undo still works.
+				let budget = SourceDocument.UndoByteBudget;
+				SourceDocument.UndoByteBudget = 1;
+				for (int i < 30)
+				{
+					doc.PushUndo();
+					Method(doc, "Player.Die()").Graph.Entry.X += 1;
+				}
+				SourceDocument.UndoByteBudget = budget;
+				Check(doc.UndoCount == 10, scope $"over the byte budget the history keeps the newest 10 steps ({doc.UndoCount})");
+				for (int i < 10)
+					doc.Undo();
+				Check(!doc.CanUndo && Method(doc, "Player.Die()").Graph.Entry.X == x0 + 200 + 20, "and those ten undo in order");
+			}
+
+			Console.WriteLine("Safety 23: the side file is kept: a member that does not parse, a newer format, a file that cannot be read");
+			{
+				// A function hidden by a member that does not parse (an outside edit, reloaded) keeps
+				// its positions and #math records through a save that carries an edit.
+				String path = scope $"{cDir}/BrokenKeep.bf";
+				Write(path, cPlayer);
+				Write(scope $"{path}.vblayout", "#vblayout\t2\nPlayer.Die()|entry\t10\t20\n#math\tPlayer.Die()\ts0\tint\ta + b\n");
+				SourceDocument d = scope .();
+				d.Load(path).IgnoreError(); // setup: the assertions below catch a failed load
+				String broken = scope .(cPlayer);
+				int at = broken.IndexOf("public void Die()");
+				Check(at > 0, "setup: Die() found");
+				broken.Remove(Math.Max(at, 0) + "public void Die(".Length, 1);
+				broken.Insert(Math.Max(at, 0) + "public void Die(".Length, "int a"); // a ( not closed yet: `Die(int a`
+				Write(path, broken);
+				d.ApplyText(broken);
+				d.MarkSavedFromDisk(broken);
+				bool anyBroken = false;
+				for (let mg in d.Methods)
+					if (mg.IsBroken)
+						anyBroken = true;
+				String keys = scope .();
+				for (let mg in d.Methods)
+					keys.AppendF("{}; ", mg.Key);
+				Check(anyBroken && d.FindMethod("Player.Die()") == null, scope $"the reloaded text has a broken member and Die() is not listed ({keys})");
+				d.PushUndo(); // a node drag: the next save carries an edit
+				Method(d, "Player.TakeDamage(int)").Graph.Entry.X += 30;
+				Check(d.TrySave() == .Saved, "saved");
+				String side = Read(scope $"{path}.vblayout");
+				Check(side.Contains("Player.Die()|entry\t10\t20") && side.Contains("#math\tPlayer.Die()\ts0"),
+					"the hidden function's position and #math record stay in the side file");
+				delete side;
+				Write(path, cPlayer);
+				d.ApplyText(cPlayer);
+				d.MarkSavedFromDisk(cPlayer);
+				let die = Method(d, "Player.Die()");
+				Check(die != null && die.Graph.Entry.X == 10 && die.Graph.Entry.Y == 20, "fixed again: Die() opens at its saved position, not auto laid out");
+				// With the whole file parsing, a save that carries an edit still drops a function that is gone.
+				Write(scope $"{path}.vblayout", "#vblayout\t2\nGone.Method()|n1\t1\t2\n#math\tGone.Method()\ts0\tint\ta + b\n");
+				SourceDocument d2 = scope .();
+				d2.Load(path).IgnoreError();
+				d2.AddField(TypeOf(d2, "Player"), "int", "mMana");
+				Check(d2.TrySave() == .Saved, "saved with an edit");
+				String side2 = Read(scope $"{path}.vblayout");
+				Check(!side2.Contains("Gone.Method()"), "a function that is really gone loses its positions and #math records");
+				delete side2;
+			}
+			{
+				// A newer-format side file is never written, and the editor is told once.
+				String newer = scope $"{cDir}/NewerMsg.bf";
+				Write(newer, cPlayer);
+				Write(scope $"{newer}.vblayout", "#vblayout\t99\nPlayer.Die()|entry\t10\t20\n");
+				SourceDocument d = scope .();
+				d.Load(newer).IgnoreError();
+				Check(d.LayoutError.IsEmpty, "loading it is not an error");
+				Method(d, "Player.Die()").Graph.Entry.X = 300;
+				d.LayoutTouched = true;
+				d.SaveLayout();
+				String kept = Read(scope $"{newer}.vblayout");
+				Check(kept.StartsWith("#vblayout\t99") && !kept.Contains("300"), "a newer-format side file is not written");
+				delete kept;
+				Check(d.LayoutError.Contains("newer VisualBeef"), scope $"and the reason is kept for the editor to show once: {d.LayoutError}");
+			}
+#if BF_PLATFORM_WINDOWS
+			{
+				// A side file another program holds while the document loads: not taken for "none".
+				String path = scope $"{cDir}/LockedSide.bf";
+				Write(path, cPlayer);
+				String sidePath = scope $"{path}.vblayout";
+				Write(sidePath, "#vblayout\t2\nPlayer.Die()|entry\t10\t20\n#comment\tPlayer.Die()\t0\t0\t100\t100\tFFFFFFFF\tkeep me\n");
+				SourceDocument d = scope .();
+				{
+					FileStream lockStream = scope .();
+					bool locked = lockStream.Open(sidePath, .Open, .ReadWrite, .None) case .Ok;
+					Check(locked, "another handle holds the side file with no sharing");
+					d.Load(path).IgnoreError();
+					Check(!d.LayoutError.IsEmpty && d.Comments.IsEmpty, scope $"loading reports it could not be read ({d.LayoutError})");
+					Method(d, "Player.Die()").Graph.Entry.X = 480;
+					d.LayoutTouched = true;
+					d.SaveLayout();
+					Check(!d.LayoutError.IsEmpty, "a save while it is still held writes nothing and keeps the reason");
+					lockStream.Close();
+				}
+				String held = Read(sidePath);
+				Check(held.Contains("keep me"), "the side file is unchanged");
+				delete held;
+				Method(d, "Player.Die()").Graph.Entry.X = 490;
+				d.LayoutTouched = true;
+				d.SaveLayout();
+				String merged = Read(sidePath);
+				Check(d.LayoutError.IsEmpty && merged.Contains("keep me") && merged.Contains("Player.Die()|") && merged.Contains("\t490\t"),
+					"once it can be read, its content is merged in: the comment box stays and the new position is saved");
+				delete merged;
+			}
+#endif
+
 #if !BF_PLATFORM_WINDOWS
 			Console.WriteLine("Safety 19: Linux crash report writer (the report, not the signal)");
 			CrashReportChecks();

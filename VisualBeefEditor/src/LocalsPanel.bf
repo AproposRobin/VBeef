@@ -381,13 +381,35 @@ namespace VisualBeef.Editor
 			CommitCurrent();
 		}
 
-		/// Outline: the LOCAL VARIABLES section under the function whose Sheet is in front, with its
-		/// + and one row per Local (selectable, draggable onto the Sheet like a member variable).
+		/// Outline: the one LOCAL VARIABLES section, directly below VARIABLES. Its rows are the locals
+		/// of the function whose Sheet is in front (`mg`; null = no Sheet: one dim row), with the + and
+		/// one row per Local (selectable, draggable onto the Sheet like a member variable). The section
+		/// keeps its place; only the rows follow the open function.
 		/// Returns true when the document changed (the member list must not be used further).
 		bool DrawOutlineLocals(MethodGraph mg, StringView ownerName)
 		{
+			if (mg == null)
+			{
+				mOlNone = true;
+				bool openNone = BPSection(scope $"loc|{ownerName}", "LOCAL VARIABLES", 0, let addNone, "Open a function to add a local variable");
+				if (addNone)
+					SetStatus("Open a function first: a local variable belongs to the function whose Sheet is in front.", .Warning);
+				if (openNone)
+				{
+					Gui.igPushStyleColor_U32(Col.Text, Theme.TextDim);
+					Gui.Text("    Open a function to see its locals");
+					Gui.igPopStyleColor(1);
+				}
+				return false;
+			}
 			let g = mg.Graph;
-			bool open = BPSection(scope $"loc|{mg.Key}", "LOCAL VARIABLES", g.Locals.Count, let add, scope $"Add a local variable to {mg.Method.Name} (L)");
+			for (let local in g.Locals)
+			{
+				if (!mOlLocalNames.IsEmpty)
+					mOlLocalNames.Append(',');
+				mOlLocalNames.Append(local.Text);
+			}
+			bool open = BPSection(scope $"loc|{ownerName}", "LOCAL VARIABLES", g.Locals.Count, let add, scope $"Add a local variable to {mg.Method.Name} (L)");
 			if (add)
 			{
 				AddLocalTo(mg);

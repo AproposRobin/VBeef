@@ -2609,17 +2609,12 @@ namespace VisualBeef.Graph
 					label.Set(ext.ParamNames[i]);
 					type.Set(ext.ParamTypes[i]);
 					outRef = i < ext.ParamAttributes.Count && IsOutRefAttr(ext.ParamAttributes[i]);
+					// The pin shows the overload the arguments choose (`Console.WriteLine("text")`:
+					// WriteLine(StringView line), labelled Message; docs/Calls-and-Receivers.md#overloads).
+					CallOverloads.FriendlyLabel(ext.OwnerType, ext.Name, label, ext.ParamNames.Count, label);
 				}
 				else
 					label.AppendF("Arg {}", i);
-				if (call.Args.Count == 1 && type == "StringView" && IsConsolePrint(n, ext))
-				{
-					// A print read from `Console.WriteLine("text")` takes any value, like a Print
-					// placed from the Node menu (WriteLine(Object obj)): wiring a number into it
-					// writes `Console.WriteLine(i)`. The text as written is unchanged.
-					label.Set("obj");
-					type.Set("Object");
-				}
 				BuildArg(n, i, arg, label, type, outRef);
 			}
 
@@ -2644,15 +2639,6 @@ namespace VisualBeef.Graph
 			}
 			else
 				mGraph.AddDataOut(n, "result", "Return Value");
-		}
-
-		/// `Console.WriteLine` / `Console.Write` resolved to the corlib's static functions.
-		static bool IsConsolePrint(Node n, SymbolMethod ext)
-		{
-			if (ext == null || !ext.IsStatic || (ext.Name != "WriteLine" && ext.Name != "Write"))
-				return false;
-			StringView owner = ext.OwnerType;
-			return owner == "Console" || owner == "System.Console";
 		}
 
 		/// One call argument: an input (a value or `ref x`), or an out pin for `out x`,

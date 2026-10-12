@@ -16,7 +16,8 @@
 #            1920x1080, 100% + 125% (VB_UI_SCALE), captures (VB_SHOTS, PrintWindow) into <Out>\shots\<run>\.
 #            Each run must end `[SELFTEST] done failures=0`, have no [ASSERT] line, no crash report, and every
 #            requested capture must exist.
-#   fresh    fresh settings (empty VB_HOME): a start with no project (nodoc), then a start that opens a scratch
+#   fresh    fresh settings (empty VB_HOME): a start with no project (nodoc, the start page and project switch, the
+#            documentation panel on the package's own docs folder), then a start that opens a scratch
 #            project, opens a function, the Node menu, Editor Preferences > Updates, Help > Check for Updates
 #            (the answer is recorded: up to date or the next version, never "not set up"), then the session
 #            (compile of the sample with BeefBuild).
@@ -396,7 +397,7 @@ try {
     $freshRuns = @()
     # (a) no project at all, empty data folder
     Say "fresh start A: no project (nodoc)"
-    $ra = Invoke-EditorRun -Name "fresh-noproject" -Tests "nodoc" -Project "" -Home2 (Join-Path $Work "home-fresh-a") -Exe $Exe -ShotDir (Join-Path $Out "shots\fresh-noproject") -TimeoutSec 300
+    $ra = Invoke-EditorRun -Name "fresh-noproject" -Tests "nodoc,startpage,docs" -Project "" -Home2 (Join-Path $Work "home-fresh-a") -Exe $Exe -ShotDir (Join-Path $Out "shots\fresh-noproject") -TimeoutSec 300
     $freshRuns += $ra
     if (-not $ra.ok) { Fail "fresh" "no-project start: $($ra.why -join '; ')" }
     # (b) a project, empty data folder: open a function, Node menu, Preferences > Updates, Check for Updates, then the session (compile)

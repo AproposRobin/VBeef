@@ -25,6 +25,16 @@ namespace VisualBeef.Editor
 			let p = Gui.igGetCursorScreenPos();
 			float w = Gui.igGetContentRegionAvail().x;
 			String key = scope .(id);
+			if (!mOlRecording) {}
+			else if (title == "FUNCTIONS")
+				mOlFunctionsY = p.y;
+			else if (title == "VARIABLES")
+				mOlVarsY = p.y;
+			else if (title == "LOCAL VARIABLES")
+			{
+				mOlLocalsY = p.y;
+				mOlLocalsCount = count;
+			}
 			bool open = !mBPClosed.Contains(key);
 			Gui.PushID(id);
 			bool clicked = Gui.igInvisibleButton("##sec", .(w - h - 2, h), ButtonFlags.MouseButtonLeft);
@@ -61,6 +71,7 @@ namespace VisualBeef.Editor
 		void DrawOutlinePanel()
 		{
 			ClearAndDeleteItems!(mMembers);
+			OlResetRecord();
 			if (Gui.Begin(Panels.Outline))
 			{
 				if (Doc.Unit == null || Doc.FilePath.IsEmpty)
@@ -192,7 +203,7 @@ namespace VisualBeef.Editor
 								for (let ec in cases)
 									Gui.TextDisabled(scope $"    {ec.Name}{ec.Value.IsEmpty ? "" : " = "}{ec.Value}");
 							}
-							else if (DrawTypeMembers(type))
+							else if (DrawTypeMembers(type, @type.Index == 0))
 							{
 								Gui.PopID();
 								break; // the parse changed: members are gone
@@ -213,7 +224,7 @@ namespace VisualBeef.Editor
 		}
 
 		/// Returns true when it changed the document (the caller must stop using its Members).
-		bool DrawTypeMembers(Member type)
+		bool DrawTypeMembers(Member type, bool isFirstType = false)
 		{
 			if (type.Members == null)
 				return false;
@@ -227,6 +238,13 @@ namespace VisualBeef.Editor
 					varCount++;
 			}
 			float fs = Gui.igGetFontSize();
+			// The type that shows the LOCAL VARIABLES section (the one holding the open function, or the
+			// first one when no Sheet is open): the self test reads where its bars were drawn.
+			let openMg = OpenLocalsGraph();
+			bool showsLocals = (openMg != null) ? TypeOwnsGraph(type, openMg) : isFirstType;
+			if (showsLocals)
+				OlResetRecord();
+			mOlRecording = showsLocals;
 			String secId = scope $"fn|{type.Name}";
 			bool fnOpen = BPSection(secId, "FUNCTIONS", fnCount, let addFn, "Add a function, override, constructor, property...");
 			let versionBefore = Doc.Version;
@@ -433,12 +451,6 @@ namespace VisualBeef.Editor
 					Gui.EndPopup();
 				}
 				Gui.PopID();
-				// The open function's local variables under it (its Sheet is in front).
-				if (mg.Key == currentKey && mg.Graphable && !mg.IsBroken && mg.Graph != null && !mg.Graph.ReadOnly)
-				{
-					if (DrawOutlineLocals(mg, type.Name))
-						return true;
-				}
 			}
 
 			Gui.igSpacing();
@@ -560,6 +572,42 @@ namespace VisualBeef.Editor
 					return true;
 				}
 				Gui.PopID();
+			}
+			// LOCAL VARIABLES: one fixed section directly below VARIABLES. Its rows are the locals of
+			// the function whose Sheet is in front (they follow the Sheet; the section does not move).
+			if (showsLocals)
+			{
+				mOlVarsEndY = Gui.igGetCursorScreenPos().y;
+				Gui.igSpacing();
+				if (DrawOutlineLocals(openMg, type.Name))
+					return true;
+			}
+			return false;
+		}
+
+		/// The function whose Sheet is in front when it can have locals (a graph with a body that is
+		/// not read-only), else null.
+		MethodGraph OpenLocalsGraph()
+		{
+			let mg = CurrentMethod;
+			if (mOlForceNoSheet || mg == null || mg.Doc != Doc || !mg.Graphable || mg.IsBroken || mg.Graph == null || mg.Graph.ReadOnly)
+				return null;
+			return mg;
+		}
+
+		/// Whether `mg` is a function (or property accessor) written in `type`.
+		bool TypeOwnsGraph(Member type, MethodGraph mg)
+		{
+			if (type.Members == null)
+				return false;
+			for (let m in type.Members)
+			{
+				if (m.Kind == .Method && m == mg.Method)
+					return true;
+				if (m.Members != null && (m.Kind == .Property))
+					for (let a in m.Members)
+						if (a == mg.Method)
+							return true;
 			}
 			return false;
 		}

@@ -117,6 +117,8 @@ namespace VisualBeef.Catalog
 		List<SymbolMethod> mMaterialized = new .() ~ DeleteContainerAndItems!(_);
 		List<SymbolMethod> mOldMaterialized = new .() ~ DeleteContainerAndItems!(_);
 		Dictionary<String, SymbolMethod> mCallCache = new .() ~ DeleteDictionaryAndKeys!(_);
+		/// ListOverloads results (the lists are owned here, their entries by mMaterialized).
+		Dictionary<String, List<SymbolMethod>> mOverloadCache = new .() ~ DeleteDictionaryAndKeysAndValues!(_);
 		Dictionary<String, String> mKindCache = new .() ~ DeleteDictionaryAndKeysAndValues!(_);
 		Dictionary<String, bool> mSubtypeCache = new .() ~ DeleteDictionaryAndKeys!(_);
 
@@ -149,6 +151,12 @@ namespace VisualBeef.Catalog
 			for (let kv in mCallCache)
 				delete kv.key;
 			mCallCache.Clear();
+			for (let kv in mOverloadCache)
+			{
+				delete kv.key;
+				delete kv.value;
+			}
+			mOverloadCache.Clear();
 			for (let kv in mKindCache)
 			{
 				delete kv.key;
@@ -856,6 +864,55 @@ namespace VisualBeef.Catalog
 			}
 			mCallCache[new String(key)] = result;
 			return result;
+		}
+
+		/// Every overload of `name` on a type (`staticType` for a static call, else `targetType`), its
+		/// bases and extensions included, generic arguments of the type applied; one entry per
+		/// distinct parameter list (an override is not another overload), in declaration order,
+		/// static or member functions only as `wantStatic` says. Used by the call node's overload
+		/// choice (docs/Calls-and-Receivers.md#overloads). The entries are owned by the service.
+		public void ListOverloads(StringView staticType, StringView targetType, StringView name, bool wantStatic, ResolveContext ctx, List<SymbolMethod> outList)
+		{
+			Sync();
+			StringView use = staticType.IsEmpty ? targetType : staticType;
+			if (use.IsEmpty || name.IsEmpty)
+				return;
+			// Asked every frame (Properties, a wire dragged over a pin): cached until the stores change.
+			String key = scope .();
+			key.AppendF("{}|{}|{}|{}", staticType, targetType, name, wantStatic);
+			if (ctx != null)
+				key.AppendF("|{}|{}", ctx.Namespace, ctx.OwnerType);
+			if (mOverloadCache.TryGetValue(key, let cached))
+			{
+				outList.AddRange(cached);
+				return;
+			}
+			let found = new List<SymbolMethod>();
+			mOverloadCache[new String(key)] = found;
+			let t = FindType(use, ctx);
+			if (!t.IsValid)
+				return;
+			List<MemberHandle> cands = scope .();
+			List<Dictionary<String, String>> maps = scope .();
+			defer { for (let m in maps) DeleteDictionaryAndKeysAndValues!(m); }
+			FindMethods(t, use, name, cands, maps);
+			List<MemberHandle> kept = scope .();
+			for (int ci < cands.Count)
+			{
+				let m = cands[ci];
+				let rec = ref m.Rec;
+				if (rec.IsStatic != wantStatic || rec.Kind == .Ctor || rec.IsMixin)
+					continue;
+				bool dup = false;
+				for (let k in kept)
+					if (SameParams(k, m))
+						dup = true;
+				if (dup)
+					continue;
+				kept.Add(m);
+				found.Add(Materialize(m, maps[ci]));
+			}
+			outList.AddRange(found);
 		}
 
 		// ------------------------------------------------------------------ ITypeHierarchy

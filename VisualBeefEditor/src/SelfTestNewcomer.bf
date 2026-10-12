@@ -264,6 +264,7 @@ namespace VisualBeef.Editor
 				{
 					BeginEdit();
 					mg.Graph.Connect(index, FirstValueInput(print));
+					RefitCall(mg.Graph, print); // what the drop does: an int takes WriteLine(Object obj)
 					CommitCurrent();
 					NcNote("For Loop has a data output for its counter: wired into the print");
 				}
@@ -389,6 +390,7 @@ namespace VisualBeef.Editor
 				{
 					BeginEdit();
 					let l = run.Graph.Connect(outPin, FirstValueInput(print));
+					RefitCall(run.Graph, print); // what the drop does: the print takes the overload for the value
 					CommitCurrent();
 					NcNote(scope $"out pin '{outPin.Label}' wired into the print: {l != null}");
 				}
@@ -417,32 +419,36 @@ namespace VisualBeef.Editor
 					return true;
 				}
 				{
-					// The template's `Console.WriteLine("Hello from Mod")` read back takes any value,
-					// like a placed Print: an int wired into it is not refused (checked, then unwired).
+					// The template's `Console.WriteLine("Hello from Mod")` reads back as WriteLine(StringView
+					// line), a Message text field; an int dropped on it is accepted and switches it to
+					// WriteLine(Object obj), the overload Beef calls (checked, then put back).
 					let hello = FindNodeOf(main.Graph, .Call, "WriteLine");
 					let pin = (hello != null) ? FirstValueInput(hello) : null;
-					bool objectPin = pin != null && pin.TypeName == "Object";
+					bool textPin = pin != null && pin.TypeName == "StringView" && pin.Label == "Message";
 					bool accepted = false;
-					if (objectPin)
+					if (textPin)
 					{
 						let g = main.Graph;
 						String saved = scope .(pin.Default);
 						let num = NodeFactory.Expr(g, "42");
 						num.Result.TypeName.Set("int");
+						accepted = CallOverloads.CouldTake(g, pin, "int", VisualBeef.Catalog.TypeService.Current);
 						g.Connect(num.Result, pin);
+						RefitCall(g, hello);
+						accepted = accepted && pin.TypeName == "Object";
 						g.ClearErrors();
 						GraphValidator.Validate(g);
-						accepted = true;
 						for (let e in g.Errors)
 							if (e.NodeId == hello.Id)
 								accepted = false;
 						g.RemoveNode(num);
 						pin.Default.Set(saved);
+						RefitCall(g, hello);
 						g.ClearErrors();
 						GraphValidator.Validate(g);
 					}
 					NcNote(scope $"Main's template print: pin {(pin != null) ? pin.Label : "?"} typed {(pin != null) ? pin.TypeName : "?"}, an int accepted {accepted}");
-					SelfTestCheck(objectPin && accepted, "newcomer 10c: the template's print read back takes Object; a wired int is accepted");
+					SelfTestCheck(textPin && accepted && pin.TypeName == "StringView", "newcomer 10c: the template's print reads back as a Message text field; a wired int switches it to WriteLine(Object obj)");
 				}
 				String cons = scope .();
 				NcLabels(null, "Construct", cons);

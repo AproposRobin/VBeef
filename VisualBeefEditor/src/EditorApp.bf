@@ -52,7 +52,6 @@ namespace VisualBeef.Editor
 		// Project / files
 		String mProjectRoot = new .() ~ delete _;
 		List<String> mProjectFiles = new .() ~ DeleteContainerAndItems!(_);
-		String mPendingOpen = new .() ~ delete _;
 		bool mShowSwitchModal;
 		int mFrame;
 
@@ -100,7 +99,6 @@ namespace VisualBeef.Editor
 
 		/// The pre-JSON session file in the working directory (read once for migration, never written).
 		const String cLegacySettingsFile = "VisualBeef_settings.txt";
-		List<String> mSavedTabs = new .() ~ DeleteContainerAndItems!(_);
 
 		// Compile (BeefBuild)
 		BuildRunner mBuild ~ delete _;
@@ -176,15 +174,8 @@ namespace VisualBeef.Editor
 				LoadLegacySettings();
 				return;
 			}
-			mProjectRoot.Set(s.GetString("root"));
-			mPendingOpen.Set(s.GetString("file"));
+			// The last project and its tabs are not reopened: with no project on the command line the start page shows.
 			mBeefBuildPath.Set(Settings.Root.GetString("beefBuild"));
-			let tabs = s.Get("tabs");
-			if (tabs != null && tabs.Type == .Array)
-				for (let t in tabs.Items)
-					if (t.Type == .String)
-						mSavedTabs.Add(new String(t.Str));
-			mCBFolder.Set(s.GetString("cbFolder"));
 			mCBTileSize = (float)s.GetNumber("cbTile", mCBTileSize);
 			mLayoutVersion = (int32)s.GetNumber("layoutVersion", mLayoutVersion);
 		}
@@ -197,16 +188,8 @@ namespace VisualBeef.Editor
 			for (var line in content.Split('\n'))
 			{
 				line.Trim();
-				if (line.StartsWith("root="))
-					mProjectRoot.Set(line.Substring(5));
-				else if (line.StartsWith("file="))
-					mPendingOpen.Set(line.Substring(5));
-				else if (line.StartsWith("beefbuild="))
+				if (line.StartsWith("beefbuild="))
 					mBeefBuildPath.Set(line.Substring(10));
-				else if (line.StartsWith("tab="))
-					mSavedTabs.Add(new String(line.Substring(4)));
-				else if (line.StartsWith("cbfolder="))
-					mCBFolder.Set(line.Substring(9));
 				else if (line.StartsWith("cbtile="))
 				{
 					if (float.Parse(line.Substring(7)) case .Ok(let v))
@@ -220,20 +203,15 @@ namespace VisualBeef.Editor
 			}
 		}
 
-		bool mRestoringTabs;
-
 		public void SaveSettings()
 		{
-			if (mRestoringTabs)
-				return;
 			Settings.Load();
 			let s = Settings.Session;
-			s.Set("root", Json.NewString(mProjectRoot));
-			s.Set("file", Json.NewString(Doc.FilePath));
-			let tabs = s.Set("tabs", Json.NewArray());
-			for (let tab in Tabs)
-				tabs.Items.Add(Json.NewString(scope $"{tab.Doc.FilePath}|{tab.MethodKey}"));
-			s.Set("cbFolder", Json.NewString(mCBFolder));
+			// Older versions kept the open project and tabs here; nothing is reopened now, so they are dropped.
+			s.Remove("root");
+			s.Remove("file");
+			s.Remove("tabs");
+			s.Remove("cbFolder");
 			s.Set("cbTile", Json.NewNumber((int)mCBTileSize));
 			s.Set("layoutVersion", Json.NewNumber(mLayoutVersion));
 			Settings.Root.Set("beefBuild", Json.NewString(mBeefBuildPath));
@@ -244,49 +222,14 @@ namespace VisualBeef.Editor
 		/// project folder to open, `file` the file to focus (either may be empty).
 		public void HandleArgs(EditorArgs args, StringView root, StringView file)
 		{
+			// Nothing to open: the start page (Recent projects, Open project, New project, Documentation) shows.
 			if (args.IsEmpty)
-			{
-				if (!mProjectRoot.IsEmpty)
-					ScanProject();
-				// Reopen the graphs that were open last time.
-				mRestoringTabs = true;
-				defer { mRestoringTabs = false; }
-				for (let saved in mSavedTabs)
-				{
-					int bar = saved.IndexOf('|');
-					if (bar <= 0)
-						continue;
-					String path = scope .(saved.Substring(0, bar));
-					StringView key = saved.Substring(bar + 1);
-					if (!File.Exists(path))
-						continue;
-					let doc = OpenFile(path, false);
-					let mg = doc?.FindMethod(key);
-					if (mg != null && mg.Graphable)
-						OpenTab(mg);
-				}
-				if (Tabs.IsEmpty && !mPendingOpen.IsEmpty && File.Exists(mPendingOpen))
-					OpenFile(scope String(mPendingOpen));
-				else if (!mPendingOpen.IsEmpty)
-				{
-					// Show the last active file's panels.
-					let doc = FindDoc(mPendingOpen);
-					if (doc != null)
-						Doc = doc;
-				}
-				mPendingOpen.Clear();
 				return;
-			}
-			mPendingOpen.Clear();
 			// --view: open read-only (nothing is ever written to the project).
 			if (args.View)
 				FileSafety.ReadOnlyProject = true;
 			if (root.IsEmpty)
-			{
-				if (!mProjectRoot.IsEmpty)
-					ScanProject();
 				return;
-			}
 			// The root first, so opening the file does not adopt the file's own folder as the project.
 			mProjectRoot.Set(root);
 			if (!file.IsEmpty && File.Exists(file))
@@ -294,6 +237,7 @@ namespace VisualBeef.Editor
 			else if (!file.IsEmpty)
 				Notify.Log(.Warning, "Editor", scope $"{file} does not exist; opening the project only");
 			ScanProject();
+			RememberProject(root);
 			Notify.Log(.Info, "Editor", scope $"Opened {root} (focus: {file})");
 		}
 
@@ -373,6 +317,7 @@ namespace VisualBeef.Editor
 					Path.GetDirectoryPath(path, dir).IgnoreError(); // a root has no parent: dir stays empty
 					mProjectRoot.Set(dir);
 					ScanProject();
+					RememberProject(dir);
 				}
 			}
 			Doc = doc;
@@ -514,7 +459,9 @@ namespace VisualBeef.Editor
 			bool allOk = true;
 			for (let d in mDocs)
 			{
-				if (d.Modified)
+				// NeedsSave: graph edits not written (a refused commit) are refused here with their
+				// reason, so quitting through Save All stays open instead of losing them.
+				if (d.NeedsSave)
 				{
 					if (SaveDoc(d))
 						count++;
@@ -540,7 +487,7 @@ namespace VisualBeef.Editor
 			{
 				int count = 0;
 				for (let d in mDocs)
-					if (d.Modified)
+					if (d.NeedsSave)
 						count++;
 				return count;
 			}
@@ -583,7 +530,9 @@ namespace VisualBeef.Editor
 				{
 					if (t != doc.DiskTime)
 					{
-						if (!doc.Modified)
+						// Unsaved text or graph edits not written: never reloaded on its own (the
+						// changed-on-disk banner asks).
+						if (!doc.NeedsSave)
 							ReloadFromDisk(doc);
 						else
 							doc.ExternalChange = true;
@@ -1101,6 +1050,15 @@ namespace VisualBeef.Editor
 					p.Default.Set(defaults[i]);
 			}
 			return n;
+		}
+
+		/// After a wire or a typed value changed a call's inputs: the call shows the overload those
+		/// values choose (CallOverloads.Refit; docs/Calls-and-Receivers.md#overloads). True when it changed.
+		public bool RefitCall(VisualBeef.Graph.Graph g, Node n)
+		{
+			if (g == null || n == null || n.Kind != .Call)
+				return false;
+			return CallOverloads.Refit(g, n, VisualBeef.Catalog.TypeService.Current);
 		}
 
 		/// A parameter, local or field of the function being edited named `name`; its type.
@@ -1635,6 +1593,7 @@ namespace VisualBeef.Editor
 			DrawFindResults();
 			DrawDebugPanels();
 			DrawPopups();
+			DrawStartPageAndDocs();
 			DrawPreferences();
 			if (mShowDemo)
 				Gui.igShowDemoWindow(&mShowDemo);
@@ -1703,6 +1662,8 @@ namespace VisualBeef.Editor
 				OpenFileBrowser();
 			if (Gui.IsKeyPressed(578 /* F7 */, false))
 				Compile();
+			if (Gui.IsKeyPressed(572 /* F1 */, false))
+				OpenDocumentation();
 			// UE: Ctrl+B browses to the asset, Ctrl+Shift+F finds in all Blueprints.
 			if (ctrl && !Gui.IsShiftDown && Gui.IsKeyPressed(Key.B, false) && !Gui.igIsAnyItemActive())
 				BrowseToCurrent();
@@ -1742,10 +1703,7 @@ namespace VisualBeef.Editor
 			int32 r = Host.vbh_native_dialog(1, scope String(start), &buf, 4096);
 			if (r == 1)
 			{
-				mProjectRoot.Set(StringView(&buf));
-				ScanProject();
-				SaveSettings();
-				UpdateTitle();
+				RequestOpenProject(StringView(&buf));
 				return;
 			}
 			if (r == 0)
@@ -1809,6 +1767,11 @@ namespace VisualBeef.Editor
 				Gui.igDummy(.(fs * 1.5f, 1));
 				Gui.SameLine();
 			}
+			if (mSpFileMenu) // captures: the File menu open
+			{
+				mSpFileMenu = false;
+				Gui.OpenPopup("File");
+			}
 			if (Gui.BeginMenu("File"))
 			{
 				if (IconItem(Icon.Package, "New Project..."))
@@ -1833,6 +1796,9 @@ namespace VisualBeef.Editor
 					FileSafety.ReadOnlyProject = true;
 					OpenFolderPicker();
 				}
+				DrawOpenRecentMenu();
+				if (IconItem(Icon.X, "Close Project", "", false, !mProjectRoot.IsEmpty))
+					RequestCloseProject();
 				Gui.Separator();
 				if (IconItem(Icon.Lock, "Read-only (viewer) mode", "", FileSafety.ReadOnlyProject))
 					FileSafety.ReadOnlyProject = !FileSafety.ReadOnlyProject;
@@ -1948,6 +1914,9 @@ namespace VisualBeef.Editor
 			}
 			if (Gui.BeginMenu("Help"))
 			{
+				if (IconItem(Icon.BookOpen, "Documentation", "F1"))
+					OpenDocumentation();
+				Gui.Separator();
 				Gui.TextDisabled("Graph");
 				Gui.Text("Right-click the graph: add nodes (type to search).");
 				Gui.Text("Drag from a pin into empty space: add a connected node.");
@@ -2566,9 +2535,7 @@ namespace VisualBeef.Editor
 					String dir = scope .(mPathBuf.View);
 					if (Directory.Exists(dir))
 					{
-						mProjectRoot.Set(dir);
-						ScanProject();
-						SaveSettings();
+						RequestOpenProject(dir);
 						Gui.igCloseCurrentPopup();
 					}
 					else
@@ -3116,7 +3083,7 @@ namespace VisualBeef.Editor
 				Gui.Text("These files have unsaved changes:");
 				for (let d in mDocs)
 				{
-					if (!d.Modified)
+					if (!d.NeedsSave)
 						continue;
 					String name = scope .();
 					Path.GetFileName(d.FilePath, name);
@@ -3235,11 +3202,7 @@ namespace VisualBeef.Editor
 			if (path.EndsWith(".bf", .OrdinalIgnoreCase))
 				RequestOpen(path);
 			else if (Directory.Exists(path))
-			{
-				mProjectRoot.Set(path);
-				ScanProject();
-				SaveSettings();
-			}
+				RequestOpenProject(path);
 		}
 	}
 }

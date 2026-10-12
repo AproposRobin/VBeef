@@ -1237,7 +1237,9 @@ namespace VisualBeef.Tests
 			let r2 = p.Service.ResolveCall("Console", "", "WriteLine", 1, args, null);
 			Check(r2 != null && !r2.Ambiguous && r2.ParamTypes[0] == "Object", "WriteLine(int) picks WriteLine(Object)");
 
-			// A print read back from `Console.WriteLine("text")` takes any value like a placed Print.
+			// A print read back from `Console.WriteLine("text")` shows the overload the text chooses:
+			// WriteLine(StringView line), its pin labelled Message; an int wired into it switches it to
+			// WriteLine(Object obj) (CallOverloads.Refit, what the editor does on the drop).
 			SourceDocument pd = scope .();
 			let printText = "using System;\n\nnamespace Mod\n{\n\tclass Printer\n\t{\n\t\tpublic void Show(int n)\n\t\t{\n\t\t\tConsole.WriteLine(\"text\");\n\t\t}\n\t}\n}\n";
 			pd.LoadFromText(printText, "Printer.bf");
@@ -1248,7 +1250,7 @@ namespace VisualBeef.Tests
 				if (n.Kind == .Call && n.Text == "WriteLine")
 					print = n;
 			let pin = print?.FindInput("arg0");
-			Check(pin != null && pin.TypeName == "Object" && pin.Label == "obj" && pin.Default == "\"text\"", scope $"Console.WriteLine(\"text\") read back: the pin takes Object like a placed Print ({(pin != null) ? pin.TypeName : "none"})");
+			Check(pin != null && pin.TypeName == "StringView" && pin.Label == "Message" && pin.Default == "\"text\"", scope $"Console.WriteLine(\"text\") read back: WriteLine(StringView line), pin Message ({(pin != null) ? pin.TypeName : "none"})");
 			ForceEdited(pmg.Graph);
 			pd.PushUndo();
 			Check(pd.Commit(pmg) && pd.Text == printText, "its text is written back byte for byte");
@@ -1258,7 +1260,10 @@ namespace VisualBeef.Tests
 				if (n.Kind == .Call && n.Text == "WriteLine")
 					print2 = n;
 			pd.PushUndo();
+			Check(CallOverloads.CouldTake(pmg2.Graph, print2.FindInput("arg0"), "int", p.Service), "an int may be dropped on it: WriteLine(Object obj) takes it");
 			pmg2.Graph.Connect(FindDataOut(pmg2.Graph.Entry, "n"), print2.FindInput("arg0"));
+			CallOverloads.Refit(pmg2.Graph, print2, p.Service);
+			Check(print2.FindInput("arg0").TypeName == "Object" && print2.FindInput("arg0").Label == "Message", "wired with an int it shows WriteLine(Object obj)");
 			print2.Edited = true;
 			GraphValidator.Validate(pmg2.Graph);
 			bool typeErr = false;

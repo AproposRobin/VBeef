@@ -594,6 +594,9 @@ namespace VisualBeef.Graph
 			TypeRules.Normalize(to, t);
 			if (TypeRules.IsNumeric(literalType) && (TypeRules.IsNumeric(t) || TypeRules.IsChar(t)))
 				return .None;
+			// A text literal into a C string (`char8*`): Beef passes the literal's characters.
+			if (literalType == "String" && PinValue.IsCharPointer(t))
+				return .None;
 			if (literalType == "null")
 			{
 				// Only a declared struct / enum (or a primitive) can't be null.

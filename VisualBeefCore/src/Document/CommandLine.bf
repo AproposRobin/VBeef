@@ -9,7 +9,7 @@ namespace VisualBeef.Document
 	/// Bump `HostContract` when the command line, the template manifest or the project manifest change shape.
 	static class VisualBeefInfo
 	{
-		public const String Version = "0.2.3";
+		public const String Version = "0.2.4";
 		/// Release channel of this build ("alpha"); shown by --version, the window title and VERSION.txt.
 		public const String Channel = "alpha";
 		public const int HostContract = 1;

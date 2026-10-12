@@ -54,7 +54,7 @@ VisualBeefEditor.exe --version | --help
 
 | Argument | Meaning |
 |---|---|
-| (none) | Reopen the last project and tabs. |
+| (none) | The start page (recent projects, open, new, documentation); nothing is reopened. |
 | `<folder-or-file>` | A project folder (holding `BeefSpace.toml`, `BeefProj.toml` or `.vbproject`); one of those files (opens its folder); or a `.bf` file (opens the nearest folder above it that has one of them, and focuses the file). |
 | `--file <bf>` | The file to focus: absolute, or relative to the project folder. Default: `main` of the folder's `.vbproject`. |
 | `--view` | Read-only: nothing is ever written to the project. |
@@ -143,7 +143,7 @@ digits, `_`, `.`) is left as it is.
 | Built-in | Value for `--name "Hello Tool!"` into `D:\Work\HelloTool` |
 |---|---|
 | `@@Name@@` | `Hello Tool!` (the name as given; default the destination folder's name) |
-| `@@Identifier@@` | `HelloTool`: the ASCII letters, digits and `_` of the name, `_` in front when it starts with a digit. A Beef identifier and a folder name. |
+| `@@Identifier@@` | `HelloTool`: the ASCII letters, digits and `_` of the name, `_` in front when it starts with a digit. A Beef identifier (`--new-from-template` takes the destination as given, whatever its name). |
 | `@@Slug@@` | `hello-tool`: lower case, every run of other characters one `-`. |
 | `@@Folder@@` | `HelloTool`: the destination folder's name. |
 | `@@Lib.<name>@@` | The absolute folder of each library in `libraries`, with `/`. |
@@ -158,9 +158,19 @@ so no Beef tool indexes the unfilled text.
 
 1. Every file of `files`, filled in, under the destination folder. Folders are created.
 2. `.vbproject` (below), unless the template lists its own `.vbproject` in `files`: a host that
-   keeps its own keys in the manifest writes it from the template like any other file.
+   keeps its own keys in the manifest writes it from the template like any other file. Its
+   `libraries` are written relative to the new project (`../../libs/HostKit`, with `/`) when the
+   library is on the same drive, so the project and its library can move together; a library on
+   another drive stays absolute.
 
-From the dialog the destination is `<Location>\<@@Identifier@@ of the name>`; the dialog refuses
+All or nothing: each file is written atomically (`File.tmp`, then replaced), and when one cannot be
+written (a full disk, no permission, a file where a folder must go) every file and folder this
+creation made is removed again, so the message is true and the same command works once the cause is
+gone.
+
+From the dialog the destination is `<Location>\<the name as typed>` (`ProjectKind.FolderName`: only the
+characters a folder name cannot hold are left out, so "Hello Tool" makes `Hello Tool`, and `@@Folder@@` is
+that name; `@@Identifier@@` is still the letters-and-digits form for use inside Beef code); the dialog refuses
 an existing folder. The new folder is opened as the project. Implementation:
 `TemplateManifest` and `ProjectKind` in `VisualBeefCore/src/Document/ProjectKind.bf`.
 
@@ -180,7 +190,7 @@ its own ids in the same file.
   "main": "src/HelloTool.bf",
   "configuration": "Release",
   "attach": {"module": "HostRuntime.dll", "hint": "Start the game from Example Host, then Refresh."},
-  "libraries": ["D:/Example/libs/HostKit"]
+  "libraries": ["../libs/HostKit"]
 }
 ```
 
@@ -189,7 +199,7 @@ its own ids in the same file.
 | `main` | The file to focus when the folder is opened without `--file`. Project-relative; rooted paths and `..` are ignored. |
 | `configuration` | The default compile configuration (`Debug` / `Release`) while the user has not chosen one for the project; the toolbar's configuration menu says where it came from. Order: the user's choice for the project, Editor Preferences, `.vbproject`, the Beef IDE's last configuration (`BeefSpace_User.toml`), Debug. |
 | `attach` | Debug > Attach to Process lists the processes that have `attach.module` loaded (default: the project's own output file) and shows `attach.hint` when none has. See [Debugging.md](Debugging.md). |
-| `libraries` | Library folders (absolute, or relative to the project folder) loaded as node libraries even when the workspace does not list them. |
+| `libraries` | Library folders loaded as node libraries even when the workspace does not list them: relative to the project folder (with `/`, re-based on load, so a moved project keeps them) or absolute. A listed folder that does not exist is reported once per indexing in the Output Log (`Index` warning), not skipped in silence. |
 | `kind`, `template`, `host` | Information: `kind` is `template` when VisualBeef wrote the file; `host` names the host in messages. |
 
 A host may treat the file's presence as "this is a visual project" (for example to show an

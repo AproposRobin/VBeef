@@ -19,8 +19,9 @@ source of truth; everything else is a cache or a convenience.
 | Save (Ctrl+S) / Save All (Ctrl+Shift+S) / Compile (F7, saves first) | `File.bf` atomically, plus `File.bf.bak`, plus the sidecar if the layout was touched or the save carries an edit. Files that are not modified are not rewritten. |
 | New class / struct / enum / interface / file / folder / project | The new file or folder only (never overwrites). |
 | Rename a type | The one file, rewritten with just the rename (see below). |
-| Rename a file or folder | A move; the `.vblayout` follows the file. |
-| Delete | Recycle Bin only (the freedesktop.org Trash on Linux). |
+| Rename a file or folder | A move; the `.vblayout` follows the file. A project's folder: `BeefSpace.toml`, its `BeefProj.toml`, the projects that depend on it and `.vbproject` follow (or the folder is moved back). |
+| Project Settings, startup project, dependencies, New / Add Existing / Remove project | `BeefProj.toml` / `BeefSpace.toml` atomically (`.bak` as for sources), only the lines the change is about; one Output Log line per change. |
+| Delete | Recycle Bin only (the freedesktop.org Trash on Linux). A project's folder also leaves `BeefSpace.toml` and the other projects' dependencies. |
 | Settings, dock layout | `%LOCALAPPDATA%\VisualBeef\settings.json` and `layout.ini` (or under `%VB_HOME%`), never the working directory or the project (also in read-only mode). The old `VisualBeef_settings.txt` / `VisualBeef_layout.ini` in the working directory are read once to migrate and no longer written. |
 | Every Output Log line | `%LOCALAPPDATA%\VisualBeef\logs\visualbeef-<date>.log` (the session log). |
 | Unsaved document text, every 30 s while it changes | `%LOCALAPPDATA%\VisualBeef\recovery\<pid>-<start>\<hash>.vbrec` (the recovery journal; never next to your sources). Deleted on save, revert and clean exit. |
@@ -81,8 +82,8 @@ identical content does not count), nothing is written and a modal offers:
 * **Cancel**.
 
 Save All and Compile report the conflict and stop; quitting with "Save All" stays open if a save
-was refused. Unmodified documents reload automatically when the file changes; modified ones show
-the existing "changed on disk" banner.
+was refused. Unmodified documents reload automatically when the file changes; modified ones (unsaved
+text, or graph edits not written: see below) show the existing "changed on disk" banner.
 
 ## A graph with errors is not saved
 
@@ -91,6 +92,14 @@ text: the file still has the code from the last good commit. Saving then would s
 the edits were saved, so **Save, Save All and Compile refuse** (`SaveOutcome.GraphErrors`, the reason
 in the status bar and the Output Log) until the errors are fixed (or undone). See
 [Calls-and-Receivers.md](Calls-and-Receivers.md#graphvalidator).
+
+Such a document has **graph edits not written**, a second dirty bit beside the text one
+(`SourceDocument.HasUnwrittenGraphEdits`, `NeedsSave` = either): its text may equal the saved text,
+but it is never reloaded on its own when the file changes outside (the "changed on disk" banner asks),
+it counts as unsaved in the status bar, Save All tries it (and reports the refusal), and quitting asks
+(**Save All** then stays open). Undo and redo keep a graph's errors, so undoing onto a step taken
+while a commit was refused still refuses the save. The recovery journal holds text only, so these
+edits (which have no text yet) are not in it.
 
 ## Unparsed members are kept
 
@@ -162,17 +171,29 @@ made or the rename fails, nothing is deleted and the error says so.
 ## Dirty state and undo
 
 * Dirty = the current text differs from the last saved or loaded text. Undoing back to the saved
-  text clears the `*`.
+  text clears the `*`. A graph whose commit was refused is the second dirty bit (above).
 * One undo step per node drag, comment move/resize and knot drag (a drag is one step). Layout-only
   changes never mark the source dirty; they are saved through the sidecar.
 * Menu Paste lands at the centre of the visible canvas; Ctrl+V at the mouse.
+* Memory: an undo step copies only what changed since the step before it (a drag copies the one
+  graph it moved; the text is shared while it is the same), and the history keeps at most 200
+  steps and about 64 MB per document (estimated; the oldest steps go first, the newest 10 always
+  stay).
+* Deleting a member keeps the `#if` / `#else` / `#endif` lines before it (only its own text and
+  comments go), and Add Function / Add Variable / the state variables of flow nodes / added `using`s
+  are written outside any `#if` arm the type body is not in.
 
 ## `.vblayout` sidecar
 
 * First line `#vblayout<TAB>2` (format 2 = content-keyed entries `methodKey|path#hash`; read into `LayoutFileVersion`). Headerless files and the legacy `#version<TAB>2` line are accepted; a newer version is read but the
-  file is never overwritten.
+  file is never overwritten, and the editor says once that layout changes to that file are not saved.
+* A side file that exists but cannot be read when the file is opened (held by a sync client or
+  another program) is not taken for "no side file": it is not written (the editor says why) until a
+  later save can read it; then its content is merged in (this session's positions of open graphs
+  and its views win) and written.
 * Unknown extra columns on a line are ignored (room for a future `key`/`hash` field).
-* On write, entries of nodes that no longer exist in a built method are dropped; entries of
-  methods that no longer exist are dropped when a save carries an edit (not on the quiet
-  autosave, in case the file temporarily fails to parse).
+* On write, entries of nodes that no longer exist in a built method are dropped; entries and
+  `#math` records of methods that no longer exist are dropped only when a save carries an edit and
+  the whole file parses (not on the quiet autosave, and not while a member is unreadable: a function
+  hidden by an unclosed bracket only looks gone).
 * An unchanged sidecar is never rewritten, and none is created for a file with nothing to store.

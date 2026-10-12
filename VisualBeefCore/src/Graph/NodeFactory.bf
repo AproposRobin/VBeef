@@ -75,6 +75,14 @@ namespace VisualBeef.Graph
 			if (!ownerType.IsEmpty)
 				n.OwnerType = new String(ownerType);
 			AddArgs(g, n, paramNames, paramTypes, modifiers, outRef);
+			// corlib's print functions label their text Message (CallOverloads.FriendlyLabel), as read from code.
+			StringView owner = !ownerType.IsEmpty ? ownerType : qualifier;
+			if (CallOverloads.IsPrintFunction(owner, name))
+			{
+				for (let p in n.Inputs)
+					if (p.ArgIndex >= 0)
+						CallOverloads.FriendlyLabel(owner, name, p.Label, paramNames.Length, p.Label);
+			}
 			AddResult(g, n, hasFlow, returnType);
 			return n;
 		}

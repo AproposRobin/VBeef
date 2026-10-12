@@ -324,9 +324,32 @@ namespace VisualBeef.Document
 		}
 	}
 
+	/// A copy several undo steps can hold: steps next to each other share the text and the graphs
+	/// that did not change between them (one node drag copies one graph, not all of them).
+	class SharedCopy<T> where T : class, delete
+	{
+		public T Value ~ delete _;
+		public int32 Refs = 1;
+		public int64 Bytes;
+
+		public this(T value, int64 bytes)
+		{
+			Value = value;
+			Bytes = bytes;
+		}
+
+		/// Drops one holder; the last one deletes the copy.
+		public static void Release(SharedCopy<T> c)
+		{
+			if (c != null && --c.Refs <= 0)
+				delete c;
+		}
+	}
+
 	class Snapshot
 	{
-		public String Text = new .() ~ delete _;
+		public SharedCopy<String> SharedText ~ SharedCopy<String>.Release(_);
+		public String Text => SharedText.Value;
 		public Dictionary<String, NodePos> Layout = new .() ~ DeleteDictionaryAndKeys!(_);
 		/// Comment boxes and reroute knots (layout only).
 		public List<GraphComment> Comments = new .() ~ DeleteContainerAndItems!(_);
@@ -337,8 +360,11 @@ namespace VisualBeef.Document
 		public List<OrphanRecord> OrphanRecords = new .() ~ DeleteContainerAndItems!(_);
 		/// Math Expression records of graphs that were not built.
 		public List<MathRecord> MathRecords = new .() ~ DeleteContainerAndItems!(_);
-		/// Exact copies of every built graph (Graph.MethodKey identifies the method).
-		public List<Graph> Graphs = new .() ~ DeleteContainerAndItems!(_);
+		/// Exact copies of every built graph (Graph.MethodKey identifies the method), shared with
+		/// the neighbouring steps while unchanged.
+		public List<SharedCopy<Graph>> Graphs = new .() ~ { for (let g in _) SharedCopy<Graph>.Release(g); delete _; };
+		/// The estimated size of what this step holds besides the shared copies.
+		public int64 OwnBytes;
 	}
 
 	/// A Beef source file opened in the visual editor. The source text is the single source of
@@ -472,6 +498,8 @@ namespace VisualBeef.Document
 		String mLayoutBaseline ~ delete _;
 		/// Version of the side file format found on disk (0: none / unversioned).
 		public int LayoutFileVersion;
+		/// The side file exists but could not be read at load: it is not written until it can be.
+		bool mLayoutUnreadable;
 		/// Why the last write of the layout side file failed (empty when it worked): node
 		/// positions, comments and reroutes were not saved. The editor reports it once.
 		public String LayoutError = new .() ~ delete _;
@@ -558,6 +586,15 @@ namespace VisualBeef.Document
 		{
 			Modified = Unit != null && Unit.Text != SavedText;
 		}
+
+		/// The second dirty bit: a built graph holds edits its text does not have (its commit was
+		/// refused, Graph.Errors), so `Modified` (text vs saved text) cannot show them. Such a
+		/// document is not reloaded from disk on its own, and quitting asks first.
+		public bool HasUnwrittenGraphEdits => FindGraphError();
+
+		/// Unsaved text or graph edits not written yet: what an outside change, closing or
+		/// quitting must not throw away without asking.
+		public bool NeedsSave => Modified || HasUnwrittenGraphEdits;
 
 		/// True when the file on disk no longer matches what this document loaded or last saved.
 		public bool DiskChanged()
@@ -646,9 +683,11 @@ namespace VisualBeef.Document
 			let oldLen = DiskLen;
 			let oldBaseline = mLayoutBaseline;
 			bool oldTouched = LayoutTouched;
+			bool oldUnreadable = mLayoutUnreadable;
 			FilePath.Set(path);
 			HasDiskStamp = false;
 			mLayoutBaseline = null;
+			mLayoutUnreadable = false;
 			LayoutTouched = true;
 			if (Save() case .Ok)
 			{
@@ -661,6 +700,7 @@ namespace VisualBeef.Document
 			DiskLen = oldLen;
 			delete mLayoutBaseline;
 			mLayoutBaseline = oldBaseline;
+			mLayoutUnreadable = oldUnreadable;
 			LayoutTouched = oldTouched;
 			return .Err;
 		}
@@ -676,10 +716,74 @@ namespace VisualBeef.Document
 			delete mLayoutBaseline;
 			mLayoutBaseline = null;
 			LayoutFileVersion = 0;
+			mLayoutUnreadable = false;
+			LayoutError.Clear();
+			LayoutErrorReported = false;
 			if (File.ReadAllText(layoutPath, content) case .Err)
+			{
+				// There but unreadable (locked by a sync client or another program): not the same as
+				// no side file. It is not written until a read works, or its content would be lost.
+				if (File.Exists(layoutPath))
+				{
+					mLayoutUnreadable = true;
+					LayoutError.Set(cLayoutUnreadable);
+				}
 				return;
+			}
 			mLayoutBaseline = new String(content);
 			ParseLayoutText(content);
+		}
+
+		const String cLayoutUnreadable = "the side file could not be read, so it is not written (it would lose what it holds); positions are saved once it can be read again";
+
+		/// The side file could not be read when the document was loaded: read it now. True when it
+		/// can be written: it reads now (its content is merged in under what this session changed:
+		/// the positions of built graphs, its own views) or it is gone.
+		bool RetryLayoutRead(StringView layoutPath)
+		{
+			String content = scope .();
+			if (File.ReadAllText(layoutPath, content) case .Err)
+			{
+				if (File.Exists(layoutPath))
+					return false;
+				mLayoutUnreadable = false;
+				return true;
+			}
+			mLayoutUnreadable = false;
+			List<SavedView> views = scope .();
+			views.AddRange(Views);
+			Views.Clear();
+			List<MathRecord> maths = scope .();
+			maths.AddRange(MathRecords);
+			MathRecords.Clear();
+			ParseLayoutText(content);
+			// Views and math records of this session win over the file's.
+			for (let v in views)
+			{
+				for (int i = Views.Count - 1; i >= 0; i--)
+					if (Views[i].MethodKey == v.MethodKey && Views[i].N == v.N)
+					{
+						delete Views[i];
+						Views.RemoveAt(i);
+					}
+				Views.Add(v);
+			}
+			for (int i = MathRecords.Count - 1; i >= 0; i--)
+			{
+				for (let m in maths)
+					if (m.MethodKey == MathRecords[i].MethodKey)
+					{
+						delete MathRecords[i];
+						MathRecords.RemoveAt(i);
+						break;
+					}
+			}
+			MathRecords.AddRange(maths);
+			delete mLayoutBaseline;
+			mLayoutBaseline = new String(content);
+			// The positions of the graphs built in this session win (they are what the user sees).
+			CaptureAllLayouts();
+			return true;
 		}
 
 		void ParseLayoutText(StringView content)
@@ -825,8 +929,9 @@ namespace VisualBeef.Document
 			MathRecords.Add(r);
 		}
 
-		/// The `#math` lines: built graphs from their live nodes, the others from the records kept.
-		void AppendMathRecords(String content)
+		/// The `#math` lines: built graphs from their live nodes, the others from the records kept
+		/// (those of a function that is gone only while `pruneMissingMethods` is false).
+		void AppendMathRecords(String content, bool pruneMissingMethods)
 		{
 			HashSet<String> built = scope .();
 			defer { for (let k in built) delete k; }
@@ -844,8 +949,8 @@ namespace VisualBeef.Document
 			{
 				if (built.ContainsAlt(r.MethodKey))
 					continue;
-				// Records of a function that is gone go with it (unless nothing parsed: kept).
-				if (!Methods.IsEmpty && FindMethod(r.MethodKey) == null)
+				// Records of a function that is gone go with it, under the rule of its positions.
+				if (pruneMissingMethods && FindMethod(r.MethodKey) == null)
 					continue;
 				recs.Add(r.Clone());
 			}
@@ -989,11 +1094,19 @@ namespace VisualBeef.Document
 		{
 			if (FilePath.IsEmpty || FileSafety.ReadOnlyProject)
 				return;
-			// A side file written by a newer VisualBeef is left alone.
+			// A side file written by a newer VisualBeef is left alone, and the editor says so once.
 			if (LayoutFileVersion > LayoutFormatVersion)
+			{
+				LayoutError.Set(scope $"the side file was written by a newer VisualBeef (format {LayoutFileVersion}), so this version does not write it; open the file in that version to keep layout changes");
 				return;
+			}
 			String layoutPath = scope .();
 			GetLayoutPath(FilePath, layoutPath);
+			if (mLayoutUnreadable && !RetryLayoutRead(layoutPath))
+			{
+				LayoutError.Set(cLayoutUnreadable);
+				return;
+			}
 			String content = scope .();
 			BuildLayoutText(content, pruneMissingMethods);
 			if (mLayoutBaseline == null)
@@ -1045,7 +1158,7 @@ namespace VisualBeef.Document
 			for (let prefix in builtPrefixes)
 				if (key.StartsWith(prefix))
 					return liveKeys.Contains(scope String(key));
-			if (!pruneMissingMethods || Methods.IsEmpty)
+			if (!pruneMissingMethods)
 				return true;
 			for (let mg in Methods)
 			{
@@ -1055,8 +1168,21 @@ namespace VisualBeef.Document
 			return false;
 		}
 
-		void BuildLayoutText(String content, bool pruneMissingMethods = false)
+		/// A member of the current parse is Broken (the file does not fully parse, e.g. a brace not
+		/// closed yet): the functions it hides look gone but are not.
+		bool AnyBrokenMember()
 		{
+			for (let mg in Methods)
+				if (mg.IsBroken)
+					return true;
+			return false;
+		}
+
+		void BuildLayoutText(String content, bool pruneMissingMethodsIn = false)
+		{
+			// Entries of functions that are gone are dropped only when a save carries an edit and
+			// the whole file parses (a function inside a broken member only looks gone).
+			bool pruneMissingMethods = pruneMissingMethodsIn && !Methods.IsEmpty && !AnyBrokenMember();
 			// Nodes that exist now, per built method (stale entries are not written).
 			HashSet<String> liveKeys = scope .();
 			List<String> builtPrefixes = scope .();
@@ -1122,7 +1248,7 @@ namespace VisualBeef.Document
 				content.Append('\n');
 			}
 			AppendOrphanRecords(content);
-			AppendMathRecords(content);
+			AppendMathRecords(content, pruneMissingMethods);
 		}
 
 		/// Unconnected nodes of every method: built graphs are written from their live nodes,
@@ -2033,25 +2159,66 @@ namespace VisualBeef.Document
 
 		// ------------------------------------------------------------------ undo
 
-		Snapshot MakeSnapshot()
+		/// The undo history's size limit per document (estimated bytes), alongside the step limit: the
+		/// oldest steps go first, but the newest MinUndoSteps always stay.
+		public static int64 UndoByteBudget = 64 * 1024 * 1024;
+		const int MinUndoSteps = 10;
+
+		/// The copy of the live graph of `mg` that `near` already holds, when the graph has not
+		/// changed since (shared instead of copied again).
+		static SharedCopy<Graph> FindSameGraph(Snapshot near, MethodGraph mg)
+		{
+			if (near == null)
+				return null;
+			for (let c in near.Graphs)
+				if (c.Value != null && c.Value.MethodKey == mg.Key && mg.Graph.SameAsClone(c.Value))
+					return c;
+			return null;
+		}
+
+		/// `near1` / `near2`: the neighbouring steps (newest undo and redo), whose unchanged text and
+		/// graphs are shared rather than copied.
+		Snapshot MakeSnapshot(Snapshot near1 = null, Snapshot near2 = null)
 		{
 			Snapshot s = new .();
-			s.Text.Set(Unit.Text);
+			if (near1 != null && near1.Text == Unit.Text)
+				s.SharedText = near1.SharedText;
+			else if (near2 != null && near2.Text == Unit.Text)
+				s.SharedText = near2.SharedText;
+			if (s.SharedText != null)
+				s.SharedText.Refs++;
+			else
+				s.SharedText = new .(new String(Unit.Text), Unit.Text.Length + 64);
+			int64 own = 256;
 			for (let kv in Layout)
+			{
 				s.Layout[new String(kv.key)] = kv.value;
+				own += kv.key.Length + 64;
+			}
 			for (let c in Comments)
 				s.Comments.Add(c.Clone());
 			for (let r in Reroutes)
 				s.Reroutes.Add(r.Clone());
+			own += (Comments.Count + Reroutes.Count) * 160;
 			// Exact copies of the live graphs: undo/redo brings back these very nodes rather
-			// than whatever the text would build.
+			// than whatever the text would build. A graph unchanged since a neighbouring step
+			// shares that step's copy.
 			for (let mg in Methods)
 			{
 				if (!mg.IsBuilt)
 					continue;
+				var same = FindSameGraph(near1, mg);
+				if (same == null)
+					same = FindSameGraph(near2, mg);
+				if (same != null)
+				{
+					same.Refs++;
+					s.Graphs.Add(same);
+					continue;
+				}
 				let g = mg.Graph.Clone();
 				g.MethodKey.Set(mg.Key);
-				s.Graphs.Add(g);
+				s.Graphs.Add(new .(g, g.EstimateBytes()));
 			}
 			for (let pending in Orphans)
 				s.Orphans.Add(pending.Clone());
@@ -2059,10 +2226,64 @@ namespace VisualBeef.Document
 				s.OrphanRecords.Add(rec.Clone());
 			for (let rec in MathRecords)
 				s.MathRecords.Add(rec.Clone());
+			own += (Orphans.Count + OrphanRecords.Count) * 512 + MathRecords.Count * 128;
+			s.OwnBytes = own;
 			return s;
 		}
 
-		/// Restores text, layout and graphs. Takes the graphs out of `s`.
+		/// The estimated bytes the undo and redo steps hold (each shared copy counted once).
+		public int64 UndoBytes
+		{
+			get
+			{
+				HashSet<Object> seen = scope .();
+				int64 total = 0;
+				for (int list < 2)
+				{
+					for (let s in (list == 0) ? mUndo : mRedo)
+					{
+						total += s.OwnBytes;
+						if (seen.Add(s.SharedText))
+							total += s.SharedText.Bytes;
+						for (let g in s.Graphs)
+							if (seen.Add(g))
+								total += g.Bytes;
+					}
+				}
+				return total;
+			}
+		}
+
+		/// How many distinct graph copies the undo and redo steps hold (shared copies once).
+		public int UndoGraphCopies
+		{
+			get
+			{
+				HashSet<Object> seen = scope .();
+				for (int list < 2)
+					for (let s in (list == 0) ? mUndo : mRedo)
+						for (let g in s.Graphs)
+							seen.Add(g);
+				return seen.Count;
+			}
+		}
+
+		/// How many distinct texts the undo and redo steps hold (shared copies once).
+		public int UndoTextCopies
+		{
+			get
+			{
+				HashSet<Object> seen = scope .();
+				for (int list < 2)
+					for (let s in (list == 0) ? mUndo : mRedo)
+						seen.Add(s.SharedText);
+				return seen.Count;
+			}
+		}
+
+		public int UndoCount => mUndo.Count;
+
+		/// Restores text, layout and graphs. Takes the graphs `s` alone holds out of it.
 		void RestoreSnapshot(Snapshot s)
 		{
 			// The sidecar's version and the lines this version does not know describe the file
@@ -2096,26 +2317,36 @@ namespace VisualBeef.Document
 			for (let rec in s.MathRecords)
 				MathRecords.Add(rec.Clone());
 			SetTextInternal(s.Text);
-			for (let g in s.Graphs)
+			for (let c in s.Graphs)
 			{
+				if (c.Value == null)
+					continue;
 				MethodGraph target = null;
 				for (let mg in Methods)
 				{
-					if (!mg.IsBuilt && mg.Key == g.MethodKey)
+					if (!mg.IsBuilt && mg.Key == c.Value.MethodKey)
 					{
 						target = mg;
 						break;
 					}
 				}
-				if (target != null)
+				if (target == null)
+					continue;
+				// The only holder gives its copy away; a copy other steps share is copied again.
+				Graph g;
+				if (c.Refs <= 1)
 				{
-					g.Version++;
-					target.AttachGraph(g);
+					g = c.Value;
+					c.Value = null;
 				}
 				else
-					delete g;
+				{
+					g = c.Value.Clone();
+					g.MethodKey.Set(c.Value.MethodKey);
+				}
+				g.Version++;
+				target.AttachGraph(g);
 			}
-			s.Graphs.Clear();
 			LayoutTouched = true;
 			RefreshModified();
 		}
@@ -2124,13 +2355,28 @@ namespace VisualBeef.Document
 		{
 			LayoutTouched = true;
 			CaptureAllLayouts();
-			mUndo.Add(MakeSnapshot());
+			mUndo.Add(MakeSnapshot(mUndo.IsEmpty ? null : mUndo.Back, mRedo.IsEmpty ? null : mRedo.Back));
+			ClearAndDeleteItems!(mRedo);
 			if (mUndo.Count > MaxUndo)
 			{
 				delete mUndo[0];
 				mUndo.RemoveAt(0);
 			}
-			ClearAndDeleteItems!(mRedo);
+			TrimUndoToBudget();
+		}
+
+		/// Drops the oldest steps while the history is over UndoByteBudget (the newest MinUndoSteps stay).
+		void TrimUndoToBudget()
+		{
+			if (mUndo.Count <= MinUndoSteps)
+				return;
+			var bytes = UndoBytes;
+			while (bytes > UndoByteBudget && mUndo.Count > MinUndoSteps)
+			{
+				delete mUndo[0];
+				mUndo.RemoveAt(0);
+				bytes = UndoBytes;
+			}
 		}
 
 		/// Drops the newest undo step, so the edit made after it belongs to the step before
@@ -2149,7 +2395,7 @@ namespace VisualBeef.Document
 			if (mUndo.IsEmpty)
 				return;
 			CaptureAllLayouts();
-			mRedo.Add(MakeSnapshot());
+			mRedo.Add(MakeSnapshot(mUndo.Back, mRedo.IsEmpty ? null : mRedo.Back));
 			let s = mUndo.PopBack();
 			RestoreSnapshot(s);
 			delete s;
@@ -2160,7 +2406,7 @@ namespace VisualBeef.Document
 			if (mRedo.IsEmpty)
 				return;
 			CaptureAllLayouts();
-			mUndo.Add(MakeSnapshot());
+			mUndo.Add(MakeSnapshot(mRedo.Back, mUndo.IsEmpty ? null : mUndo.Back));
 			let s = mRedo.PopBack();
 			RestoreSnapshot(s);
 			delete s;
@@ -2269,15 +2515,7 @@ namespace VisualBeef.Document
 			}
 			if (text.IsEmpty)
 				return;
-			int insertAt = -1;
-			if (type.Members != null)
-			{
-				for (let m in type.Members)
-					if (m.Kind == .Field)
-						insertAt = Unit.Tokens[m.LastTok].TrailEnd;
-			}
-			if (insertAt < 0)
-				insertAt = Unit.Tokens[type.OpenBrace].TrailEnd;
+			int insertAt = FieldInsertPoint(type);
 			if (insertAt > 0 && Unit.Text[insertAt - 1] != '\n')
 				text.Insert(0, "\n");
 			// The graph that asked for the fields was just committed and must stay the same object.
@@ -2373,6 +2611,44 @@ namespace VisualBeef.Document
 			RefreshModified();
 		}
 
+		/// Where a member's own text starts in the leading trivia of token `tok`: after the last
+		/// preprocessor line there (`#if`, `#else`, `#endif`, ...), else at the trivia's start.
+		/// Deleting from it or inserting at it never moves a directive into or out of an arm.
+		int AfterDirectives(int tok)
+		{
+			let t = Unit.Tokens[tok];
+			int result = t.LeadStart;
+			int lineStart = t.LeadStart;
+			for (int i = t.LeadStart; i < t.Start; i++)
+			{
+				if (Unit.Text[i] != '\n')
+					continue;
+				var line = StringView(Unit.Text, lineStart, i - lineStart);
+				line.Trim();
+				if (line.StartsWith('#'))
+					result = i + 1;
+				lineStart = i + 1;
+			}
+			return result;
+		}
+
+		/// Where a new member variable of `type` goes: after its last member variable that is in the
+		/// same `#if` arm as the type body (not inside an arm the type is not in), else at the top.
+		int FieldInsertPoint(Member type)
+		{
+			let bodyPath = Unit.CondPathAt(type.OpenBrace);
+			int insertAt = -1;
+			if (type.Members != null)
+			{
+				for (let m in type.Members)
+					if (m.Kind == .Field && m.LastTok >= 0 && Unit.CondPathAt(m.LastTok) == bodyPath)
+						insertAt = Unit.Tokens[m.LastTok].TrailEnd;
+			}
+			if (insertAt < 0)
+				insertAt = Unit.Tokens[type.OpenBrace].TrailEnd;
+			return insertAt;
+		}
+
 		void MemberIndent(Member type, String outIndent)
 		{
 			// Use the indentation of the first member, or the type's indentation + one unit.
@@ -2454,7 +2730,7 @@ namespace VisualBeef.Document
 				return;
 			int insertAt = 0;
 			for (let m in Unit.Members)
-				if (m.Kind == .Using && m.LastTok >= 0)
+				if (m.Kind == .Using && m.LastTok >= 0 && Unit.CondPathAt(m.LastTok).IsEmpty)
 					insertAt = Unit.Tokens[m.LastTok].TrailEnd;
 			String text = scope .();
 			if (insertAt > 0 && Unit.Text[insertAt - 1] != '\n')
@@ -2473,13 +2749,14 @@ namespace VisualBeef.Document
 				return false;
 			if (RefuseType(returnType, .Return, type, "Return Type") || RefuseParams(paramsText, type))
 				return false;
+			if (Unit.CondPathAt(type.CloseBrace) != Unit.CondPathAt(type.OpenBrace))
+				return Refuse(scope $"The end of {type.Name} is inside an #if / #else arm its start is not in; add the function in Beef Source > File.");
 			PushUndo();
 			// `type` belongs to the current parse and is freed by ReplaceRange; keep its name.
 			String typeName = scope .(type.Name);
 			String indent = scope .();
 			MemberIndent(type, indent);
 			String text = scope .();
-			let closeTok = Unit.Tokens[type.CloseBrace];
 			// Insert before the closing brace's leading trivia so the brace keeps its indentation.
 			bool needsBlank = type.Members != null && !type.Members.IsEmpty;
 			if (needsBlank)
@@ -2499,7 +2776,8 @@ namespace VisualBeef.Document
 				else
 					text.AppendF(" {{\n{0}}}\n", indent);
 			}
-			int insertAt = closeTok.LeadStart;
+			// After an `#endif` that closes the last members, not inside their arm.
+			int insertAt = AfterDirectives(type.CloseBrace);
 			// Keep the newline that ends the previous line.
 			if (insertAt > 0 && Unit.Text[insertAt - 1] != '\n')
 				text.Insert(0, "\n");
@@ -2549,15 +2827,7 @@ namespace VisualBeef.Document
 			text.Append(";\n");
 
 			// Insert after the last field, or at the top of the type body.
-			int insertAt = -1;
-			if (type.Members != null)
-			{
-				for (let m in type.Members)
-					if (m.Kind == .Field)
-						insertAt = Unit.Tokens[m.LastTok].TrailEnd;
-			}
-			if (insertAt < 0)
-				insertAt = Unit.Tokens[type.OpenBrace].TrailEnd;
+			int insertAt = FieldInsertPoint(type);
 			if (insertAt > 0 && Unit.Text[insertAt - 1] != '\n')
 				text.Insert(0, "\n");
 			String typeName = scope .(type.Name);
@@ -2748,9 +3018,9 @@ namespace VisualBeef.Document
 			for (let mg in Methods)
 				if (mg.Method == member)
 					key.Set(mg.Key);
-			let first = Unit.Tokens[member.FirstTok];
 			let last = Unit.Tokens[member.LastTok];
-			ReplaceRange(first.LeadStart, last.TrailEnd, "");
+			// `#if` / `#endif` lines before the member are not part of it: they stay.
+			ReplaceRange(AfterDirectives(member.FirstTok), last.TrailEnd, "");
 			if (marked)
 				RewriteCreate(createType, createNames); // none left: the constructor and its marker go
 			// Unconnected nodes of a deleted method go with it (undo brings them back).

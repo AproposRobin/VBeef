@@ -864,6 +864,23 @@ namespace VisualBeef.Syntax
 			return m;
 		}
 
+		static String[?] cDeclStarts = .("using", "namespace", "class", "struct", "enum", "interface", "extension", "typealias", "delegate",
+			"function", "public", "private", "protected", "abstract", "sealed", "extern");
+
+		/// A using with no `;` yet: token `i` starts the next declaration instead of continuing the
+		/// using. It is the first on its line and either a declaration keyword or a name right after a
+		/// complete name (`using System` then `Foo.Bar x;` on the next line).
+		bool UsingEndsBefore(int i)
+		{
+			if (Kind(i) != .Identifier || LineLeadIndent(i) < 0)
+				return false;
+			for (let w in cDeclStarts)
+				if (Text(i) == w)
+					return true;
+			let prev = i - 1;
+			return Kind(prev) == .Identifier && !IsAt(prev, "using") && !IsAt(prev, "static") && !IsAt(prev, "internal");
+		}
+
 		void SkipAttributes()
 		{
 			while (Is("["))
@@ -881,10 +898,38 @@ namespace VisualBeef.Syntax
 			{
 				Member m = new .(.Using);
 				m.FirstTok = (int32)mPos;
-				while (!AtEnd && !Is(";"))
+				mPos++;
+				// A using ends at its `;`. Without one it ends where something that cannot be part of
+				// it starts (a bracket, a declaration on a later line): the rest of the file is not
+				// swallowed, and the using is listed as unreadable.
+				bool closed = false;
+				while (!AtEnd)
+				{
+					if (Is(";"))
+					{
+						mPos++;
+						closed = true;
+						break;
+					}
+					if (Is("{") || Is("}") || Is("[") || Is("(") || Is(")") || UsingEndsBefore(mPos))
+						break;
 					mPos++;
-				Accept(";");
+				}
 				m.LastTok = (int32)(mPos - 1);
+				if (!closed)
+				{
+					m.Kind = .Broken;
+					m.Params = new .();
+					m.TypeText = new .();
+					for (int i = m.FirstTok; i <= m.LastTok; i++)
+					{
+						if (i > m.FirstTok && !IsAt(i, ".") && !IsAt(i - 1, "."))
+							m.Name.Append(' ');
+						m.Name.Append(Text(i));
+					}
+					m.Error = new String();
+					m.Error.AppendF("line {}: this using is not closed by ;", mUnit.LineOf(mTokens[m.FirstTok].Start));
+				}
 				return m;
 			}
 

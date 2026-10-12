@@ -36,7 +36,12 @@ namespace VisualBeef.Tests
 	///                                   with no text nodes, node kinds, text by construct).
 	///   VisualBeefTests vocabulary [root]   No Unreal term in the string literals of the sources or in the docs, and
 	///                                   no host product name anywhere in the sources, scripts or docs.
+	///   VisualBeefTests workspace [-build]   BeefSpace.toml / BeefProj.toml edits behind the Project Browser's
+	///                                   projects and Project Settings (WorkspaceTests); -build compiles the result.
 	///   VisualBeefTests hotkeys         Node hotkeys and favorites (defaults, conflicts, clear).
+	///   VisualBeefTests startpage       The folder name of a new project and the recent projects list (StartPageTests).
+	///   VisualBeefTests docs [folder]   The documentation viewer's model: front matter, Markdown, links, search, and the
+	///                                   shipped user pages of the docs folder (DocsTests).
 	///   VisualBeefTests update          The updater: signed descriptors, sequences, downloads, swap / restore.
 	///   VisualBeefTests diagnostics     Compiler output parsing and error-line -> node mapping.
 	///   VisualBeefTests debugmap [-v] <dir>...   The debugger's node <-> line map on a corpus (DebugTests).
@@ -127,6 +132,8 @@ namespace VisualBeef.Tests
 				return (LifetimeTests.Run() == 0) ? 0 : 1;
 			if (args[0] == "host")
 				return HostTests.Run(args);
+			if (args[0] == "workspace")
+				return WorkspaceTests.Run(args);
 			if (args[0] == "debugmap")
 				return DebugTests.RunMap(args);
 			if (args[0] == "debug")
@@ -135,6 +142,10 @@ namespace VisualBeef.Tests
 				return DebugTests.RunProbe(args);
 			if (args[0] == "hotkeys")
 				return (HotkeyTests.Run() == 0) ? 0 : 1;
+			if (args[0] == "startpage")
+				return (StartPageTests.Run() == 0) ? 0 : 1;
+			if (args[0] == "docs")
+				return (DocsTests.Run(args) == 0) ? 0 : 1;
 			if (args[0] == "update" && args.Count > 1 && args[1] == "-net")
 				return (UpdateTests.RunNet() == 0) ? 0 : 1;
 			if (args[0] == "update")

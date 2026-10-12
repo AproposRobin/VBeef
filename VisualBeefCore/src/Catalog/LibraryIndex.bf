@@ -319,8 +319,9 @@ namespace VisualBeef.Catalog
 		/// except `generatedDirs`: generated library projects under the folder (see
 		/// ProjectIndex.IsGeneratedLibrary), which are loaded as libraries first, and generated
 		/// libraries a dependency path points at inside the folder that the scan did not reach.
-		/// The libraries the folder's `.vbproject` names (docs/Host-Integration.md) are added too.
-		public static void Discover(StringView folder, List<LibraryRef> outLibs, List<String> generatedDirs = null)
+		/// The libraries the folder's `.vbproject` names (docs/Host-Integration.md) are added too;
+		/// a named folder that does not exist adds a line to `outWarnings`.
+		public static void Discover(StringView folder, List<LibraryRef> outLibs, List<String> generatedDirs = null, List<String> outWarnings = null)
 		{
 			String libsDir = scope .();
 			BeefLibsDir(libsDir);
@@ -448,7 +449,11 @@ namespace VisualBeef.Catalog
 				for (let d in dirs)
 				{
 					if (!Directory.Exists(d))
+					{
+						// Said once per index (the Output Log), not dropped in silence.
+						outWarnings?.Add(new $"The .vbproject names the node library folder {d}, which does not exist: its nodes are not in the Node menu. Fix the path in {VisualBeef.Document.ProjectManifest.FileName} (relative to the project folder).");
 						continue;
+					}
 					bool known = false;
 					for (let l in outLibs)
 						if (ProjectIndex.SamePath(l.Dir, d))

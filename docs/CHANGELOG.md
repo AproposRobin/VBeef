@@ -9,6 +9,174 @@ order: 25
 
 Newest first. Dates are commit dates; commit ids refer to the development history before the public repository was created.
 
+## 0.2.4-alpha: Outline, LOCAL VARIABLES in a fixed place (2026-10-12)
+
+- The Outline's **LOCAL VARIABLES** section no longer follows the open function down the tree: it is one
+  section directly below VARIABLES (same bar, count badge and **+**, which adds a local to the open function).
+  Its rows are the locals of the function whose Sheet is in front and refresh on a Sheet switch, on a local
+  added / renamed / deleted and on undo; with no Sheet open it shows a dim *Open a function to see its locals*
+  row. Selection, rename in place, the context menu, drag onto the Sheet, hotkey **L** and the Properties pane
+  of a local are unchanged; the open / closed state of the section is kept per type, not per function. Property
+  accessors with a body (`get` / `set`) now show their locals too.
+- `VB_SELFTEST=localsui` asserts the section's place (FUNCTIONS < VARIABLES < LOCAL VARIABLES, right below the
+  VARIABLES rows, the same screen position with no Sheet, with Add and with Hello) and the refresh on a function
+  switch, an add, a rename, a delete and two undos (21 new checks, 28 in all); captures `ls-none` and `ls-switch`.
+
+## 0.2.4-alpha: document and file safety (2026-10-12 audit, document I/O)
+
+- Graph edits not written (a refused commit) are a second dirty bit (`SourceDocument.HasUnwrittenGraphEdits`,
+  `NeedsSave`): such a document is no longer reloaded on its own when the file changes outside, counts as
+  unsaved, is tried (and refused with its reason) by Save All, and quitting asks. Before, its text equalled
+  the saved text, so an outside edit or quitting dropped those edits in silence.
+- Undo / redo keep a graph's errors (`Graph.Clone` copies `Errors` and `Warnings`): undoing onto a step
+  taken while a commit was refused no longer lets Save write the text without those edits.
+- Undo memory: a step shares the text and every graph that did not change since the step next to it
+  (`Graph.SameAsClone`), and the history has a byte budget (`SourceDocument.UndoByteBudget`, 64 MB
+  estimated per document, the newest 10 steps always kept) beside the 200-step cap. 20 drags of one
+  graph now hold 21 graph copies and one text instead of 40 graphs and 20 texts.
+- `.vblayout`: entries and `#math` records of a function that looks gone are kept while any member does
+  not parse (a function hidden by an unclosed bracket); a side file that exists but cannot be read at
+  open is no longer taken for "none" and overwritten (not written until readable, then merged); a
+  newer-format side file sets `LayoutError`, so the editor says once that layout changes are not saved.
+- Member delete keeps the `#if` / `#endif` lines in the member's leading trivia; Add Function, Add
+  Variable, flow-node state variables and added `using`s are inserted outside `#if` arms the type body
+  is not in (Add Function refuses when the type's end is in another arm).
+- Parser: a `using` with no `;` is an unreadable member of its own ("this using is not closed by ;",
+  listed in the Outline and Problems) instead of swallowing the rest of the file.
+- `.vbproject` from a template: `libraries` written relative to the project (same drive), so a moved
+  project keeps its node libraries; a listed library folder that does not exist is an `Index` warning
+  in the Output Log (`LibraryIndex.Discover` `outWarnings`, `IndexJob.Warnings`). Template creation is
+  all or nothing: files are written atomically and a failure removes what the call wrote.
+- Tests: `safety` groups 21-23, `textforms` group 8, `parser` (a using without `;`), `host` (relative
+  libraries, a missing library, atomic creation).
+## 0.2.4-alpha: projects in the Project Browser (2026-10-12, `wt/project-browser`)
+
+From the owner's requests of 2026-10-12.
+
+- **Project rows.** The Project Browser's tree shows the workspace as its root and every project
+  `BeefSpace.toml` lists as its own row (package icon, the project's name, the startup project marked
+  "startup"), with its folders (`src`, `assets`...) beneath it; a "Core/src" chain is never formed
+  through a project. A project at the workspace folder itself (`Path = "."`) gets its row under the root,
+  projects outside the opened folder are listed at the end. Project folder tiles carry the package icon
+  and a green dot for the startup project. The tree refreshes when `BeefSpace.toml` / `BeefProj.toml`
+  change on disk.
+- **Project Settings** (a project's right-click, also on its tile) in Properties: Build kind (Console
+  application, Windows application, Library, Dynamic library = `BeefLib` + `BuildKind = "DynamicLib"` per
+  configuration), Startup object, Namespace, Set as startup, Dependencies as checkboxes (corlib and the
+  workspace's projects), and per configuration Pre-build / Post-build commands, output folder / name, run
+  program / arguments / folder, macros, link flags, with the configuration's other keys listed. The menu
+  also has Set as Startup Project, Add / Remove as Dependency of the current project (the open file's,
+  else the startup project) and Remove from Workspace.
+- **Folders.** Every folder row's menu starts with Rename..., New Folder... and Delete... (Delete asks).
+  Renaming (or dragging) a project's folder updates `BeefSpace.toml` (path; when the project was named like
+  its folder also its name, the startup project and `Locked` / `Unlocked`), its `BeefProj.toml` `Name`,
+  the other projects' dependencies and `.vbproject` main / libraries; when they cannot be written the
+  folder is moved back. Deleting a project's folder takes it out of the workspace and the dependencies
+  (the delete dialog says so).
+- **Adding projects.** + Add > PROJECTS: **New Project in This Workspace...** (a library or a program
+  beside the current project, registered, optionally a dependency of the current project) and **Add
+  Existing Project...** (native folder dialog; registered by a path relative to the workspace, `../X`). A
+  folder with an unlisted `BeefProj.toml` offers Add to Workspace. The Add menu's old "New Project..."
+  entry is replaced by these (File > New Project... is unchanged).
+- **Fix: File > New Project into a Beef IDE workspace.** The Beef IDE writes `[Projects]` as a table;
+  VisualBeef only knew `Projects = {...}` and added a second `Projects = {...}` line. BeefBuild then
+  reads only one of the two: in a check it built the new project and silently skipped every project of
+  the `[Projects]` table, the startup project included, with no error. "Already has a project" did not
+  see projects in the table form either. It now
+  goes through the same code as the new commands, and a project outside the workspace folder gets a
+  relative path instead of an absolute one.
+- `VisualBeefCore/src/Document/WorkspaceFiles.bf`: `TomlText` (line-preserving TOML edits: comments,
+  key order, unknown keys and CRLF kept; both map forms; multi-line arrays), `BeefWorkspace`,
+  `BeefProjectFile`, `WorkspaceFiles` (AddProject, AddExistingProject, CreateProject, SetStartup,
+  SetBuildKind, SetDependency, SetValue, SetList, FolderMoved, FolderRemoved, RemoveProject; atomic
+  writes through FileSafety with roll back across files; one change line per edit for the Output Log).
+  Editor: `ProjectEntries.bf` (tree rows, menus, actions, the New Project in Workspace dialog),
+  `ProjectSettings.bf` (Properties).
+- Tests: `VisualBeefTests workspace` (79 checks; `-build`: 81, BeefBuild builds and runs a workspace
+  edited this way) and `VB_SELFTEST=workspace` (`SelfTestWorkspace.bf`).
+## 0.2.4-alpha: overloads follow the values, bare text pins, the Expression badge
+
+The owner's 2026-10-12 report: a WriteLine node bound `Console.WriteLine(Object obj)`, its pin typed
+Object holding a quoted text with a "Custom" badge drawn over the value.
+
+- Overloads (`CallOverloads` in VisualBeefCore, docs/Calls-and-Receivers.md#overloads): a call shows the
+  overload its arguments choose. `Console.WriteLine("text")` reads as `WriteLine(StringView line)` (the
+  print-takes-Object rule of `GraphBuilder` is gone); the Node menu's Print starts as
+  `WriteLine(StringView line)`; an int dropped on the text pin is accepted and switches the node to
+  `WriteLine(Object obj)` (`CouldTake`, `Refit` after the drop, the Node menu's auto-wiring, a typed value);
+  an empty node never defaults to an `Object` overload. The subtitle names the overload when there are several
+  ("Receiver is Console · WriteLine(StringView)"). Properties > Call > **Overload** lists every overload:
+  picking one keeps the wires that still fit, carries typed values over (`2` -> `2.0f`), adds or removes
+  pins, and writes a cast when the arguments would choose another overload (`Console.WriteLine((Object)"...")`).
+  `TypeService.ListOverloads` lists a function's overloads.
+- Pin names: corlib's `Console` / `Debug` `Write` / `WriteLine` pins are **Message** (Format and Values for
+  the format overloads), elsewhere the library's parameter name.
+- Text pins: `char8*` pins get the text field too; one pair of quotes typed around the whole text is taken
+  off (`""x""` for a text in quotes); text typed starting with `$"` or `@"` is an expression, written as
+  typed. Verbatim strings show the Expression badge (they were a text field). A text literal into a `char8*`
+  pin is not a type warning.
+- The "Custom" badge is the **Expression** badge, with a tooltip (the whole value and what it means). It no
+  longer overlaps the value: the badge was placed from a width measured with the zoomed font and scaled again
+  (zoom squared); both are now measured at the drawn size and a long value ends in "..." before the badge
+  (at most 220 grid units).
+- Tests: `textforms` + 41 (overloads with a fixture: reading, refit on wire / typed value / empty node,
+  the Node menu fit, Choose with casts, a pin removed and added, a typed number carried over, an out
+  overload refused, labels); `edits` scenario 25 (34 checks: bare text, escaping, the quotes rule,
+  `$"` / `@"`, round trips, a quoted literal read from code and from the side file, char8*); `catalog` + 23
+  (corlib Console / Debug overloads, labels, refit); `classes`: the print read back is
+  `WriteLine(StringView line)` and a wired int switches it (+ 2); `compile` + 1 case
+  (`TextPinsAndOverloads`: `Console.WriteLine("Hello from NewProject");`, escapes, `ShowC("C text")`,
+  `Show((Object)"boxed")`); editor self test `VB_SELFTEST=strings`.
+## 0.2.4-alpha: start page, project switching, documentation in the editor
+
+Owner requests of 2026-10-12.
+
+- **New Project names the folder as typed.** `File > New Project` (and the start page's New project)
+  creates `<Location>\<name as typed>`: `ProjectKind.FolderName` drops only what a Windows folder name
+  cannot hold (`< > : " / \ | ? *`, control characters, leading spaces, trailing spaces and dots; a reserved
+  name such as `CON` gets a `_`), so `My Game` makes `My Game`. `BeefProj.toml` (`Name`), `BeefSpace.toml`
+  (the project key and `StartupProject`, quoted when it has a space) and the Project Browser all use that
+  name; the namespace of `Program.bf` is the name's letters and digits (`MyGame`, `_` in front of a
+  keyword). The name box starts empty (it was `NewProject`), the `Creates ...` line shows the real path,
+  and a note says when characters were left out. From a template the folder is named as typed too (it was
+  the letters-and-digits form; `@@Identifier@@` is unchanged). The dialog starts in the folder the last new
+  project was made in (`preferences.newProjectLocation`), else the folder that holds the open project,
+  else Documents.
+- **A new project becomes the open project.** It gets its own `BeefSpace.toml` in its folder (`Path = "."`)
+  instead of being registered in the workspace around the open one, and the editor switches to it. One path
+  now serves every way of opening a project (`ProjectSwitch.bf`: `RequestOpenProject`, `RequestCloseProject`,
+  `OpenProjectNow`): with unsaved changes a question comes first (**Save All**, **Don't Save**, **Cancel**),
+  then the previous project is closed (documents, Sheets, asset tabs, Problems and Find results, the debug
+  session, the Project Browser's folder and selection, the index) and the Project Browser, Outline, window
+  title and recent list follow. Before, opening a folder only changed the root: the old project's files and
+  tabs stayed open. **+ Add > New Project** in a Project Browser folder still adds a project to that
+  workspace and leaves the open project alone. New: **File > Close Project**, **File > Open Recent**.
+- **Start page instead of reopening the last project.** Started with no project on the command line the
+  editor shows the start page (`StartPage.bf`): **Recent projects** (name, folder, "25 minutes ago" / a
+  date; a click opens; a folder that is gone is dimmed, marked Missing, with a remove button), **New
+  project...**, **Open project...** and **Documentation**. A project on the command line (the host contract)
+  opens directly. `session.root`, `session.tabs` and the Project Browser folder are no longer restored. The
+  recent list (12 newest) is `preferences.recentProjects` in `settings.json`, relative to the per-user
+  folder for a project under it (`RecentProjects` in Core).
+- **Help > Documentation** (F1): a window with the shipped pages (the `audience: user` front matter, in its
+  `order`) listed left with a search over titles, summaries and headings, the page right (`DocsPanel.bf`):
+  Markdown laid out for the window (headings, lists, tables, code, quotes, pictures), working links to pages
+  and headings, links to pictures open them full size, **Back**. Pictures are PNGs from `docs/images`,
+  decoded with GDI+ and uploaded as OpenGL textures on Windows (labelled boxes elsewhere). The pages come
+  from the `docs` folder next to the editor program, else the checkout's (`VB_DOCS` overrides). The model
+  (`VisualBeef.Docs`: `DocPage`, `Markdown`, `DocLibrary`) is in Core and tested without a window.
+- Compile: BeefBuild splits a workspace folder name with a space even in quotes, so a workspace folder with a
+  space is built with `-workspace=.` from inside it (`BuildRunner.MakeArgs`).
+- Tests: `VisualBeefTests startpage` (38 checks: folder names, recent list, stored paths, "opened"
+  wording), `docs` (54: front matter, Markdown, links, search, the shipped pages and their pictures);
+  editor self tests `startpage` (43: the whole project switch with unsaved changes, persistence, the missing
+  folder, a compile of a project with a space in its name) and `docs` (17: the panel loads, lays out,
+  decodes pictures, follows links and Back, scrolls, searches). Capture steps: `sp-seed`, `sp-close`,
+  `sp-open:`, `sp-switch:`, `sp-dirty`, `sp-cancel`, `filemenu`, `newproject:`, `docs-open:`, `docs-search:`,
+  `docs-scroll:`, `docs-image:`, `docs-close`.
+- Known: five of the shipped pages link `Host-Integration.md`, a developer page that is not in the
+  package; the viewer shows those links dimmed (the `docs` suite counts them).
+
 ## 0.2.3-alpha: generic host contract (VisualBeef no longer names UMP)
 
 VisualBeef was bound to one host, UMP (UnrealUMP / Universal Unreal Mod Platform). It now has one
@@ -54,7 +222,7 @@ and nothing outside this changelog names a host.
 - Math Expression node: type a formula, get one input pin per name and a typed result; Initial Value keeps the Expression choice and validates the text.
 - Switch on an enum shows plain case names; Properties headers show readable node kinds; refreshed user docs screenshots; release smoke tool.
 
-## Unreleased: Math Expression
+## 0.2.4-alpha: Math Expression
 
 - Fix: Properties > Initial Value > Expression jumped back to the value's own mode (it started the
   expression as `default`, which reads back as default; a typed `0` read back as Number). The choice
@@ -70,7 +238,7 @@ and nothing outside this changelog names a host.
 - Suites: `calls` + 48, `textforms` + 27, `classes` + 29, `compile` + 1 case (`MathExpression`);
   `VB_SELFTEST=mathexpr` with six captures.
 
-## Unreleased: polish
+## 0.2.4-alpha: polish
 
 - A locked Static box (a function in a Node Library) is grey with the tooltip "A Node Library is always static".
 - Node menu > Libraries groups a library under `<Namespace>.<Library>`.
@@ -88,7 +256,7 @@ and nothing outside this changelog names a host.
 - Linux build fixed.
 - The vocabulary check allows the product name.
 
-## Unreleased: updates from GitHub Releases
+## 0.2.4-alpha: updates from GitHub Releases
 
 - The editor updates itself from the public repository's GitHub Releases, like the UniversalUMP launcher: a signed
   `release.json` (Ed25519 over a canonical text: version, channel, sequence, tag, each file's platform, name, size and
