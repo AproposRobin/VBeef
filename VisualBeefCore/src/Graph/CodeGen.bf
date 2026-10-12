@@ -629,6 +629,15 @@ namespace VisualBeef.Graph
 				else
 					(*valuePtr)++;
 			}
+			// A Math Expression reads a pin once for every time its name appears in the expression.
+			for (let l in mGraph.Links)
+			{
+				if (l.To.Owner.Kind != .MathExpr || l.From.Kind != .Data || l.From.IsOutArg || !mEmitted.Contains(l.To.Owner))
+					continue;
+				int extra = MathExpression.UseCount(l.To.Owner.Text, l.To.Name) - 1;
+				if (extra > 0 && uses.TryGetValue(l.From.Owner, let count))
+					uses[l.From.Owner] = count + extra;
+			}
 			for (let kv in uses)
 			{
 				let n = kv.key;
@@ -2446,6 +2455,31 @@ namespace VisualBeef.Graph
 
 		/// `$"text {a} more {b:X2}"`: Node.Text is the literal with each hole's expression taken
 		/// out (`$"text {} more {:X2}"`), the holes are the `arg<i>` inputs.
+		/// A Math Expression: the expression as typed, every pin name replaced by the pin's value
+		/// (in parentheses unless it is a name, a literal, a call or a member read).
+		void MathText(Node node, String o)
+		{
+			let p = MathExpression.Parse(node.Text);
+			defer delete p;
+			if (!p.IsValid)
+			{
+				AddError(node, p.Error);
+				o.Append("/* ? */");
+				return;
+			}
+			MathExpression.Substitute(p, scope [&] (pin, outValue) =>
+				{
+					let input = node.FindInput(pin);
+					if (input == null)
+					{
+						AddError(node, scope $"'{pin}' has no input pin: edit the expression again to make it.");
+						outValue.Append("/* ? */");
+						return;
+					}
+					GenInput(input, Parser.PostfixPrecedence, outValue);
+				}, o);
+		}
+
 		void FormatText(Node node, String o)
 		{
 			let text = node.Text;
@@ -3400,7 +3434,7 @@ namespace VisualBeef.Graph
 				return Parser.BinaryPrecedence(node.Text);
 			case .Cast: return Parser.UnaryPrecedence;
 			case .Select: return 0;
-			case .Expr:
+			case .Expr, .MathExpr:
 				return IsAtomic(node.Text) ? 100 : 0;
 			default: return 100;
 			}
@@ -3678,6 +3712,9 @@ namespace VisualBeef.Graph
 
 			case .Format:
 				FormatText(node, o);
+
+			case .MathExpr:
+				MathText(node, o);
 
 			default:
 				AddError(node, "This node has no code form.");

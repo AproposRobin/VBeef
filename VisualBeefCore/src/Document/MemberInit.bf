@@ -1136,5 +1136,125 @@ namespace VisualBeef.Document
 					outCases.Add(new String()..AppendF(".{}", c));
 			}
 		}
+
+		/// What a newly chosen Initial Value mode starts with (a value the type accepts). An
+		/// Expression starts with the value there is now (nothing is written until one is typed).
+		public static void StartValue(InitValueKind k, InitType t, MemberInit init, TypeService types)
+		{
+			String current = scope .();
+			init.ValueText(current);
+			init.ValueKind = k;
+			init.Value.Clear();
+			switch (k)
+			{
+			case .Literal:
+				switch (t.Kind)
+				{
+				case .Bool: init.Value.Set("false");
+				case .Char: init.Value.Set("' '");
+				case .String, .StringView: init.Value.Set("\"\"");
+				case .Float: FormatFloat(0, t.BaseText == "float", init.Value);
+				default: init.Value.Set("0");
+				}
+			case .EnumCase:
+				List<String> cases = scope .();
+				EnumMembers(t.BaseText, types, cases);
+				init.Value.Set(cases.IsEmpty ? "." : cases[0]);
+				ClearAndDeleteItems!(cases);
+			case .Construct:
+				init.AllocType.Set(".");
+				init.Args.Clear();
+				init.ArrayAlloc = false;
+			case .Custom:
+				init.Value.Set(current);
+			default:
+			}
+		}
+
+		/// Checks what was typed as an Expression initial value: nothing (no initial value) or one
+		/// Beef expression. `outText` is the trimmed text; false with the reason when it is refused.
+		public static bool CheckExpression(StringView typed, String outText, String outWhy)
+		{
+			var v = typed;
+			v.Trim();
+			outText.Set(v);
+			if (v.IsEmpty)
+				return true;
+			if (v.Contains(';'))
+			{
+				outWhy.AppendF("'{}' is more than one expression (it has a ';'): it is not written.", v);
+				return false;
+			}
+			let e = Parser.ParseExpression(v, let unit);
+			if (e != null)
+			{
+				delete e;
+				delete unit;
+				return true;
+			}
+			// An object made with an initializer block (`new .() { X = 1 }`) is Beef the
+			// expression reader keeps as text: the brackets have to match.
+			if (v.Contains('{') && (v.StartsWith("new ") || v.StartsWith("scope ") || v.StartsWith(".(") || v.StartsWith("append ")) && Balanced(v))
+				return true;
+			outWhy.AppendF("'{}' is not a Beef expression: it is not written.", v);
+			return false;
+		}
+
+		static bool Balanced(StringView text)
+		{
+			List<Token> toks = scope .();
+			Lexer.Tokenize(text, toks);
+			List<char8> stack = scope .();
+			for (let t in toks)
+			{
+				if (t.Kind == .EOF || t.Kind == .String || t.Kind == .Char)
+					continue;
+				let s = StringView(text, t.Start, t.End - t.Start);
+				if (s == "(" || s == "[" || s == "{")
+					stack.Add(s[0]);
+				else if (s == ")" || s == "]" || s == "}")
+				{
+					if (stack.IsEmpty)
+						return false;
+					let open = stack.PopBack();
+					if ((s == ")" && open != '(') || (s == "]" && open != '[') || (s == "}" && open != '{'))
+						return false;
+				}
+			}
+			return stack.IsEmpty;
+		}
+	}
+
+	/// The Initial Value chooser's Expression choice (docs/Classes-and-Members.md > Ownership and
+	/// initial values). What a value reads back as follows from its text, so an expression that
+	/// is still `0` or `default` reads back as Number or default and the chooser would jump back
+	/// to that. The choice is remembered for the variable (`key`) until another mode is picked,
+	/// and the value is shown as an Expression meanwhile.
+	class InitExpressionChoice
+	{
+		String mKey = new .() ~ delete _;
+
+		public bool IsChosen(StringView key) => !mKey.IsEmpty && mKey == key;
+		public void Choose(StringView key) => mKey.Set(key);
+		public void Forget() => mKey.Clear();
+
+		/// Shows `init` as an Expression when that is the choice for `key` (its value text as the
+		/// expression). True when `init` changed. Only for the value modes (not for what is owned).
+		public bool Apply(StringView key, MemberInit init)
+		{
+			if (!IsChosen(key) || init.ValueKind == .Custom)
+				return false;
+			switch (init.Owner)
+			{
+			case .None, .Reference, .Pointer, .ValueDefault, .DisposedWith:
+			default:
+				return false;
+			}
+			String v = scope .();
+			init.ValueText(v);
+			init.ValueKind = .Custom;
+			init.Value.Set(v);
+			return true;
+		}
 	}
 }

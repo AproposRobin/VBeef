@@ -421,6 +421,31 @@ namespace VisualBeef.Tests
 			g.Connect(appendCall.Then, print.ExecIn);
 		}
 
+		/// Math Expression nodes (docs/Math-Expression.md): Math.Sqrt over an int and a float, a
+		/// cast, and plain int arithmetic, from the parameters into one print.
+		static void MutateMath(Graph g)
+		{
+			let start = FindCall(g, "WriteLine", "\"measure\"");
+			Pin Param(StringView name)
+			{
+				for (let p in g.Entry.Outputs)
+					if (p.Kind == .Data && p.Label == name)
+						return p;
+				return null;
+			}
+			let len = NodeFactory.MathExpr(g, "(int)(Math.Sqrt(x * x + y * y) * scale)");
+			let lin = NodeFactory.MathExpr(g, "x * 2 + 1");
+			let mixed = NodeFactory.MathExpr(g, "x / 2 + y");
+			for (let m in Node[?](len, lin, mixed))
+				for (let pin in m.Inputs)
+					g.Connect(Param(pin.Name), pin);
+			let print = NewWriteLine(g, "\"len {} {} {}\"");
+			g.Connect(len.Result, AddArg(g, print));
+			g.Connect(lin.Result, AddArg(g, print));
+			g.Connect(mixed.Result, AddArg(g, print));
+			g.Connect(start.Then, print.ExecIn);
+		}
+
 		static void MutateArmIntoCompleted(Graph g)
 		{
 			// The true arm wired into the node the Branch completes into: same code as before.
@@ -752,6 +777,28 @@ namespace VisualBeef.Tests
 					{
 						CgCalls.Test t = scope .();
 						t.Go();
+					}
+				}
+			}
+
+			""";
+
+		const String cMath =
+			"""
+			using System;
+
+			namespace CgMath
+			{
+				class Test
+				{
+					static void Measure(int x, float y, float scale)
+					{
+						Console.WriteLine("measure");
+					}
+
+					public static void Run()
+					{
+						Measure(3, 4.0f, 2.0f);
 					}
 				}
 			}
@@ -1940,6 +1987,8 @@ namespace VisualBeef.Tests
 			c.MustContain.Add("\t\t\tFill(ref mHp);\n\t\t\tint count = default;\n\t\t\tGetAll(ref count);\n");
 			c = AddCase(cases, "StringFormatting", "CgStrings", cStrings, "Test.Run()", => MutateStrings, "begin\nAda and Ada (1)\ncalls=1\n<Ada|1>\n");
 			c.MustContain.Add("\t\t\tlet __v1 = GetName();\n\t\t\tConsole.WriteLine(\"{} and {} ({})\", __v1, __v1, sNameCalls);\n");
+			c = AddCase(cases, "MathExpression", "CgMath", cMath, "Test.Measure(int,float,float)", => MutateMath, "measure\nlen 10 7 5\n");
+			c.MustContain.Add("\t\t\tConsole.WriteLine(\"len {} {} {}\", (int)(Math.Sqrt(x * x + y * y) * scale), x * 2 + 1, x / 2 + y);\n");
 			c = AddCase(cases, "ArmIntoCompleted", "CgArm", cArm, "Test.Show(bool)", => MutateArmIntoCompleted, "on\nend\nend\n");
 			c.SameAsSource = true;
 			c = AddCase(cases, "StyleKeptAndMatched", "CgStyle", cStyle, "Test.Run()", => MutateStyle, "start\ntick\ntick\ntick\nthree\nbig\n");

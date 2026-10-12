@@ -140,6 +140,7 @@ namespace VisualBeef.Editor
 			case "modauthor": finished = SelfTestModAuthor();
 			case "fnlocals": finished = SelfTestFnLocals();
 			case "localsui": finished = SelfTestLocalsUi();
+			case "mathexpr": finished = SelfTestMath();
 			case "adddialog-close": mSelfTestCloseDialog = true;
 			case "locals-open": mSelfTestLocalsOpen = true;
 			case "menu": SelfTestMenu(true);

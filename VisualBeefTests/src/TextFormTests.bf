@@ -657,6 +657,12 @@ namespace VisualBeef.Tests
 			}
 			RunRoundTrip();
 			RunLayoutKeys();
+			// Initial Value set to Expression (docs/Classes-and-Members.md > Ownership and initial values).
+			MathExprTests.Checks = 0;
+			MathExprTests.Failures = 0;
+			MathExprTests.RunInit();
+			sChecks += MathExprTests.Checks;
+			sFailures += MathExprTests.Failures;
 			Console.WriteLine("text form checks: {}  failures: {}", sChecks, sFailures);
 			return sFailures;
 		}

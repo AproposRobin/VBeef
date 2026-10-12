@@ -190,7 +190,12 @@ namespace VisualBeef.Graph
 		LocalFunc,
 		/// An interpolated string `$"x = {x}"` (pure): Text = the literal with each hole's
 		/// expression taken out (`$"x = {}"`), one `arg<i>` input per hole.
-		Format
+		Format,
+		/// A Math Expression (pure, docs/Math-Expression.md): Text = the expression as typed
+		/// (`a * a + b`), one input per free name (named after it), the `result` output. The code
+		/// is the expression with the pin values in place; the side file's `#math` record turns
+		/// that code back into this node. Node.MathType = the result type chosen in Properties.
+		MathExpr
 	}
 
 	class Node
@@ -234,6 +239,9 @@ namespace VisualBeef.Graph
 		/// (`[ConstSkip]` + line break + indent, before a Scope block); Lambda: the capture list
 		/// (`[&]`). Null when there is none.
 		public String Attributes ~ delete _;
+		/// Math Expression: the result type chosen in Properties when the expression does not say
+		/// (null = not chosen). Used only when the type can't be inferred.
+		public String MathType ~ delete _;
 
 		public List<Pin> Inputs = new .() ~ DeleteContainerAndItems!(_);
 		public List<Pin> Outputs = new .() ~ DeleteContainerAndItems!(_);
@@ -429,6 +437,7 @@ namespace VisualBeef.Graph
 				outTitle.Append("Local Function ");
 				outTitle.Append(Text);
 			case .Format: outTitle.Append("Format Text");
+			case .MathExpr: outTitle.Append("Math Expression");
 			}
 		}
 	}
@@ -637,6 +646,7 @@ namespace VisualBeef.Graph
 			CopyStr(ref n.Alloc, src.Alloc);
 			n.IsArray = src.IsArray;
 			CopyStr(ref n.Attributes, src.Attributes);
+			CopyStr(ref n.MathType, src.MathType);
 			CopyStr(ref n.Original, src.Original);
 			CopyStr(ref n.LeadingComments, src.LeadingComments);
 			CopyStr(ref n.TrailingComment, src.TrailingComment);

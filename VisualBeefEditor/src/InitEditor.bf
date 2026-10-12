@@ -19,6 +19,12 @@ namespace VisualBeef.Editor
 		String mInitValueBuf = new .() ~ delete _;
 		String mInitArgsBuf = new .() ~ delete _;
 		String mInitRawBuf = new .() ~ delete _;
+		/// Initial Value set to Expression for a variable whose value still reads back as another
+		/// mode (`0`, `default`): the chooser stays on Expression (MemberInit.InitExpressionChoice).
+		public InitExpressionChoice mInitExprChoice = new .() ~ delete _;
+		/// Self test: the last Expression refused in an Initial Value box, and how many were.
+		public String InitExprRefusal = new .() ~ delete _;
+		public int InitExprRefusals;
 
 		// Add Variable dialog
 		InitOwnership mAddVarOwner = .None;
@@ -96,35 +102,11 @@ namespace VisualBeef.Editor
 			outModes.Add(.Custom);
 		}
 
-		/// What a new mode starts with (a value the type accepts).
+		/// What a new mode starts with (a value the type accepts; an Expression starts with the
+		/// value there is now).
 		static void StartValue(InitValueKind k, InitType t, MemberInit init, TypeService types)
 		{
-			init.ValueKind = k;
-			init.Value.Clear();
-			switch (k)
-			{
-			case .Literal:
-				switch (t.Kind)
-				{
-				case .Bool: init.Value.Set("false");
-				case .Char: init.Value.Set("' '");
-				case .String, .StringView: init.Value.Set("\"\"");
-				case .Float: MemberInit.FormatFloat(0, t.BaseText == "float", init.Value);
-				default: init.Value.Set("0");
-				}
-			case .EnumCase:
-				List<String> cases = scope .();
-				MemberInit.EnumMembers(t.BaseText, types, cases);
-				init.Value.Set(cases.IsEmpty ? "." : cases[0]);
-				ClearAndDeleteItems!(cases);
-			case .Construct:
-				init.AllocType.Set(".");
-				init.Args.Clear();
-				init.ArrayAlloc = false;
-			case .Custom:
-				init.Value.Set("default");
-			default:
-			}
+			MemberInit.StartValue(k, t, init, types);
 		}
 
 		/// The value control for a Literal / Member / Expression mode. `buf` holds what is shown;
@@ -209,13 +191,28 @@ namespace VisualBeef.Editor
 				}
 				return changed;
 			case .Custom:
-				if (PropertyGrid.Text(scope $"##{id}x", buf, ?, false, null, "an expression"))
+				let committed = PropertyGrid.Text(scope $"##{id}x", buf, ?, false, null, "an expression");
+				String text = scope .();
+				String why = scope .();
+				bool ok = MemberInit.CheckExpression(buf, text, why);
+				if (!ok)
 				{
-					var v = StringView(buf);
-					v.Trim();
-					if (v.IsEmpty)
+					// Not a Beef expression: the frame is red while it stays so, and it is not written.
+					let dl = Gui.igGetWindowDrawList();
+					Gui.ImDrawList_AddRect(dl, Gui.igGetItemRectMin() - .(1, 1), Gui.igGetItemRectMax() + .(1, 1), Theme.NodeError, 3, 1.5f, 0);
+				}
+				if (committed)
+				{
+					if (!ok)
+					{
+						InitExprRefusal.Set(why);
+						InitExprRefusals++;
+						Notify.Warn(why);
+						return false;
+					}
+					if (text.IsEmpty)
 						init.ValueKind = .None;
-					init.Value.Set(v);
+					init.Value.Set(text);
 					return true;
 				}
 				return false;
@@ -357,13 +354,15 @@ namespace VisualBeef.Editor
 			MemberInit init = scope .();
 			if (!doc.ReadMemberInit(field, t, init))
 				return false;
+			String choiceKey = scope $"{doc.FilePath}|{type?.Name}|{field.Name}";
+			mInitExprChoice.Apply(choiceKey, init);
 			bool isProp = field.Kind == .Property;
 			bool isStatic = field.IsStatic || Mods.Has(field.Modifiers, "static");
 			bool isConst = Mods.Has(field.Modifiers, "const");
 			bool inClass = type == null || type.TypeKind == null || type.TypeKind == "class";
 
 			String key = scope .();
-			key.AppendF("{}|{}|{}|{}|{}", doc.FilePath, type?.Name, field.Name, doc.Version, field.TypeText);
+			key.AppendF("{}|{}|{}|{}|{}|{}", doc.FilePath, type?.Name, field.Name, doc.Version, field.TypeText, init.ValueKind);
 			if (key != mInitSyncKey && !Gui.igIsAnyItemActive())
 			{
 				mInitSyncKey.Set(key);
@@ -466,7 +465,7 @@ namespace VisualBeef.Editor
 					}
 				}
 			default:
-				if (DrawValueRows("v", t, init, mInitValueBuf, mInitArgsBuf, types))
+				if (DrawValueRows("v", t, init, mInitValueBuf, mInitArgsBuf, types, choiceKey))
 				{
 					changed = ApplyMemberInit(doc, type, field, init, false);
 					return true;
@@ -519,7 +518,7 @@ namespace VisualBeef.Editor
 		}
 
 		/// Initial value mode + value (+ arguments for a struct made here). True when `init` changed.
-		bool DrawValueRows(StringView id, InitType t, MemberInit init, String valueBuf, String argsBuf, TypeService types)
+		bool DrawValueRows(StringView id, InitType t, MemberInit init, String valueBuf, String argsBuf, TypeService types, StringView choiceKey)
 		{
 			List<InitValueKind> modes = scope .();
 			ValueModes(init.Owner, t, modes);
@@ -536,7 +535,17 @@ namespace VisualBeef.Editor
 					{
 						StartValue(k, t, init, types);
 						ValueBufFor(init, valueBuf);
-						changed = true;
+						if (k == .Custom)
+						{
+							// Nothing is written until an expression is typed: the value there is
+							// now would read back as its own mode, so the choice is remembered.
+							mInitExprChoice.Choose(choiceKey);
+						}
+						else
+						{
+							mInitExprChoice.Forget();
+							changed = true;
+						}
 					}
 					Gui.PopID();
 				}
@@ -562,6 +571,17 @@ namespace VisualBeef.Editor
 					else if (t.Kind == .Char && valueBuf.Length != 1)
 						why.Append("A character value is one character: it is not written.");
 					if (!why.IsEmpty)
+					{
+						PropertyGrid.WideRow();
+						Gui.igSetCursorPosX(Gui.igGetCursorPosX() + 8 * Look.Scale);
+						ErrorText(why);
+					}
+				}
+				else if (init.ValueKind == .Custom)
+				{
+					// The red frame says it; this line says why.
+					String why = scope .();
+					if (!MemberInit.CheckExpression(valueBuf, scope String(), why))
 					{
 						PropertyGrid.WideRow();
 						Gui.igSetCursorPosX(Gui.igGetCursorPosX() + 8 * Look.Scale);
@@ -676,7 +696,12 @@ namespace VisualBeef.Editor
 						String typedVal = scope .(mAddVarBuf.View);
 						String lit = scope .();
 						if (mAddVarValueKind == .Custom)
-							lit.Set(typedVal);
+						{
+							// Only a Beef expression is written (the frame below turns red otherwise).
+							String why = scope .();
+							if (!MemberInit.CheckExpression(typedVal, lit, why))
+								lit.Clear();
+						}
 						else if (t.Kind == .String || t.Kind == .StringView)
 							MemberInit.QuoteString(typedVal, lit);
 						else if (t.Kind == .Char)
@@ -690,10 +715,22 @@ namespace VisualBeef.Editor
 					}
 					if (mAddVarValue.IsEmpty && mAddVarValueKind == .Literal)
 						ErrorText(scope $"Type a value of {typed}.");
+					if (mAddVarValueKind == .Custom)
+					{
+						String text = scope .();
+						String why = scope .();
+						if (!MemberInit.CheckExpression(mAddVarBuf.View, text, why))
+						{
+							let dl = Gui.igGetWindowDrawList();
+							let rmin = Gui.igGetItemRectMin();
+							Gui.ImDrawList_AddRect(dl, .(rmin.x - 1, rmin.y - 1), .(rmin.x + 360 * Look.Scale + 1, rmin.y + Gui.igGetFrameHeight() + 1), Theme.NodeError, 3, 1.5f, 0);
+							ErrorText(why);
+						}
+					}
 				}
 				outInit.ValueKind = mAddVarValueKind;
 				outInit.Value.Set(mAddVarValue);
-				if (mAddVarValueKind == .Literal && mAddVarValue.IsEmpty)
+				if ((mAddVarValueKind == .Literal || mAddVarValueKind == .Custom) && mAddVarValue.IsEmpty)
 					outInit.ValueKind = .None;
 			}
 			MemberInit.TypeFor(mAddVarOwner, typed, outType);
@@ -726,15 +763,17 @@ namespace VisualBeef.Editor
 				init.ValueKind = valuePin.Default.IsEmpty ? .None : .Custom;
 				init.Value.Set(valuePin.Default);
 			}
+			String choiceKey = scope $"local|{mg.Key}|{node.Id}";
+			mInitExprChoice.Apply(choiceKey, init);
 			String key = scope .();
-			key.AppendF("local|{}|{}|{}", node.Id, valuePin.Default, typeText);
+			key.AppendF("local|{}|{}|{}|{}", node.Id, valuePin.Default, typeText, init.ValueKind);
 			if (key != mInitSyncKey && !Gui.igIsAnyItemActive())
 			{
 				mInitSyncKey.Set(key);
 				ValueBufFor(init, mInitValueBuf);
 				mInitArgsBuf.Set(init.Args);
 			}
-			if (!DrawValueRows(id, t, init, mInitValueBuf, mInitArgsBuf, types))
+			if (!DrawValueRows(id, t, init, mInitValueBuf, mInitArgsBuf, types, choiceKey))
 			{
 				String line = scope .();
 				line.AppendF("{} {}", typeText, node.Text);

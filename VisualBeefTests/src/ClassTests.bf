@@ -1749,6 +1749,12 @@ namespace VisualBeef.Tests
 			LocalsTests.Failures = 0;
 			LocalsTests.RunClasses();
 			sChecks += LocalsTests.Checks;
+			// Math Expression nodes through the side file (docs/Math-Expression.md).
+			MathExprTests.Checks = 0;
+			MathExprTests.Failures = 0;
+			MathExprTests.RunRoundTrip();
+			sChecks += MathExprTests.Checks;
+			sFailures += MathExprTests.Failures;
 			sFailures += LocalsTests.Failures;
 			Console.WriteLine("class checks: {}  failures: {}", sChecks, sFailures);
 			return sFailures;

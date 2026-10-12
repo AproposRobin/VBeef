@@ -354,7 +354,11 @@ byte, then flipped to another legal choice and back to the same bytes:
   (**Initial Text** for an owned `String`), **Delete With** for containers, or **Initial Value** and
   **Value**; a Custom member shows **Written As** (editable) and **Convert To**. Under the rows, the
   declaration as the file has it, in the code font. A typed value that does not fit (`12x` for an
-  `int`) is shown in red and not written.
+  `int`) is shown in red and not written. **Initial Value > Expression** starts with the value
+  there is now and writes nothing until an expression is typed; it stays chosen while that value
+  still reads as another mode (`0`, `default`: `InitExpressionChoice`). What is typed must be one
+  Beef expression (`MemberInit.CheckExpression`): otherwise the box is framed red, the reason is
+  shown under it and nothing is written.
 * **Add Variable**: the same choices under the type, with defaults (class: Owned, made here;
   interface: Reference; struct: Value; value types: None) and the declaration it will write.
 * **Local variables** (Outline > LOCAL VARIABLES, selected): **Ownership** for class types and

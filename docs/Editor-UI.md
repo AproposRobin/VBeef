@@ -436,6 +436,13 @@ not know stay plain expression text.
   arguments of a Construct; the Defer's `defer` / `defer::` / custom label; the Using variable
   (name, type); which case a Result node tests (Ok / Err, which swaps the arms' meaning) and its
   binding; and the node's error or warning.
+- **Math Expression** ([Math-Expression.md](Math-Expression.md)): a green node with a sigma icon,
+  one input per name of its formula and a **Result**; the formula is a field in its body (code
+  font) that turns red while what is typed is not a Beef expression and is taken on Enter or when
+  you click away. Node menu: **Math | Operators > Math Expression** (search `math` or
+  `expression`). Properties: **Node > Result Type** (the inferred type, or a chooser when the
+  formula does not tell) and the node's problem, **Expression** (the same formula, full width),
+  then the usual Inputs.
 - Problems on nodes: an error (GraphValidator or the generator) turns the header red, adds a red
   outline and an **ERROR!** badge with the message (a Receiver error also turns the Receiver pin red);
   a warning adds a yellow outline and a **WARNING** badge. The tooltip starts with the message. A

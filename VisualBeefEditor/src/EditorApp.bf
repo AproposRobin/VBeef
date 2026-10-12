@@ -1374,6 +1374,8 @@ namespace VisualBeef.Editor
 				n = NodeFactory.LocalFunc(g, item.A, item.C != "expr");
 			case .Format:
 				n = NodeFactory.Format(g, item.A);
+			case .MathExpr:
+				n = NodeFactory.MathExpr(g, item.A.IsEmpty ? "a + b" : item.A);
 			}
 			if (n == null)
 				return;

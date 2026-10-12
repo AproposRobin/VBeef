@@ -9,6 +9,27 @@ order: 25
 
 Newest first. Dates are commit dates; commit ids refer to the development history before the public repository was created.
 
+## 0.2.1-alpha
+
+- Math Expression node: type a formula, get one input pin per name and a typed result; Initial Value keeps the Expression choice and validates the text.
+- Switch on an enum shows plain case names; Properties headers show readable node kinds; refreshed user docs screenshots; release smoke tool.
+
+## Unreleased: Math Expression
+
+- Fix: Properties > Initial Value > Expression jumped back to the value's own mode (it started the
+  expression as `default`, which reads back as default; a typed `0` read back as Number). The choice
+  is now remembered for the variable (`InitExpressionChoice`), the box starts with the value there
+  is, nothing is written until an expression is typed. Member variables, Local Variable nodes and
+  Local Variables alike.
+- Expression initial values must be one Beef expression (`MemberInit.CheckExpression`): the box is
+  framed red with the reason under it, and nothing is written; the Add Variable dialog does the same.
+- New node: **Math Expression** (docs/Math-Expression.md). A formula typed on the node (or in
+  Properties); one input per free name, one Result; the result type inferred where Beef's rules
+  make it certain, chosen in Properties otherwise. The code is the formula with the values in
+  place; the `.vblayout` `#math` / `#orphanmath` records bring the node back on load.
+- Suites: `calls` + 48, `textforms` + 27, `classes` + 29, `compile` + 1 case (`MathExpression`);
+  `VB_SELFTEST=mathexpr` with six captures.
+
 ## Unreleased: polish
 
 - A locked Static box (a function in a Node Library) is grey with the tooltip "A Node Library is always static".

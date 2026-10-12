@@ -1369,6 +1369,31 @@ namespace VisualBeef.Graph
 			return n;
 		}
 
+		/// A Math Expression (docs/Math-Expression.md): one input per free name of `expression`, the
+		/// `result` output typed from the expression where it can be told. A refused expression
+		/// still makes the node (no pins; it shows the error until the text is fixed).
+		public static Node MathExpr(Graph g, StringView expression)
+		{
+			Node n = NewPure(g, .MathExpr);
+			var text = expression;
+			text.Trim();
+			n.Text.Set(text);
+			g.AddDataOut(n, "result", "");
+			MathExpression.Sync(g, n);
+			return n;
+		}
+
+		/// After a Math Expression's text or result type changed: pins and types follow it.
+		/// False (with the reason) when the new text is refused; the pins are then left as they were.
+		public static bool SyncMath(Graph g, Node n, String outWhy = null)
+		{
+			String why = scope .();
+			MathExpression.Sync(g, n, why);
+			n.Edited = true;
+			outWhy?.Set(why);
+			return why.IsEmpty;
+		}
+
 		public static Node Index(Graph g)
 		{
 			Node n = NewPure(g, .Index);

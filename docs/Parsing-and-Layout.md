@@ -243,6 +243,29 @@ The index (`ProjectIndex`, `SymbolStore` format 4) records `virtual`, `abstract`
 interface member without a default body), `override` and `sealed` on members and `abstract`,
 `sealed`, `static` on types. The format bump rebuilds every library cache once.
 
+## Math Expression records
+
+A Math Expression node (`NodeKind.MathExpr`, appended after `Format`) writes the plain formula,
+so the code alone reads back as the usual value nodes. The side file adds one line per node:
+
+```
+#math <tab> methodKey <tab> nodeKey <tab> chosen result type <tab> formula (escaped)
+#orphanmath <tab> methodKey <tab> snippet key <tab> chosen result type <tab> formula (escaped)
+```
+
+`nodeKey` is the node's structural path without the hash (`s0/value`). When a graph is built
+(`SourceDocument.BuildGraph`, also for the fresh graphs `RefreshFromCode` and `SameShapeAsCode`
+compare against), `MathExpression.Restore` looks at the value at that path: when its code is the
+formula with something in place of each name (`MathExpression.Match`, an AST match; a name used
+twice must hold the same text), the value's nodes are replaced by the Math Expression node, the
+node that made each value is wired into its input (a local, parameter or loop variable read is
+wired from its output; anything else becomes the input's typed value) and nothing is marked
+edited. A record that no longer matches (the formula changed by hand, a line added above it) is
+ignored and the code reads as usual. Built graphs write their records afresh on save; a graph
+dropped by a text edit leaves its records in `SourceDocument.MathRecords` (part of undo states).
+Unconnected Math Expressions travel in the orphan record (`#orphanmath`, restored on the
+snippet graph before its keys are used).
+
 ## Lifetime: layout keys and orphans
 
 The five kinds were appended to `NodeKind`, so the kind numbers that layout keys hash are

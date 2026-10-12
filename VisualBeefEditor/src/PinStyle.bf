@@ -65,6 +65,7 @@ namespace VisualBeef.Editor
 			case .Scope: return Icon.Braces;
 			case .Lambda, .LocalFunc: return Icon.SquareFunction;
 			case .Format: return Icon.Type;
+			case .MathExpr: return Icon.Sigma;
 			default: return "";
 			}
 		}

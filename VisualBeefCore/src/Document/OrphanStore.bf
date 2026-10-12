@@ -51,6 +51,8 @@ namespace VisualBeef.Document
 		/// Pin defaults that would read back from the code as nodes (a default `amount` reads
 		/// back as a Get node): NodeKey, Pin and Default are used.
 		public List<OrphanLinkRec> Defaults = new .() ~ DeleteContainerAndItems!(_);
+		/// Math Expression nodes among the orphans, keyed by the snippet's structural keys.
+		public List<MathRecord> Maths = new .() ~ DeleteContainerAndItems!(_);
 
 		public OrphanRecord Clone()
 		{
@@ -63,6 +65,8 @@ namespace VisualBeef.Document
 				r.Links.Add(l.Clone());
 			for (let d in Defaults)
 				r.Defaults.Add(d.Clone());
+			for (let m in Maths)
+				r.Maths.Add(m.Clone());
 			return r;
 		}
 
@@ -103,6 +107,14 @@ namespace VisualBeef.Document
 				LayoutText.Escape(d.Default, o, true);
 				o.Append('\n');
 			}
+			for (let m in Maths)
+			{
+				o.AppendF("#orphanmath\t{}\t{}\t", MethodKey, m.NodeKey);
+				LayoutText.Escape(m.ResultType, o);
+				o.Append('\t');
+				LayoutText.Escape(m.Expression, o);
+				o.Append('\n');
+			}
 		}
 	}
 
@@ -115,6 +127,8 @@ namespace VisualBeef.Document
 	///   #orphanlink <tab> methodKey <tab> graph|orphan <tab> nodeKey <tab> pin <tab> in|out <tab> otherKey <tab> otherPin <tab> default (escaped)
 	///   #orphandefault <tab> methodKey <tab> nodeKey <tab> pin <tab> default (escaped); the pin `@temp`
 	///                  holds the `let` name of an impure call's result (Node.Text2)
+	///   #orphanmath <tab> methodKey <tab> nodeKey <tab> result type <tab> expression (escaped): a Math
+	///                  Expression node (its code is the plain expression, see MathRecord)
 	///
 	/// The code is a method body: each orphan execution chain (from a chain head, an exec node
 	/// whose input is not linked) is written as statements, chains separated by a
@@ -442,6 +456,9 @@ namespace VisualBeef.Document
 
 			OrphanRecord rec = new .();
 			rec.MethodKey.Set(methodKey);
+			MathExpression.Capture(t, rec.Maths);
+			for (let m in rec.Maths)
+				m.MethodKey.Set(methodKey);
 			for (let n in orphans)
 			{
 				if (!n.HasPos || n.Key.StartsWith("orphan"))
@@ -597,6 +614,10 @@ namespace VisualBeef.Document
 			if (s.Entry == null)
 				return 0;
 			KeyAssigner.Assign(s);
+			// Math Expression nodes (their code is the plain expression); they take the key of what
+			// they replace, so the records below still find their nodes.
+			for (let m in rec.Maths)
+				MathExpression.Restore(s, m);
 
 			// Markers: chain separators go, value markers leave their value behind.
 			List<Node> markers = scope .();

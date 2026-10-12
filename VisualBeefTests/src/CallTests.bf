@@ -930,6 +930,12 @@ namespace VisualBeef.Tests
 			RunOutsRead();
 			RunOutsWritten();
 			RunMisc();
+			// Math Expression nodes (docs/Math-Expression.md): reading, pins, types, code, checks.
+			MathExprTests.Checks = 0;
+			MathExprTests.Failures = 0;
+			MathExprTests.RunNode();
+			sChecks += MathExprTests.Checks;
+			sFailures += MathExprTests.Failures;
 			Console.WriteLine("call checks: {}  failures: {}", sChecks, sFailures);
 			return sFailures;
 		}

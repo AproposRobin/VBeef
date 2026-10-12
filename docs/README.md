@@ -26,6 +26,7 @@ straight to a page if you know what you need.
 | 5 | [Parsing-and-Layout.md](Parsing-and-Layout.md) | The parser, broken-code recovery, literal kinds, the `.vblayout` sidecar and content-keyed layout | 15 min |
 | 6 | [Codegen.md](Codegen.md) | Graph to code: temporaries, merges, scopes, style, refusals | 15 min |
 | 7 | [Flow-Nodes.md](Flow-Nodes.md) | Switch, Sequence, Do Once, Do N, Flip Flop, Gate, Multi Gate, loops with Break | 10 min |
+| 7a | [Math-Expression.md](Math-Expression.md) | A formula typed on one node: its inputs, Result type, checks, the `#math` side-file record | 5 min |
 | 7b | [Calls-and-Receivers.md](Calls-and-Receivers.md) | Member calls and their Receiver / this, static calls, the This node, out and ref pins, GraphValidator's errors | 15 min |
 | 7c | [Lifetime-Nodes.md](Lifetime-Nodes.md) | `new` / `scope` (Construct), Delete, Defer, Using, `case .Ok(let v)` (Result: match), the lifetime rules, coverage on UMP code | 10 min |
 | 7d | [Classes-and-Members.md](Classes-and-Members.md) | Type Settings, parents and interfaces, overrides and stubs, the Base node, properties / indexers / constructors as graphs, project-wide renames, new types and the UMP mod template | 15 min |

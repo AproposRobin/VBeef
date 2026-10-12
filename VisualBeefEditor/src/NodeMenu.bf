@@ -50,7 +50,8 @@ namespace VisualBeef.Editor
 		Lambda,         // A = parameters (`(a, b)`), B = alloc, C = "block" for a Body (else Returns)
 		Delegate,       // A = method name, B = alloc: `new => Method`
 		LocalFunc,      // A = header (`void Helper()`), C = "block" or "expr"
-		Format          // A = template with empty holes (`$"x = {}"`)
+		Format,         // A = template with empty holes (`$"x = {}"`)
+		MathExpr        // A = the expression (`a + b`)
 	}
 
 	class NodeItem
@@ -812,6 +813,7 @@ namespace VisualBeef.Editor
 				"Shift Left", "Shift Right", "Null Coalesce");
 			for (int i < binaryOps.Count)
 				Add(.Operator, "Math | Operators", scope $"{binaryOps[i]}  {binaryNames[i]}", binaryOps[i], "2").Tooltip.AppendF("A {} B", binaryOps[i]);
+			Add(.MathExpr, "Math | Operators", "Math Expression  (a * b + c)", "a + b").Tooltip.Set("Type an expression on the node: every name in it becomes an input, the value is its Result. The Beef it writes is the expression itself.");
 			Add(.Operator, "Math | Operators", "!  NOT (boolean)", "!", "1").Tooltip.Set("!A");
 			Add(.Operator, "Math | Operators", "-  Negate", "-", "1").Tooltip.Set("-A");
 			Add(.Operator, "Math | Operators", "~  Bitwise NOT", "~", "1").Tooltip.Set("~A");
@@ -1180,6 +1182,8 @@ namespace VisualBeef.Editor
 					return OperatorTakes(item.A, item.B == "2", T);
 				case .Select:
 					return (T == "bool") ? 2 : 1;
+				case .MathExpr:
+					return (wild || fam == .Int || fam == .Float || T == "bool") ? 2 : 0;
 				case .Cast:
 					// Casting makes sense for numbers, enums and objects (down-casts), not bools.
 					return (wild || fam == .Int || fam == .Float || fam == .Char || fam == .Enum || fam == .Object || fam == .Interface || fam == .Pointer) ? 1 : 0;
@@ -1213,6 +1217,8 @@ namespace VisualBeef.Editor
 					return item.B.IsEmpty ? 1 : Math.Max(TypeMatch(item.B, T), 1);
 				case .Cast:
 					return item.A.IsEmpty ? 1 : 2;
+				case .MathExpr:
+					return (wild || fam == .Int || fam == .Float || T == "bool") ? 2 : 0;
 				case .Select, .Index, .GetMember:
 					return 1;
 				case .Construct:
@@ -1902,6 +1908,15 @@ namespace VisualBeef.Editor
 		/// Self-test hook (captures): the popup's top-left corner while it is open (else it opens at the mouse).
 		public ImVec2 SelfTestPopupPos;
 		public bool SelfTestPlace;
+
+		/// Self-test hook: the item whose label starts with `label` is found by `search`.
+		public bool SelfTestFinds(StringView label, StringView search)
+		{
+			for (let it in Items)
+				if (it.Label.StartsWith(label))
+					return LocalScore(it, search) > 0;
+			return false;
+		}
 
 		/// Self-test hook: types into the search box.
 		public void SelfTestSetSearch(StringView text)

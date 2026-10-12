@@ -85,6 +85,7 @@ Start at **[docs/README.md](docs/README.md)** for the reading order. Direct link
 [Parsing and Layout](docs/Parsing-and-Layout.md) |
 [Codegen](docs/Codegen.md) |
 [Flow Nodes](docs/Flow-Nodes.md) |
+[Math Expression](docs/Math-Expression.md) |
 [Catalog and Types](docs/Catalog-and-Types.md) |
 [Node Attributes](docs/Node-Attributes.md) |
 [Files and Safety](docs/Files-and-Safety.md) |

@@ -780,9 +780,24 @@ namespace VisualBeef.Editor
 			String title = scope .();
 			node.GetTitle(title);
 			String kind = scope .();
-			kind.AppendF("{}", node.Kind);
+			// Readable subtitle, not the raw kind name: "Local declaration", "Result Match", "Loop Break", ...
 			if (node.Kind == .Call)
 				kind.Set(node.IsPure ? "Value call" : "Function Call");
+			else if (node.Kind == .LocalVar)
+				kind.Set("Local declaration");
+			else if (node.Kind == .MathExpr)
+				kind.Set("Math Expression");
+			else
+			{
+				String raw = scope .();
+				raw.AppendF("{}", node.Kind);
+				for (let c in raw.RawChars)
+				{
+					if (c.IsUpper && !kind.IsEmpty)
+						kind.Append(' ');
+					kind.Append(c);
+				}
+			}
 			DetailsHeader(node.IsPure ? Icon.Function : Icon.Box, Theme.HeaderColor(node) | 0xFF000000, title, kind);
 			bool commit = false;
 			bool edited = false;
@@ -890,6 +905,8 @@ namespace VisualBeef.Editor
 					case .Cast:
 						PropertyGrid.Row("Cast To", "Type to cast to", Theme.TypeColor(node.Text));
 						if (NodeTypeButton("##ct", node.Text, .Cast, mg.Method)) commit = true;
+					case .MathExpr:
+						DrawMathDetails(mg, node, ref commit);
 					case .Code, .Expr, .Switch, .Flow:
 					default:
 						PropertyGrid.Row("Kind");
@@ -934,6 +951,10 @@ namespace VisualBeef.Editor
 					PropertyGrid.Category((node.Kind == .Format) ? "Text" : ((node.Kind == .Scope) ? "Block" : "Function"), true))
 					DrawLifetimeDetails(mg, node, ref commit);
 
+
+				// A Math Expression: its expression in a full-width field.
+				if (node.Kind == .MathExpr && PropertyGrid.Category("Expression", true, Icon.Sigma))
+					DrawMathExpression(mg, node, ref commit);
 
 				// Beef code nodes: a full-width code editor.
 				if (node.Kind == .Code || node.Kind == .Expr)

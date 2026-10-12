@@ -302,6 +302,8 @@ namespace VisualBeef.Editor
 		public List<String> CodeLines = new .() ~ DeleteContainerAndItems!(_);
 		public float CodeY;
 		public float CodeH;
+		/// A Math Expression: its expression is a field in the body (at CodeY, CodeH high).
+		public bool MathField;
 		public bool ShowArgs;
 		public float ArgsY;
 		public bool Orphan;
@@ -329,6 +331,7 @@ namespace VisualBeef.Editor
 			Title.Clear();
 			Subtitle.Clear();
 			ClearAndDeleteItems!(CodeLines);
+			MathField = false;
 			ShowArgs = false;
 			Orphan = false;
 			Error = null;
@@ -830,6 +833,22 @@ namespace VisualBeef.Editor
 						L.W = Math.Max(L.W, codeW + 24);
 					}
 
+					// A Math Expression: the expression is a field in the body (also in Properties).
+					if (node.Kind == .MathExpr)
+					{
+						L.MathField = true;
+						L.CodeY = y + 2;
+						L.CodeH = fh + 8;
+						y += L.CodeH + 6;
+						if (mMono != null)
+							Gui.igPushFont(mMono, MathFieldFont(1)); // the size the field is drawn at
+						float textW = Gui.CalcTextSize(node.Text.IsEmpty ? "a * b + 1" : node.Text).x;
+						if (mMono != null)
+							Gui.igPopFont();
+						L.W = Math.Max(L.W, Math.Min(textW + 32, 720 * Look.Scale)); // a long formula makes a wide node
+						L.W = Math.Max(L.W, 170);
+					}
+
 					// "Add pin" affordance like Blueprint's variadic nodes, shown when selected.
 					if ((node.Kind == .Call || node.Kind == .Index) && L.Selected)
 					{
@@ -1081,6 +1100,22 @@ namespace VisualBeef.Editor
 				if (n.Error != null && !mNodeErrors.ContainsKey(n.Id))
 					mNodeErrors[n.Id] = new String(n.Error);
 			mApp.GetNodeDiagnostics(mg, mNodeErrors, mNodeWarnings);
+			// Math Expressions: pin types follow the wires, and what is wrong shows on the node
+			// whether or not it is connected yet.
+			for (let n in graph.Nodes)
+			{
+				if (n.Kind != .MathExpr)
+					continue;
+				let parsed = MathExpression.Parse(n.Text);
+				defer delete parsed;
+				MathExpression.UpdateTypes(graph, n, parsed.IsValid ? parsed : null);
+				if (mNodeErrors.ContainsKey(n.Id))
+					continue;
+				String why = scope .();
+				MathExpression.Problem(graph, n, why);
+				if (!why.IsEmpty)
+					mNodeErrors[n.Id] = new String(why);
+			}
 			mLayById.Clear();
 			mPins.Clear();
 			mPinIndex.Clear();
@@ -1665,6 +1700,9 @@ namespace VisualBeef.Editor
 				}
 			}
 
+			if (L.MathField && details)
+				DrawMathField(graph, dl, node, L, p0, z, widgets);
+
 			// "+ arg" / "- arg"
 			if (L.ShowArgs && widgets)
 			{
@@ -1787,6 +1825,98 @@ namespace VisualBeef.Editor
 					Gui.ImDrawList_AddRectFilled(dl, fpos, f1, Theme.InlineFieldBg, 3 * z, 0);
 					Text(dl, fpos + ImVec2(4 * z, 3 * z), fh * z, Gui.Color(200, 200, 200), p.Default);
 				}
+			}
+		}
+
+		/// The Math Expression being typed on a node (0: none) and what is typed; a refused one
+		/// keeps its frame red for a moment.
+		int32 mMathEditNode;
+		String mMathEditText = new .() ~ delete _;
+		int32 mMathRejectNode;
+		int32 mMathRejectFrames;
+		/// Self test: the last expression refused on a node, and how many were.
+		public String MathRefusal = new .() ~ delete _;
+		public int MathRefusals;
+
+		/// Self test: the node's field looks as if `text` were being typed into it.
+		public void SelfTestMathType(int32 nodeId, StringView text)
+		{
+			mMathEditNode = nodeId;
+			mMathEditText.Set(text);
+		}
+
+		/// The font size of the expression field at zoom `z`: the node's text size (widgets get the
+		/// UI scale on top of the size they are given, the node's drawn text does not).
+		float MathFieldFont(float z) => mFontSize * z / Math.Max(Look.Scale, 0.5f);
+
+		/// The expression field in a Math Expression's body: typed here or in Properties. While
+		/// what is typed is not a Beef expression the frame is red, and it is not taken.
+		void DrawMathField(Graph graph, ImDrawList* dl, Node node, NodeLay L, ImVec2 p0, float z, bool widgets)
+		{
+			float fh = mFontSize;
+			let f0 = ImVec2(p0.x + 8 * z, p0.y + L.CodeY * z);
+			float w = (L.W - 16) * z;
+			let f1 = ImVec2(f0.x + w, f0.y + (fh + 6) * z);
+			bool mine = mMathEditNode == node.Id;
+			bool bad = false;
+			if (mine)
+				bad = !MathExpression.Check(mMathEditText, scope String());
+			if (widgets)
+			{
+				Gui.igSetCursorScreenPos(f0);
+				Gui.PushID(node.Id);
+				mScratch.Set(mine ? (StringView)mMathEditText : (StringView)node.Text);
+				Gui.igSetNextItemWidth(w);
+				if (mMono != null)
+					Gui.igPushFont(mMono, MathFieldFont(z));
+				bool changed = Gui.igInputTextWithHint("##mx", "a * b + 1", mScratch.Ptr, (.)mScratch.Capacity, 0, null, null);
+				if (mMono != null)
+					Gui.igPopFont();
+				if (changed)
+				{
+					mMathEditNode = node.Id;
+					mMathEditText.Set(mScratch.View);
+				}
+				if (Gui.igIsItemDeactivated() && mMathEditNode == node.Id)
+				{
+					var typed = StringView(mMathEditText);
+					typed.Trim();
+					if (typed != node.Text)
+					{
+						String why = scope .();
+						if (MathExpression.Check(typed, why))
+						{
+							mApp.BeginEdit();
+							node.Text.Set(typed);
+							NodeFactory.SyncMath(graph, node);
+							mApp.CommitCurrent();
+							mCommitted = true;
+						}
+						else
+						{
+							mMathRejectNode = node.Id;
+							mMathRejectFrames = 120;
+							MathRefusal.Set(why);
+							MathRefusals++;
+							Notify.Warn(why);
+						}
+					}
+					mMathEditNode = 0;
+				}
+				if (Gui.igIsItemHovered(0) && !Gui.igIsItemActive())
+					Gui.Tooltip("The expression: every name in it is an input. Press Enter or click away to apply it.");
+				Gui.PopID();
+			}
+			else
+			{
+				Gui.ImDrawList_AddRectFilled(dl, f0, f1, Theme.InlineFieldBg, 3 * z, 0);
+				Text(dl, f0 + ImVec2(4 * z, 3 * z), fh * z, Theme.TextCode, node.Text, mMono);
+			}
+			if (bad || (mMathRejectNode == node.Id && mMathRejectFrames > 0))
+			{
+				if (!bad)
+					mMathRejectFrames--;
+				Gui.ImDrawList_AddRect(dl, f0 - .(1, 1), f1 + .(1, 1), Theme.NodeError, 3 * z, Math.Max(1.5f, 1.5f * z), 0);
 			}
 		}
 
@@ -3040,6 +3170,8 @@ namespace VisualBeef.Editor
 				tip.AppendF("Local function: {}\nDeclared inside this function; call it by name after this node.", node.Text2);
 			case .Format:
 				tip.AppendF("Format Text: {}\nAn interpolated string: each {{hole}} is an input, the text and the :format parts are set in Properties.", node.Text);
+			case .MathExpr:
+				tip.AppendF("Math Expression: {}\nEvery name in it is an input; Result is its value. Edit it on the node or in Properties.", node.Text);
 			default:
 			}
 			if (node.Original != null && !node.Original.IsEmpty && node.Kind != .Entry && node.Original.Length < 200 && !node.Edited)

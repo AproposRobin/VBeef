@@ -256,6 +256,16 @@ Construct, Delete, Defer, Using and Result nodes are written by the same pass; s
   tests Err), with the binding written only when the payload is read or the code had one; in
   an else arm it continues an `else if` chain. Any other `case` test is an Operator `case`.
 
+## Math Expression
+
+A Math Expression is written as its formula with each name replaced by its input's value
+(`CodeGen.MathText` via `MathExpression.Substitute`), each value at postfix precedence, so an
+operation is parenthesised (`(x + 1) * (x + 1) + y`) and a name, literal, call or member read is
+not. The node's own precedence is that of its formula (`IsAtomic`). A value read once per use of
+its name: `FindValueTemps` counts a name used twice as two reads, so a call wired into it runs
+once into `let __vN`. GraphValidator (`CheckMath`) refuses a formula that is not one expression,
+an input without a wire or value, and a Result type that is neither inferred nor chosen.
+
 ## Comments and declarations
 
 A statement written with declarations in front of it (an out variable `T a;`, a shared value

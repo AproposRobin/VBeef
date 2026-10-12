@@ -36,6 +36,8 @@ namespace VisualBeef.Graph
 					ClassModel.CheckBaseNode(g, n);
 				if (n.Kind == .Construct || n.Kind == .Delete)
 					CheckLifetime(g, n);
+				if (n.Kind == .MathExpr)
+					CheckMath(g, n);
 				CheckLibraryRules(g, n);
 				CheckInputs(g, n);
 				CheckNodeType(g, n);
@@ -43,6 +45,20 @@ namespace VisualBeef.Graph
 			}
 			// The declaration itself: `override` needs something to override (ClassModel).
 			ClassModel.CheckEntry(g);
+		}
+
+		/// A Math Expression: the pin types follow the wires, then the expression, its inputs and
+		/// its result type are checked (MathExpression.Problem). Always an error: nothing is
+		/// written for an expression that can't be read or a value that is missing.
+		static void CheckMath(Graph g, Node n)
+		{
+			let p = MathExpression.Parse(n.Text);
+			defer delete p;
+			MathExpression.UpdateTypes(g, n, p.IsValid ? p : null);
+			String why = scope .();
+			MathExpression.Problem(g, n, why);
+			if (!why.IsEmpty)
+				g.AddError(n, why);
 		}
 
 		/// A Node Library holds only static functions and variables: no `this` inside it, and the

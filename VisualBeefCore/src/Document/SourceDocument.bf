@@ -194,6 +194,7 @@ namespace VisualBeef.Document
 			Graph.CopyStr(ref n.Alloc, src.Alloc);
 			n.IsArray = src.IsArray;
 			Graph.CopyStr(ref n.Attributes, src.Attributes);
+			Graph.CopyStr(ref n.MathType, src.MathType);
 			n.X = src.X;
 			n.Y = src.Y;
 			n.HasPos = src.HasPos;
@@ -334,6 +335,8 @@ namespace VisualBeef.Document
 		public List<OrphanSet> Orphans = new .() ~ DeleteContainerAndItems!(_);
 		/// Saved orphans (from the layout file) of graphs that were not built.
 		public List<OrphanRecord> OrphanRecords = new .() ~ DeleteContainerAndItems!(_);
+		/// Math Expression records of graphs that were not built.
+		public List<MathRecord> MathRecords = new .() ~ DeleteContainerAndItems!(_);
 		/// Exact copies of every built graph (Graph.MethodKey identifies the method).
 		public List<Graph> Graphs = new .() ~ DeleteContainerAndItems!(_);
 	}
@@ -438,6 +441,11 @@ namespace VisualBeef.Document
 		/// BuildGraph turns a record back into nodes (and drops it); saving the layout writes
 		/// built graphs' orphans afresh and keeps these as they are.
 		public List<OrphanRecord> OrphanRecords = new .() ~ DeleteContainerAndItems!(_);
+		/// Math Expression nodes (`#math` lines of the layout file, docs/Math-Expression.md): the
+		/// code holds the plain expression, these turn it back into the node when a graph is
+		/// built. Built graphs write theirs afresh when the layout is saved; a graph that is
+		/// dropped (its text changed) leaves its records here.
+		public List<MathRecord> MathRecords = new .() ~ DeleteContainerAndItems!(_);
 		/// Saved positions dropped because they matched no node, and old positional entries
 		/// rewritten in the content-keyed form, since this document was loaded.
 		public int32 LayoutPruned;
@@ -520,6 +528,7 @@ namespace VisualBeef.Document
 			FilePath.Set(virtualPath);
 			ClearAndDeleteItems!(Orphans);
 			ClearAndDeleteItems!(OrphanRecords);
+			ClearAndDeleteItems!(MathRecords);
 			SetTextInternal(text);
 			Modified = false;
 			SavedText.Set(text);
@@ -693,7 +702,7 @@ namespace VisualBeef.Document
 					continue;
 				}
 				if (line.StartsWith("#") && !line.StartsWith("# ") && !line.StartsWith("#vblayout	") && !line.StartsWith("#orphan") && !line.StartsWith("#comment\t") &&
-					!line.StartsWith("#reroute\t") && !line.StartsWith("#bubble\t") && !line.StartsWith("#view\t") && !line.IsEmpty)
+					!line.StartsWith("#reroute\t") && !line.StartsWith("#bubble\t") && !line.StartsWith("#view\t") && !line.StartsWith("#math\t") && !line.IsEmpty)
 				{
 					var l = line;
 					l.TrimEnd();
@@ -703,6 +712,11 @@ namespace VisualBeef.Document
 				if (line.StartsWith("#orphan"))
 				{
 					LoadOrphanLine(line);
+					continue;
+				}
+				if (line.StartsWith("#math\t"))
+				{
+					LoadMathLine(line);
 					continue;
 				}
 				if (line.StartsWith("#comment\t") || line.StartsWith("#reroute\t") || line.StartsWith("#bubble\t") || line.StartsWith("#view\t"))
@@ -792,6 +806,105 @@ namespace VisualBeef.Document
 			}
 		}
 
+		/// Parses a `#math` line: methodKey, node key, chosen result type, expression (escaped).
+		void LoadMathLine(StringView line)
+		{
+			var l = line;
+			while (l.EndsWith('\r') || l.EndsWith('\n'))
+				l.RemoveFromEnd(1);
+			List<StringView> f = scope .();
+			for (let part in l.Split('\t'))
+				f.Add(part);
+			if (f.Count < 5 || f[1].IsEmpty || f[2].IsEmpty || f[4].IsEmpty)
+				return;
+			MathRecord r = new .();
+			r.MethodKey.Set(f[1]);
+			r.NodeKey.Set(f[2]);
+			LayoutText.Unescape(f[3], r.ResultType);
+			LayoutText.Unescape(f[4], r.Expression);
+			MathRecords.Add(r);
+		}
+
+		/// The `#math` lines: built graphs from their live nodes, the others from the records kept.
+		void AppendMathRecords(String content)
+		{
+			HashSet<String> built = scope .();
+			defer { for (let k in built) delete k; }
+			List<MathRecord> recs = scope .();
+			defer { ClearAndDeleteItems!(recs); }
+			for (let mg in Methods)
+			{
+				if (!mg.IsBuilt)
+					continue;
+				built.Add(new String(mg.Key));
+				KeyAssigner.Assign(mg.Graph);
+				MathExpression.Capture(mg.Graph, recs);
+			}
+			for (let r in MathRecords)
+			{
+				if (built.ContainsAlt(r.MethodKey))
+					continue;
+				// Records of a function that is gone go with it (unless nothing parsed: kept).
+				if (!Methods.IsEmpty && FindMethod(r.MethodKey) == null)
+					continue;
+				recs.Add(r.Clone());
+			}
+			for (let r in recs)
+			{
+				content.AppendF("#math\t{}\t{}\t", r.MethodKey, r.NodeKey);
+				LayoutText.Escape(r.ResultType, content);
+				content.Append('\t');
+				LayoutText.Escape(r.Expression, content);
+				content.Append('\n');
+			}
+		}
+
+		/// The kept records of a method replaced by what its graph holds now (a graph about to be
+		/// dropped).
+		void StoreMathRecords(Graph g, StringView methodKey)
+		{
+			for (int i = MathRecords.Count - 1; i >= 0; i--)
+			{
+				if (MathRecords[i].MethodKey == methodKey)
+				{
+					delete MathRecords[i];
+					MathRecords.RemoveAt(i);
+				}
+			}
+			KeyAssigner.Assign(g);
+			let count = MathRecords.Count;
+			MathExpression.Capture(g, MathRecords);
+			for (int i = count; i < MathRecords.Count; i++)
+				MathRecords[i].MethodKey.Set(methodKey);
+		}
+
+		/// Turns the plain expressions of `graph` back into Math Expression nodes from `records`
+		/// (keys assigned before, and again after when anything changed).
+		static void ApplyMathRecords(Graph graph, List<MathRecord> records)
+		{
+			bool any = false;
+			for (let r in records)
+				if (r.MethodKey == graph.MethodKey && MathExpression.Restore(graph, r))
+					any = true;
+			if (any)
+				KeyAssigner.Assign(graph);
+		}
+
+		/// `fresh` (just read from the code) with the Math Expression nodes `kept` has.
+		static void ApplyMathOf(Graph kept, Graph fresh)
+		{
+			List<MathRecord> recs = scope .();
+			defer { ClearAndDeleteItems!(recs); }
+			KeyAssigner.Assign(kept);
+			MathExpression.Capture(kept, recs);
+			if (recs.IsEmpty)
+				return;
+			KeyAssigner.Assign(fresh);
+			for (let r in recs)
+				r.MethodKey.Set(fresh.MethodKey);
+			ApplyMathRecords(fresh, recs);
+		}
+
 		OrphanRecord GetOrphanRecord(StringView methodKey, bool create)
 		{
 			for (let r in OrphanRecords)
@@ -841,6 +954,15 @@ namespace VisualBeef.Document
 				if (f.Count >= 9)
 					LayoutText.Unescape(f[8], r.Default);
 				GetOrphanRecord(f[1], true).Links.Add(r);
+			}
+			else if (f[0] == "#orphanmath" && f.Count >= 5)
+			{
+				MathRecord m = new .();
+				m.MethodKey.Set(f[1]);
+				m.NodeKey.Set(f[2]);
+				LayoutText.Unescape(f[3], m.ResultType);
+				LayoutText.Unescape(f[4], m.Expression);
+				GetOrphanRecord(f[1], true).Maths.Add(m);
 			}
 			else if (f[0] == "#orphandefault" && f.Count >= 5)
 			{
@@ -903,7 +1025,8 @@ namespace VisualBeef.Document
 			for (let line in content.Split('\n'))
 				if (!line.IsEmpty && !line.StartsWith('#'))
 					return true;
-				else if (line.StartsWith("#comment") || line.StartsWith("#reroute") || line.StartsWith("#bubble") || line.StartsWith("#view") || line.StartsWith("#orphan"))
+				else if (line.StartsWith("#comment") || line.StartsWith("#reroute") || line.StartsWith("#bubble") || line.StartsWith("#view") || line.StartsWith("#orphan") ||
+					line.StartsWith("#math"))
 					return true;
 			return false;
 		}
@@ -999,6 +1122,7 @@ namespace VisualBeef.Document
 				content.Append('\n');
 			}
 			AppendOrphanRecords(content);
+			AppendMathRecords(content);
 		}
 
 		/// Unconnected nodes of every method: built graphs are written from their live nodes,
@@ -1074,6 +1198,7 @@ namespace VisualBeef.Document
 			ClearAndDeleteItems!(BubblePins);
 			ClearAndDeleteItems!(Views);
 			ClearAndDeleteItems!(OrphanRecords);
+			ClearAndDeleteItems!(MathRecords);
 			ClearAndDeleteItems!(LayoutUnknown);
 			LayoutFileVersion = 0;
 		}
@@ -1157,6 +1282,8 @@ namespace VisualBeef.Document
 		{
 			let graph = GraphBuilder.Build(Unit, mg.Method, mg.Owner);
 			KeyAssigner.Assign(graph);
+			// Math Expression nodes: their code is the plain expression (the side file says which).
+			ApplyMathRecords(graph, MathRecords);
 			// Re-attach unconnected nodes kept from the previous version of this graph.
 			for (int i = Orphans.Count - 1; i >= 0; i--)
 			{
@@ -1407,6 +1534,7 @@ namespace VisualBeef.Document
 				if (k.Graph == null)
 					continue;
 				KeyAssigner.Assign(k.Graph);
+				StoreMathRecords(k.Graph, (rekeyValid && k.Index == rekeyIndex) ? (StringView)Methods[rekeyIndex].Key : (StringView)k.Key);
 				let set = OrphanSet.Capture(k.Graph);
 				if (set == null)
 					continue;
@@ -1449,6 +1577,8 @@ namespace VisualBeef.Document
 		{
 			let fresh = GraphBuilder.Build(Unit, mg.Method, mg.Owner);
 			defer delete fresh;
+			fresh.MethodKey.Set(mg.Key);
+			ApplyMathOf(g, fresh);
 			List<String> a = scope .();
 			List<String> b = scope .();
 			defer { ClearAndDeleteItems!(a); ClearAndDeleteItems!(b); }
@@ -1619,6 +1749,8 @@ namespace VisualBeef.Document
 			kept.AdoptLocals(fresh);
 			KeyAssigner.Assign(fresh);
 			KeyAssigner.Assign(kept);
+			fresh.MethodKey.Set(mg.Key);
+			ApplyMathOf(kept, fresh);
 
 			kept.MethodKey.Set(mg.Key);
 			Graph.CopyStr(ref kept.EndComments, fresh.EndComments);
@@ -1925,6 +2057,8 @@ namespace VisualBeef.Document
 				s.Orphans.Add(pending.Clone());
 			for (let rec in OrphanRecords)
 				s.OrphanRecords.Add(rec.Clone());
+			for (let rec in MathRecords)
+				s.MathRecords.Add(rec.Clone());
 			return s;
 		}
 
@@ -1959,6 +2093,8 @@ namespace VisualBeef.Document
 				Orphans.Add(o.Clone());
 			for (let rec in s.OrphanRecords)
 				OrphanRecords.Add(rec.Clone());
+			for (let rec in s.MathRecords)
+				MathRecords.Add(rec.Clone());
 			SetTextInternal(s.Text);
 			for (let g in s.Graphs)
 			{
@@ -2547,6 +2683,9 @@ namespace VisualBeef.Document
 				if (o.MethodKey == oldMethodKey)
 					o.MethodKey.Set(newMethodKey);
 			for (let rec in OrphanRecords)
+				if (rec.MethodKey == oldMethodKey)
+					rec.MethodKey.Set(newMethodKey);
+			for (let rec in MathRecords)
 				if (rec.MethodKey == oldMethodKey)
 					rec.MethodKey.Set(newMethodKey);
 		}
