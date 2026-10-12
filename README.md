@@ -115,52 +115,12 @@ Working: everything above; Debug and Release build with 0 warnings; all test sui
 
 Known limitations (true today):
 
-**Language coverage**
-
-* Shown as Code nodes or as text in pins, and round-tripped exactly: `scope` / `new` / `delete` / `defer` / `using`
-  forms that have no node yet, lambdas, local functions, tuples, `case .Ok(let v)` pattern tests, property accessors,
-  expression-bodied members (`=>`), `const` locals, `fallthrough` / `when` / ranges / payload patterns in a `switch`,
-  and string interpolation (edited as text).
-* `out let x` stays text in the argument pin; `x` has no pin of its own.
-* Calls on the current object have no Receiver pin; a catalog instance call with an empty Receiver is written as a call
-  on the current object without checking the enclosing type.
-* Static calls show the type name as text in a Receiver pin.
-* `#if` regions: both arms are read as live code; the indexer de-duplicates members.
-* Operators, delegates and `typealias` declarations appear as Raw members.
-* A stray extra `}` that closes a type early, and a type missing its closing `}` whose sibling starts at the same
-  indentation, are not detected as broken.
-
-**Types**
-
-* There is no compiler in the editor: unresolved types keep grey wildcard pins, and overloads are chosen by arity, then
-  argument types. Wire checks are the editor's own rules; the compiler is the judge after **Compile**.
-
-**Classes**
-
-* No parent class, interface list, modifiers or attributes when creating or editing a type; no Override dropdown;
-  function modifiers are read-only in Properties.
-
-**Editing**
-
-* Renames change the declaration only, not references.
-* Undo is per document: node moves, resizes, knots and comments are undoable (one step per drag), but asset rename and
-  delete across files are not. Each step is a whole-document snapshot.
-* Reopening shows the code's natural shape (a typed-in value may come back as a Get node and the reverse).
-* A comment inside an expression is lost when that expression is really changed.
-* Flow macros are recognised only by their exact shape; their state is per object.
-* A statement edited and shifted at the same time loses its saved position.
-* Moving an asset does not rewrite its namespace.
-
-**Shell, scale and platform**
-
-* Library and project indexing run on the UI thread: a large game SDK takes several seconds the first time.
-* Compile runs BeefBuild with the default (Debug) configuration; UMP mods need Release.
-* No crash handler, minidump, autosave journal or log file.
-* `VisualBeef_settings.txt` and `VisualBeef_layout.ini` are written to the current directory.
-* Linux is experimental: tests and the editor session pass under WSL2, but there is no debugger, crash report,
-  Recycle Bin or package there yet ([docs/Linux.md](docs/Linux.md)).
-* Per-monitor DPI changes were not tested on a second monitor; the operating system draws the title bar.
-* No installer.
+* Lambdas, local functions, `defer`, `scope` / `new` forms, tuples, property accessors and `=>`
+  methods are still shown as Code nodes holding the exact text.
+* Types are resolved without the Beef compiler, so some pins stay grey (connect to anything); renaming
+  does not update references.
+* Windows only in practice; settings and the dock layout files are written to the working directory.
+* No installer and no crash handler yet.
 
 Where it is going: a node-graph editor with nodes declared from Beef attributes, a viewer mode for
 projects that are not VisualBeef projects, a compiler-backed language service, a debugger on the graph, and
