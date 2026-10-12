@@ -55,7 +55,7 @@ development PC; numbers before -> after):
   50 ms, no project file written by an up-to-date compile, the indicator after a save) and `compileshots`
   (captures `ct-compiling`, `ct-done`, `ct-uptodate`, `ct-log`, `ct-buildmenu`).
 
-## 0.2.4-alpha: renaming a project (2026-10-12)
+## 0.2.5-alpha: renaming a project (2026-10-12)
 
 - The **Name** row of Project Settings is now a text field (it was read only: the owner could not change a
   project's name). Enter or leaving the field renames the project: `[Project] Name` in its `BeefProj.toml`, the
@@ -72,7 +72,7 @@ development PC; numbers before -> after):
   grew from 37 to 65 checks (the field's default, the commit, refusals, the dialog, dependents following a rename
   with the folder) and captures `ws-name-first`, `ws-name-field`, `ws-name-renamed`, `ws-name-refused`,
   `ws-rename-menu`, `ws-rename-project-dialog-first`, `ws-rename-project-dialog`, `ws-renamed-project`.
-## 0.2.4-alpha: variables dropped on pins, the drag ghost, a type picker in Add Variable (2026-10-12)
+## 0.2.5-alpha: variables dropped on pins, the drag ghost, a type picker in Add Variable (2026-10-12)
 - A variable dragged onto a pin becomes the node the pin needs, wired to it: a Get into an input, a Set fed
   by an output and put in the flow after the pin's node (before the first statement using a value node's
   output). Works for Outline > VARIABLES, LOCAL VARIABLES and the Node menu's variable rows, which can now be
