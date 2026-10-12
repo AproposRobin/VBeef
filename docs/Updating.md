@@ -16,20 +16,35 @@ VisualBeef looks for new versions on its public release page,
    `release.json`, from the newest release. Nothing else is sent: no account, no identifier, only the VisualBeef
    version as the user agent.
 2. When that release is newer than yours, a line appears under the toolbar:
-   **VisualBeef 0.2.0 is available.** with **Update**, **Release notes** and **Later**.
-   **Later** hides the line until the next check; **Release notes** opens the release page.
+   **VisualBeef 0.2.0-alpha is available.** with **Update**, **Release notes** and **Later**.
+   **Later** hides the line for this session only: the next start shows it again. **Release notes** opens the release page.
 3. **Update** downloads the package for your system into VisualBeef's own folder (see
    [Where the files go](#where-the-files-go)). The line shows the progress; **Cancel** stops it.
-4. When the download is checked (below), the line says **VisualBeef 0.2.0 is downloaded and verified** with
+4. When the download is checked (below), the line says **VisualBeef 0.2.0-alpha is downloaded and verified** with
    **Restart to finish**.
 5. **Restart to finish** closes VisualBeef, installs the new version and starts it again.
    Unsaved work is never lost: with unsaved files the button refuses with **Save your work first**, and while a compile
    or a debugging session runs it asks you to wait for it.
 
-The next start shows **VisualBeef was updated to 0.2.0.** in the notifications.
+The next start shows **VisualBeef was updated to 0.2.0-alpha.** in the notifications.
 
 **Help > Check for Updates...** checks at once and tells you the result (up to date, a new version, or why it could not
 check).
+
+## Where to trigger an update
+
+While a newer version is known, the update can be started or finished from more than the line under the toolbar:
+
+* **Editor Preferences > Updates** (Edit menu): **VisualBeef 0.2.0-alpha is available.** with **Update now** and
+  **Release notes**. When the package is downloaded and verified the same place shows **Restart to finish**. When
+  VisualBeef is up to date it shows only the status of the last check.
+* **Help > Update to 0.2.0-alpha...** starts the download when the version is available. Once it is downloading or
+  downloaded it opens Editor Preferences > Updates, where the progress and **Restart to finish** are. With no version
+  known the entry reads **Check for Updates...**.
+* **Status bar** (bottom right): after **Later** hid the line, **Update available** (or **Update ready to finish**,
+  **Downloading update**) stays there. A click opens Editor Preferences > Updates.
+
+The checks, the verification and the restart rules are the same wherever you start the update.
 
 ## What is checked before anything is installed
 

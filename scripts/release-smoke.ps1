@@ -281,7 +281,8 @@ try {
     Say "downloading $Tag from $Repo"
     $dl = Join-Path $Work "download"; New-Item -ItemType Directory -Force $dl | Out-Null
     if (-not (Test-Path $Gh)) { throw "gh not found at $Gh" }
-    & $Gh release download $Tag --repo $Repo --dir $dl --pattern "release.json" 2>$null | Out-Null
+    # A draft (not signed yet) has no release.json: gh then exits non-zero and writes to stderr, which must not stop the run.
+    try { cmd /c "`"$Gh`" release download $Tag --repo $Repo --dir `"$dl`" --pattern release.json >nul 2>nul" | Out-Null } catch {}
     $zipName = $null
     $rj = Join-Path $dl "release.json"
     if (Test-Path $rj) {

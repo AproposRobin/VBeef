@@ -1941,6 +1941,11 @@ namespace VisualBeef.Editor
 				}
 				Gui.EndMenu();
 			}
+			if (mSelfTestHelpMenu) // captures: the Help menu open
+			{
+				mSelfTestHelpMenu = false;
+				Gui.OpenPopup("Help");
+			}
 			if (Gui.BeginMenu("Help"))
 			{
 				Gui.TextDisabled("Graph");
@@ -1958,10 +1963,22 @@ namespace VisualBeef.Editor
 				Gui.Text("Ctrl+Space: Project Drawer.   docs/Editor-UI.md lists every shortcut.");
 				Gui.Separator();
 				bool updatesBusy = mUpdates == null || mUpdates.Busy;
-				if (IconItem(Icon.ArrowDownToLine, "Check for Updates...", "", false, !updatesBusy))
-					CheckForUpdatesNow();
+				// A known new version reads "Update to X..." and runs the update flow; otherwise a check.
+				bool offered = UpdateIsOffered;
+				String updateLabel = scope .();
+				if (offered)
+					updateLabel.AppendF("Update to {}...", mUpdateView.LatestVersion);
+				else
+					updateLabel.Set("Check for Updates...");
+				if (IconItem(Icon.ArrowDownToLine, updateLabel, "", false, offered || !updatesBusy))
+				{
+					if (offered)
+						UpdateFromMenu();
+					else
+						CheckForUpdatesNow();
+				}
 				if (Gui.igIsItemHovered(0))
-					Gui.Tooltip("Look for a new VisualBeef release now (Editor Preferences > Updates has the settings)");
+					Gui.Tooltip(offered ? "Download and install the new VisualBeef release (Editor Preferences > Updates shows the progress)" : "Look for a new VisualBeef release now (Editor Preferences > Updates has the settings)");
 				Gui.Separator();
 				Gui.MenuItem("Show ImGui Demo", "", mShowDemo);
 				if (Gui.igIsItemClicked(0))

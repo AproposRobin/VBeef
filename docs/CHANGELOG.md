@@ -9,6 +9,10 @@ order: 25
 
 Newest first. Dates are commit dates; commit ids refer to the development history before the public repository was created.
 
+## 0.2.2-alpha
+
+- Updates: an Install button on Editor Preferences > Updates, the Help menu says "Update to X..." when a version is available, a status bar item opens the Updates page, and "Later" hides the notice for the current session only.
+
 ## 0.2.1-alpha
 
 - Math Expression node: type a formula, get one input pin per name and a typed result; Initial Value keeps the Expression choice and validates the text.

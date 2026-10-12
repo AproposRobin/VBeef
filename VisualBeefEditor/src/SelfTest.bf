@@ -245,6 +245,12 @@ namespace VisualBeef.Editor
 					SelfTestUpdateStage(test.Substring(13));
 				else if (test == "update-check") // a real check, as Help > Check for Updates
 					CheckForUpdatesNow();
+				else if (test == "update-later") // Later on the notice line: the status bar item shows instead (captures)
+					RunUpdateAction("Later");
+				else if (test == "helpmenu") // the Help menu open (captures of its update entry)
+					mSelfTestHelpMenu = true;
+				else if (test == "update-ui-check") // after update-later (and an update:available or :ready state): the status item is offered
+					SelfTestCheck(UpdateIsOffered && mUpdateHidden, scope $"update: Later hides the line and keeps the status item ({mUpdateView.State}, hidden {mUpdateHidden})");
 				else
 					SelfTestCheck(false, scope $"unknown check {test}");
 			}

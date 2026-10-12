@@ -9,7 +9,7 @@ namespace VisualBeef.Document
 	/// (docs/UMP-Integration.md). Bump `UmpContract` when the command line or the project files change shape.
 	static class VisualBeefInfo
 	{
-		public const String Version = "0.2.1";
+		public const String Version = "0.2.2";
 		/// Release channel of this build ("alpha"); shown by --version, the window title and VERSION.txt.
 		public const String Channel = "alpha";
 		public const int UmpContract = 1;

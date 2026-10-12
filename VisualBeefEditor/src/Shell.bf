@@ -603,7 +603,11 @@ namespace VisualBeef.Editor
 				float w0 = locked ? (Gui.CalcTextSize(lockText).x + fs * 1.6f + 24 * Look.Scale) : 0;
 				float w1 = Gui.CalcTextSize(compileText).x + fs * 1.6f;
 				float w2 = Gui.CalcTextSize(saveText).x + fs * 1.6f;
-				float total = w0 + w1 + w2 + 24 * Look.Scale;
+				// Update item (only while the notice line is hidden by Later): the far right, after the save state.
+				String updLabel = scope .();
+				UpdateStatusLabel(updLabel);
+				float updW = updLabel.IsEmpty ? 0 : Gui.CalcTextSize(updLabel).x + Gui.igGetStyle().FramePadding.x * 2 + 24 * Look.Scale;
+				float total = w0 + w1 + w2 + 24 * Look.Scale + updW;
 				// The latest status text, cut with "..." where the right side starts (a long path
 				// must not run under the compile state); the whole text is the tooltip.
 				if (!mStatus.IsEmpty && Gui.igGetTime() - mStatusTime < 8)
@@ -636,6 +640,14 @@ namespace VisualBeef.Editor
 				uint32 saveCol = (modified > 0) ? Look.Warning : Look.Foreground;
 				Gui.DrawText(dl, .(p.x, ty), saveCol, (modified > 0) ? Icon.Circle : Icon.Save);
 				Gui.DrawText(dl, .(p.x + fs * 1.4f, ty), saveCol, saveText);
+				if (!updLabel.IsEmpty)
+				{
+					Gui.igSetCursorPos(.(Gui.igGetWindowWidth() - 8 * Look.Scale - (updW - 24 * Look.Scale), (mStatusH - Gui.igGetFrameHeight()) * 0.5f));
+					if (Gui.Button(updLabel))
+						OpenUpdatePrefs();
+					if (Gui.igIsItemHovered(0))
+						Gui.Tooltip("Open Editor Preferences > Updates (install the update there)");
+				}
 				Gui.igDummy(.(total, fs));
 			}
 			Gui.End();

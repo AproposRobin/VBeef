@@ -44,8 +44,12 @@ namespace VisualBeef.Editor
 		UpdateStatus mUpdateView = new .() ~ delete _;
 		int32 mUpdateSerialSeen = -1;
 		double mUpdateNextAuto = -1;
-		/// "Later" hides the notice for this session (until another check finds something).
+		/// "Later" hides the notice line for this session only: the next start shows it again. A newer version found
+		/// later in the session shows it again too (mUpdateHiddenVersion: the version Later was pressed for).
 		bool mUpdateHidden;
+		String mUpdateHiddenVersion = new .() ~ delete _;
+		/// Self tests only: the Help menu is opened at the next frame (captures).
+		bool mSelfTestHelpMenu;
 		/// The reason Restart was refused (shown in the notice line), cleared once it no longer applies.
 		String mUpdateBlocked = new .() ~ delete _;
 		/// Unsaved files when Restart was refused for them (0: refused for another reason); the reason clears once they are saved.
@@ -126,8 +130,6 @@ namespace VisualBeef.Editor
 			{
 				mUpdateSerialSeen = mUpdateView.Serial;
 				Desktop.Wake();
-				if (mUpdateView.State == .Available || mUpdateView.State == .Ready)
-					mUpdateHidden = false;
 				// The answer to a check the user asked for, when there is nothing to install: a toast.
 				if (mUpdateView.Manual && !mUpdateView.Message.IsEmpty)
 				{
@@ -140,6 +142,9 @@ namespace VisualBeef.Editor
 					}
 				}
 			}
+			// Later hid the line for one version: a different newer version shows it again.
+			if (mUpdateHidden && (mUpdateView.State == .Available || mUpdateView.State == .Ready) && mUpdateView.LatestVersion != mUpdateHiddenVersion)
+				mUpdateHidden = false;
 			if (!mUpdateBlocked.IsEmpty && (mUpdateView.State != .Ready || (mUpdateBlockedUnsaved > 0 && ModifiedCount == 0)))
 				mUpdateBlocked.Clear();
 		}
@@ -165,6 +170,70 @@ namespace VisualBeef.Editor
 			}
 			SaveSettings();
 			QuitNow = true;
+		}
+
+		/// One button of the update flow, from the notice line, Editor Preferences > Updates, or Help.
+		void RunUpdateAction(StringView action)
+		{
+			let s = mUpdateView;
+			switch (action)
+			{
+			case "Update":
+				if (!mUpdates.StartDownload())
+					Notify.Warn("The download could not be started.");
+			case "Release notes": OpenUrl(s.NotesUrl);
+			case "Later":
+				mUpdateHidden = true;
+				mUpdateHiddenVersion.Set(s.LatestVersion);
+			case "Restart to finish": RestartToUpdate();
+			case "Cancel": mUpdates.Cancel();
+			case "Dismiss":
+				mUpdates.Dismiss();
+				mUpdateHidden = true;
+			default:
+			}
+		}
+
+		bool UpdateIsOffered
+		{
+			get
+			{
+				if (mUpdates == null || mUpdateView.LatestVersion.IsEmpty)
+					return false;
+				let st = mUpdateView.State;
+				return st == .Available || st == .Downloading || st == .Verifying || st == .Ready;
+			}
+		}
+
+		/// Opens Editor Preferences on Updates (its category index).
+		void OpenUpdatePrefs()
+		{
+			OpenPreferences();
+			mPrefsCategory = 5;
+		}
+
+		/// Help > "Update to X..." (shown while a version is known): starts the download when it is available, and
+		/// otherwise shows the progress and Restart to finish in Editor Preferences > Updates.
+		void UpdateFromMenu()
+		{
+			mUpdateHidden = false;
+			if (mUpdateView.State == .Available)
+				RunUpdateAction("Update");
+			else
+				OpenUpdatePrefs();
+		}
+
+		/// The status bar item shown while the notice line is hidden and an update is waiting; "" when none.
+		void UpdateStatusLabel(String outLabel)
+		{
+			if (!UpdateIsOffered || !mUpdateHidden)
+				return;
+			switch (mUpdateView.State)
+			{
+			case .Available: outLabel.AppendF("{}  Update available", Icon.ArrowDownToLine);
+			case .Ready: outLabel.AppendF("{}  Update ready to finish", Icon.ArrowDownToLine);
+			default: outLabel.AppendF("{}  Downloading update", Icon.ArrowDownToLine);
+			}
 		}
 
 		static void OpenUrl(StringView url)
@@ -342,22 +411,7 @@ namespace VisualBeef.Editor
 						}
 					}
 					if (clicked)
-					{
-						switch (b)
-						{
-						case "Update":
-							if (!mUpdates.StartDownload())
-								Notify.Warn("The download could not be started.");
-						case "Release notes": OpenUrl(s.NotesUrl);
-						case "Later": mUpdateHidden = true;
-						case "Restart to finish": RestartToUpdate();
-						case "Cancel": mUpdates.Cancel();
-						case "Dismiss":
-							mUpdates.Dismiss();
-							mUpdateHidden = true;
-						default:
-						}
-					}
+						RunUpdateAction(b);
 					Gui.SameLine(0, spacing);
 				}
 				Gui.igDummy(.(1, 1));
@@ -400,9 +454,64 @@ namespace VisualBeef.Editor
 			{
 			case .Idle: state.Set(why.IsEmpty ? "Not checked yet" : why);
 			case .Checking: state.Set("Checking...");
-			default: state.Set(s.Message.IsEmpty ? "Not checked yet" : s.Message);
+			default:
+				if (!s.Message.IsEmpty)
+					state.Set(s.Message);
+				else if (!s.LatestVersion.IsEmpty)
+					state.AppendF("VisualBeef {} is known from the last check.", s.LatestVersion);
+				else
+					state.Set("Not checked yet");
 			}
 			PropertyGrid.WrappedValue(state);
+			if (UpdateIsOffered)
+			{
+				// The same flow as the notice line: Update now, then Restart to finish once it is downloaded and verified.
+				String offer = scope .();
+				switch (s.State)
+				{
+				case .Available: offer.Set("Download it, then restart to finish.");
+				case .Downloading:
+					if (s.Total > 0)
+						offer.AppendF("Downloading: {}% ({} / {} MB)", (int)(Math.Clamp((float)s.Received / (float)s.Total, 0, 1) * 100), s.Received / (1024 * 1024), (s.Total + 1024 * 1024 - 1) / (1024 * 1024));
+					else
+						offer.Set("Downloading...");
+				case .Verifying: offer.Set("Checking the download (SHA-256 and signature)...");
+				default: offer.Set("Restart to finish closes VisualBeef, installs the new version and starts it again.");
+				}
+				PropertyGrid.Row("Install", "The newest version the last check found");
+				PropertyGrid.WrappedValue(offer);
+				PropertyGrid.WideRow();
+				if (!mUpdateBlocked.IsEmpty && s.State == .Ready)
+				{
+					Gui.TextColored(Look.Warning, mUpdateBlocked);
+				}
+				switch (s.State)
+				{
+				case .Available:
+					if (Gui.Button("Update now##updprefsnow"))
+						RunUpdateAction("Update");
+					Gui.SameLine();
+					if (Gui.Button("Release notes##updprefsnotes"))
+						RunUpdateAction("Release notes");
+				case .Downloading:
+					if (Gui.Button("Cancel##updprefscancel"))
+						RunUpdateAction("Cancel");
+				case .Ready:
+					Gui.igPushStyleColor_U32(Col.Button, Look.Primary);
+					Gui.igPushStyleColor_U32(Col.ButtonHovered, Look.PrimaryHover);
+					Gui.igPushStyleColor_U32(Col.ButtonActive, Look.PrimaryPress);
+					bool restart = Gui.Button("Restart to finish##updprefsrestart");
+					Gui.igPopStyleColor(3);
+					if (Gui.igIsItemHovered(0))
+						Gui.Tooltip("Close VisualBeef, install the new version and start it again (unsaved work must be saved first)");
+					if (restart)
+						RunUpdateAction("Restart to finish");
+					Gui.SameLine();
+					if (Gui.Button("Release notes##updprefsnotes"))
+						RunUpdateAction("Release notes");
+				default:
+				}
+			}
 			PropertyGrid.Row("Releases", "Where new versions are published");
 			PropertyGrid.Value(UpdateService.DefaultRepository);
 			PropertyGrid.WideRow();
